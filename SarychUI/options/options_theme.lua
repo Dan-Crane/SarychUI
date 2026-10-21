@@ -17,6 +17,8 @@ T.textures = {
 -- Alpha < 1 keeps the cooltip grain while letting the game world show through.
 T.colors = {
 	rootBg     = { 0.37, 0.37, 0.37, 0.68 },
+	-- Extra dialogs (import/export/remap/etc): denser than main options shell.
+	dialogBg   = { 0.37, 0.37, 0.37, 0.94 },
 	headerBg   = { 0.28, 0.28, 0.28, 1 },
 	footerBg   = { 0.28, 0.28, 0.28, 0.55 },
 	navBg      = { 0.30, 0.30, 0.30, 0.65 },
@@ -24,6 +26,8 @@ T.colors = {
 	navActive  = { 0.48, 0.42, 0.28, 0.85 },
 	contentBg  = { 0.34, 0.34, 0.34, 0.60 },
 	panelBg    = { 0.32, 0.32, 0.32, 0.55 },
+	-- Floating select lists / nested dialog panels.
+	dropdownBg = { 0.26, 0.26, 0.26, 0.96 },
 	tabBg      = { 0.30, 0.30, 0.30, 0.70 },
 	tabActive  = { 0.46, 0.40, 0.26, 0.80 },
 	border     = { 0.20, 0.20, 0.20, 1 },
@@ -33,9 +37,9 @@ T.colors = {
 	footerCredit = { 0.42, 0.42, 0.45, 0.50 },
 	title      = { 0.95, 0.82, 0.20, 1 },
 	accent     = { 0.95, 0.78, 0.15, 1 },
-	buttonBg   = { 0.28, 0.28, 0.28, 0.75 },
-	buttonHover= { 0.42, 0.42, 0.42, 0.88 },
-	inputBg    = { 0.22, 0.22, 0.22, 0.78 },
+	buttonBg   = { 0.28, 0.28, 0.28, 0.92 },
+	buttonHover= { 0.42, 0.42, 0.42, 0.96 },
+	inputBg    = { 0.22, 0.22, 0.22, 0.94 },
 	disabled   = { 0.45, 0.45, 0.45, 1 },
 	checkOn    = { 0.95, 0.82, 0.20, 1 },
 	scrollTrack= { 0.24, 0.24, 0.24, 0.65 },
@@ -43,10 +47,10 @@ T.colors = {
 	scrollThumbHover = { 0.52, 0.48, 0.32, 0.90 },
 }
 
--- Details-like density (~897x592 shell, compact rows).
+-- Compact rows with enough height for the full left navigation list.
 T.sizes = {
 	windowW = 900,
-	windowH = 600,
+	windowH = 610,
 	navW = 200,
 	headerH = 36,
 	footerH = 28,

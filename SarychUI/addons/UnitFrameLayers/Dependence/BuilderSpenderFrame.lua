@@ -1,3 +1,5 @@
+local _, Private = ...
+
 BuilderSpender = {};
 
 function BuilderSpender:OnLoad()
@@ -6,7 +8,7 @@ end
 
 function BuilderSpender:Initialize(textureInfo, unit, powerType)
 	if (textureInfo.atlas) then
-		self.BarTexture:SetAtlas(textureInfo.atlas, false);
+		Private.WidgetAPI.TextureBase.SetAtlas(self.BarTexture, textureInfo.atlas, false);
 	else
 		self.BarTexture:SetVertexColor(textureInfo.r, textureInfo.g, textureInfo.b);
 	end

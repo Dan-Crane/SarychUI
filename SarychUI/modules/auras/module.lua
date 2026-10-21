@@ -632,11 +632,307 @@ end
 --------------------------------------------------------------------
 -- Player buffs per row (RougeUI BuffsRow)
 --------------------------------------------------------------------
+local function SeparatePlayerAuraPositioning()
+	return GetSetting("manageBuffs", 0) == 1
+		and GetSetting("playerAuraPositionMode", "together") == "separate"
+end
+
+local function NormalizePlayerAuraGrowth(value)
+	return value == "left_to_right" and "left_to_right" or "right_to_left"
+end
+
+local function PlayerBuffGrowthDirection()
+	if GetSetting("manageBuffs", 0) ~= 1 then
+		return "right_to_left"
+	end
+	if SeparatePlayerAuraPositioning() then
+		return NormalizePlayerAuraGrowth(GetSetting("playerBuffGrowthDirection", "right_to_left"))
+	end
+	return NormalizePlayerAuraGrowth(GetSetting("playerAuraGrowthDirection", "right_to_left"))
+end
+
+local function PlayerDebuffGrowthDirection()
+	if GetSetting("manageBuffs", 0) ~= 1 then
+		return "right_to_left"
+	end
+	if SeparatePlayerAuraPositioning() then
+		return NormalizePlayerAuraGrowth(GetSetting("playerDebuffGrowthDirection", "right_to_left"))
+	end
+	return NormalizePlayerAuraGrowth(GetSetting("playerAuraGrowthDirection", "right_to_left"))
+end
+
+local function FrameIsShown(frame)
+	return frame and (not frame.IsShown or frame:IsShown())
+end
+
+local function PlayerAuraButtonsPerRow()
+	if SettingOn("changePlayerBuffRow") then
+		local count = tonumber(GetSetting("playerBuffsPerRow", 8)) or 8
+		if count > 0 then
+			return count
+		end
+	end
+	return BUFFS_PER_ROW or 8
+end
+
+local function PlayerBuffGrowthOrigin()
+	return ConsolidatedBuffs or TemporaryEnchantFrame or BuffFrame
+end
+
+local function ConsolidatedBuffsTakesSlot()
+	if not FrameIsShown(ConsolidatedBuffs) then
+		return false
+	end
+	if BuffFrame and type(BuffFrame.numConsolidated) == "number" then
+		return BuffFrame.numConsolidated > 0
+	end
+	if ShouldShowConsolidatedBuffFrame then
+		return not not ShouldShowConsolidatedBuffFrame()
+	end
+	return true
+end
+
+local function IsCollapsedPlayerBuff(buff)
+	if not buff then
+		return true
+	end
+	if buff.consolidated then
+		return true
+	end
+	local parent = buff.GetParent and buff:GetParent()
+	if not parent then
+		return false
+	end
+	if ConsolidatedBuffsContainer and parent == ConsolidatedBuffsContainer then
+		return true
+	end
+	if ConsolidatedBuffsTooltip and parent == ConsolidatedBuffsTooltip then
+		return true
+	end
+	return false
+end
+
+local function CollectVisiblePlayerBuffs(includeEnchants)
+	local frames = {}
+	if includeEnchants then
+		if FrameIsShown(TempEnchant1) then
+			frames[#frames + 1] = TempEnchant1
+		end
+		if FrameIsShown(TempEnchant2) then
+			frames[#frames + 1] = TempEnchant2
+		end
+	end
+	local maxBuffs = BUFF_MAX_DISPLAY or 32
+	for index = 1, maxBuffs do
+		local buff = _G["BuffButton" .. index]
+		if FrameIsShown(buff) and not IsCollapsedPlayerBuff(buff) then
+			frames[#frames + 1] = buff
+		end
+	end
+	return frames
+end
+
+local function CollectLeftToRightPlayerBuffs()
+	local frames = {}
+	if ConsolidatedBuffsTakesSlot() then
+		frames[#frames + 1] = ConsolidatedBuffs
+	end
+	local visible = CollectVisiblePlayerBuffs(true)
+	for index = 1, #visible do
+		frames[#frames + 1] = visible[index]
+	end
+	return frames
+end
+
+local function VisiblePlayerBuffSlotCount(includeEnchants)
+	return #CollectLeftToRightPlayerBuffs()
+end
+
+local function RestoreTemporaryEnchantGrowth()
+	if TempEnchant1 and TemporaryEnchantFrame then
+		TempEnchant1:ClearAllPoints()
+		TempEnchant1:SetPoint("TOPRIGHT", TemporaryEnchantFrame, "TOPRIGHT", 0, 0)
+	end
+	if TempEnchant2 and TempEnchant1 then
+		TempEnchant2:ClearAllPoints()
+		TempEnchant2:SetPoint("RIGHT", TempEnchant1, "LEFT", -5, 0)
+	end
+end
+
+local playerDebuffAnchor
+
+local function EnsurePlayerDebuffAnchor()
+	if playerDebuffAnchor then
+		return playerDebuffAnchor
+	end
+
+	playerDebuffAnchor = CreateFrame("Frame", "SarychUIPlayerDebuffAnchor", UIParent)
+	playerDebuffAnchor:SetWidth(50)
+	playerDebuffAnchor:SetHeight(50)
+	playerDebuffAnchor:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -205, -105)
+	if BuffFrame and BuffFrame.GetFrameStrata then
+		playerDebuffAnchor:SetFrameStrata(BuffFrame:GetFrameStrata())
+	end
+	return playerDebuffAnchor
+end
+
+local function PlayerDebuffsPerRow()
+	return PlayerAuraButtonsPerRow()
+end
+
+function module:LayoutPlayerBuffsLeftToRight()
+	if AddonLoaded("SimpleAuraFilter") or PlayerBuffGrowthDirection() ~= "left_to_right" then
+		return
+	end
+
+	local origin = PlayerBuffGrowthOrigin()
+	if not origin then return end
+	local frames = CollectLeftToRightPlayerBuffs()
+	local perRow = PlayerAuraButtonsPerRow()
+	local rowSpacing = BUFF_ROW_SPACING or 15
+
+	for index, frame in ipairs(frames) do
+		-- The consolidate icon is also the mover; do not rip it off its saved point.
+		if frame ~= origin then
+			frame:ClearAllPoints()
+			if index == 1 then
+				frame:SetPoint("TOPLEFT", origin, "TOPRIGHT", 0, 0)
+			elseif ((index - 1) % perRow) == 0 then
+				local above = frames[index - perRow]
+				if above then
+					frame:SetPoint("TOPLEFT", above, "BOTTOMLEFT", 0, -rowSpacing)
+				end
+			else
+				frame:SetPoint("LEFT", frames[index - 1], "RIGHT", 5, 0)
+			end
+		end
+	end
+end
+
+function module:LayoutCombinedPlayerDebuffsLeftToRight()
+	if AddonLoaded("SimpleAuraFilter") or SeparatePlayerAuraPositioning()
+		or PlayerDebuffGrowthDirection() ~= "left_to_right" then
+		return
+	end
+
+	local origin = PlayerBuffGrowthOrigin()
+	if not origin then return end
+	local perRow = PlayerAuraButtonsPerRow()
+	local rowSpacing = BUFF_ROW_SPACING or 15
+	local buffCount = VisiblePlayerBuffSlotCount(true)
+	local buffRows = math.max(1, mceil(buffCount / perRow))
+	local startY = -buffRows * (30 + rowSpacing)
+	local visibleDebuffs = {}
+	local maxDebuffs = DEBUFF_MAX_DISPLAY or 16
+
+	for index = 1, maxDebuffs do
+		local debuff = _G["DebuffButton" .. index]
+		if FrameIsShown(debuff) then
+			visibleDebuffs[#visibleDebuffs + 1] = debuff
+		end
+	end
+
+	for index, debuff in ipairs(visibleDebuffs) do
+		debuff:ClearAllPoints()
+		if index == 1 then
+			debuff:SetPoint("TOPLEFT", origin, "TOPRIGHT", 0, startY)
+		elseif ((index - 1) % perRow) == 0 then
+			local above = visibleDebuffs[index - perRow]
+			debuff:SetPoint("TOPLEFT", above, "BOTTOMLEFT", 0, -rowSpacing)
+		else
+			debuff:SetPoint("LEFT", visibleDebuffs[index - 1], "RIGHT", 6, 0)
+		end
+	end
+end
+
+function module:LayoutSeparatePlayerDebuffs()
+	if AddonLoaded("SimpleAuraFilter") or not SeparatePlayerAuraPositioning() or not BuffFrame then
+		return
+	end
+
+	local anchor = EnsurePlayerDebuffAnchor()
+	local perRow = PlayerDebuffsPerRow()
+	local rowSpacing = BUFF_ROW_SPACING or 15
+	local maxDebuffs = DEBUFF_MAX_DISPLAY or 16
+	local leftToRight = PlayerDebuffGrowthDirection() == "left_to_right"
+
+	for index = 1, maxDebuffs do
+		local debuff = _G["DebuffButton" .. index]
+		if debuff then
+			if debuff:GetParent() ~= anchor then
+				debuff:SetParent(anchor)
+			end
+			debuff:SetScale(1)
+			debuff:ClearAllPoints()
+			if index == 1 then
+				if leftToRight then
+					debuff:SetPoint("TOPLEFT", anchor, "TOPRIGHT", 0, 0)
+				else
+					debuff:SetPoint("TOPRIGHT", anchor, "TOPRIGHT", 0, 0)
+				end
+			elseif (index % perRow) == 1 then
+				local above = _G["DebuffButton" .. (index - perRow)]
+				if above then
+					if leftToRight then
+						debuff:SetPoint("TOPLEFT", above, "BOTTOMLEFT", 0, -rowSpacing)
+					else
+						debuff:SetPoint("TOPRIGHT", above, "BOTTOMRIGHT", 0, -rowSpacing)
+					end
+				end
+			else
+				local previous = _G["DebuffButton" .. (index - 1)]
+				if previous then
+					if leftToRight then
+						debuff:SetPoint("LEFT", previous, "RIGHT", 5, 0)
+					else
+						debuff:SetPoint("RIGHT", previous, "LEFT", -5, 0)
+					end
+				end
+			end
+		end
+	end
+end
+
+function module:RestoreCombinedPlayerDebuffs(refresh)
+	if not BuffFrame then return end
+	local maxDebuffs = DEBUFF_MAX_DISPLAY or 16
+	local restored = false
+
+	for index = 1, maxDebuffs do
+		local debuff = _G["DebuffButton" .. index]
+		if debuff and playerDebuffAnchor and debuff:GetParent() == playerDebuffAnchor then
+			debuff:SetParent(BuffFrame)
+			debuff:SetScale(1)
+			debuff:ClearAllPoints()
+			restored = true
+		end
+	end
+
+	if refresh and restored then
+		if BuffFrame_Update then
+			pcall(BuffFrame_Update)
+		elseif DebuffButton_UpdateAnchors then
+			for index = 1, maxDebuffs do
+				if _G["DebuffButton" .. index] then
+					pcall(DebuffButton_UpdateAnchors, "DebuffButton", index)
+				end
+			end
+		end
+	end
+end
+
 function module:OnBuffFrameUpdateAllBuffAnchors()
-	if not SettingOn("changePlayerBuffRow") or not BuffFrame then
+	if not BuffFrame then
 		return
 	end
 	if AddonLoaded("SimpleAuraFilter") then
+		return
+	end
+	if PlayerBuffGrowthDirection() == "left_to_right" then
+		self:LayoutPlayerBuffsLeftToRight()
+		return
+	end
+	if not SettingOn("changePlayerBuffRow") then
 		return
 	end
 
@@ -684,11 +980,39 @@ function module:OnBuffFrameUpdateAllBuffAnchors()
 	end
 end
 
-function module:OnDebuffButtonUpdateAnchors(buttonName, index)
-	if not SettingOn("changePlayerBuffRow") or not BuffFrame then
+function module:OnBuffButtonUpdateAnchors()
+	if PlayerBuffGrowthDirection() == "left_to_right" then
+		self:LayoutPlayerBuffsLeftToRight()
+	end
+end
+
+function module:OnBuffFrameEnchantUpdated()
+	if self._playerBuffGrowthDirection ~= "left_to_right" then
+		self._playerEnchantGrowthMask = nil
 		return
 	end
+	local mask = (FrameIsShown(TempEnchant1) and 1 or 0) + (FrameIsShown(TempEnchant2) and 2 or 0)
+	if self._playerEnchantGrowthMask == mask then return end
+	self._playerEnchantGrowthMask = mask
+	self:LayoutPlayerBuffsLeftToRight()
+	if not self._playerAurasSeparate then
+		self:LayoutCombinedPlayerDebuffsLeftToRight()
+	end
+end
+
+function module:OnDebuffButtonUpdateAnchors(buttonName, index)
 	if AddonLoaded("SimpleAuraFilter") then
+		return
+	end
+	if SeparatePlayerAuraPositioning() then
+		self:LayoutSeparatePlayerDebuffs()
+		return
+	end
+	if PlayerDebuffGrowthDirection() == "left_to_right" then
+		self:LayoutCombinedPlayerDebuffsLeftToRight()
+		return
+	end
+	if not SettingOn("changePlayerBuffRow") or not BuffFrame then
 		return
 	end
 	if not buttonName or not index then
@@ -748,8 +1072,14 @@ function module:UpdateLayoutHooks()
 		if BuffFrame_UpdateAllBuffAnchors and not self:IsHooked("BuffFrame_UpdateAllBuffAnchors") then
 			self:SecureHook("BuffFrame_UpdateAllBuffAnchors", "OnBuffFrameUpdateAllBuffAnchors")
 		end
+		if BuffButton_UpdateAnchors and not self:IsHooked("BuffButton_UpdateAnchors") then
+			self:SecureHook("BuffButton_UpdateAnchors", "OnBuffButtonUpdateAnchors")
+		end
 		if DebuffButton_UpdateAnchors and not self:IsHooked("DebuffButton_UpdateAnchors") then
 			self:SecureHook("DebuffButton_UpdateAnchors", "OnDebuffButtonUpdateAnchors")
+		end
+		if BuffFrame_Enchant_OnUpdate and not self:IsHooked("BuffFrame_Enchant_OnUpdate") then
+			self:SecureHook("BuffFrame_Enchant_OnUpdate", "OnBuffFrameEnchantUpdated")
 		end
 	end
 end
@@ -771,8 +1101,21 @@ function module:RefreshAuraLayout()
 			self:LayoutFrameAuras(FocusFrame)
 		end
 	end
-	if BuffFrame_UpdateAllBuffAnchors then
+	if PlayerBuffGrowthDirection() == "right_to_left" then
+		RestoreTemporaryEnchantGrowth()
+	end
+	if BuffFrame_Update then
+		pcall(BuffFrame_Update)
+	elseif BuffFrame_UpdateAllBuffAnchors then
 		pcall(BuffFrame_UpdateAllBuffAnchors)
+	end
+	if PlayerBuffGrowthDirection() == "left_to_right" then
+		self:LayoutPlayerBuffsLeftToRight()
+	end
+	if SeparatePlayerAuraPositioning() then
+		self:LayoutSeparatePlayerDebuffs()
+	elseif PlayerDebuffGrowthDirection() == "left_to_right" then
+		self:LayoutCombinedPlayerDebuffsLeftToRight()
 	end
 end
 
@@ -780,14 +1123,41 @@ end
 -- Player buff frame management (ConsolidatedBuffs / BuffFrame)
 --------------------------------------------------------------------
 local buffFrameBlizzardDefaultPosition = nil
+local buffMoverFrame = nil
+
+local function GetPlayerBuffMoverFrame()
+	return ConsolidatedBuffs or TemporaryEnchantFrame or BuffFrame
+end
+
+local function RefreshPlayerBuffAnchors()
+	if BuffFrame_Update then
+		pcall(BuffFrame_Update)
+	elseif BuffFrame_UpdateAllBuffAnchors then
+		pcall(BuffFrame_UpdateAllBuffAnchors)
+	end
+end
+
+local function SetPlayerBuffGroupScale(scale)
+	scale = scale or 1
+	if BuffFrame then
+		BuffFrame:SetScale(scale)
+	end
+	if TemporaryEnchantFrame then
+		TemporaryEnchantFrame:SetScale(scale)
+	end
+	if ConsolidatedBuffs then
+		ConsolidatedBuffs:SetScale(scale)
+	end
+end
 
 function module:SaveDefaultBuffPosition()
-	if ConsolidatedBuffs and not buffFrameBlizzardDefaultPosition then
-		local point, relativeTo, relativePoint, xOfs, yOfs = ConsolidatedBuffs:GetPoint()
+	local mover = GetPlayerBuffMoverFrame()
+	if mover and not buffFrameBlizzardDefaultPosition then
+		local point, relativeTo, relativePoint, xOfs, yOfs = mover:GetPoint()
 		if point then
 			buffFrameBlizzardDefaultPosition = {
 				point = point,
-				relativeTo = relativeTo and relativeTo:GetName() or "UIParent",
+				relativeTo = relativeTo and relativeTo.GetName and relativeTo:GetName() or "UIParent",
 				relativePoint = relativePoint,
 				xOfs = xOfs,
 				yOfs = yOfs,
@@ -795,9 +1165,10 @@ function module:SaveDefaultBuffPosition()
 		end
 	end
 
-	if ConsolidatedBuffs and SarychUI.DragMode then
+	if mover and SarychUI.DragMode then
 		if not SarychUI.DragMode:GetFrameData("buffFrame") then
-			SarychUI.DragMode:RegisterFrame("buffFrame", ConsolidatedBuffs, {
+			buffMoverFrame = mover
+			SarychUI.DragMode:RegisterFrame("buffFrame", mover, {
 				dragPoint = "TOPRIGHT",
 				dragOffsetX = 0,
 				dragOffsetY = 2.5,
@@ -831,11 +1202,9 @@ function module:SaveDefaultBuffPosition()
 					db.buffFrameR = relativePoint
 					db.buffFrameX = xOfs
 					db.buffFrameY = yOfs
-					if ConsolidatedBuffs and C_Timer and C_Timer.After then
+					if C_Timer and C_Timer.After then
 						C_Timer.After(0.1, function()
-							if BuffFrame_UpdateAllBuffAnchors then
-								BuffFrame_UpdateAllBuffAnchors()
-							end
+							RefreshPlayerBuffAnchors()
 							if UpdateBuffAnchors then
 								UpdateBuffAnchors()
 							end
@@ -845,21 +1214,65 @@ function module:SaveDefaultBuffPosition()
 			})
 		end
 	end
+
+	local debuffAnchor = EnsurePlayerDebuffAnchor()
+	if debuffAnchor and SarychUI.DragMode and not SarychUI.DragMode:GetFrameData("debuffFrame") then
+		SarychUI.DragMode:RegisterFrame("debuffFrame", debuffAnchor, {
+			dragPoint = "TOPRIGHT",
+			dragOffsetX = 0,
+			dragOffsetY = 2.5,
+			dragWidth = 280,
+			dragHeight = 100,
+			dragText = "Дебафы",
+			getPoint = function()
+				return {
+					GetSetting("debuffFrameA", "TOPRIGHT"),
+					UIParent,
+					GetSetting("debuffFrameR", "TOPRIGHT"),
+					GetSetting("debuffFrameX", -205),
+					GetSetting("debuffFrameY", -105),
+				}
+			end,
+			getScale = function()
+				return GetSetting("debuffFrameScale", 1.0)
+			end,
+			onPositionChanged = function(point, relativePoint, xOfs, yOfs)
+				local panel = SarychUI and (SarychUI.PositionDragPanel or SarychUI.CombatTextDragPanel)
+				if panel and panel.IsOpen and panel:IsOpen() and panel.OnDragPosition then
+					if panel:OnDragPosition("debuffFrame", xOfs, yOfs, point, relativePoint) then
+						return
+					end
+				end
+				local db = ModuleDB()
+				if not db then return end
+				db.debuffFrameA = point
+				db.debuffFrameR = relativePoint
+				db.debuffFrameX = xOfs
+				db.debuffFrameY = yOfs
+			end,
+		})
+	end
 end
 
 function module:ApplyBuffManagement()
 	local db = ModuleDB()
 	if not db or not db.enabled then return end
 	if not SarychUI.DragMode then return end
-	if not ConsolidatedBuffs or not BuffFrame then return end
+	if not GetPlayerBuffMoverFrame() or not BuffFrame then return end
 
 	if not SarychUI.DragMode:GetFrameData("buffFrame") then
 		self:SaveDefaultBuffPosition()
 	end
+	if not SarychUI.DragMode:GetFrameData("debuffFrame") then
+		self:SaveDefaultBuffPosition()
+	end
 
 	local manageBuffs = GetSetting("manageBuffs", 0) == 1
+	local separate = manageBuffs and GetSetting("playerAuraPositionMode", "together") == "separate"
 	local showDragFrame = GetSetting("showBuffDragFrame", 0) == 1
 	local showGrid = GetSetting("showBuffGrid", 0) == 1
+	local showDebuffDragFrame = separate and GetSetting("showDebuffDragFrame", 0) == 1
+	local showDebuffGrid = separate and GetSetting("showDebuffGrid", 0) == 1
 
 	SarychUI.DragMode:EnableEditMode("buffFrame", manageBuffs, showDragFrame, showGrid)
 
@@ -870,42 +1283,87 @@ function module:ApplyBuffManagement()
 			GetSetting("buffFrameX", -205),
 			GetSetting("buffFrameY", -13))
 		SarychUI.DragMode:SetFrameScale("buffFrame", GetSetting("buffFrameScale", 1.0))
+		SetPlayerBuffGroupScale(GetSetting("buffFrameScale", 1.0))
+	else
+		SetPlayerBuffGroupScale(1.0)
 	end
 
-	SarychUI.DragMode:ShowGrid(showGrid and manageBuffs)
+	if separate then
+		SarychUI.DragMode:EnableEditMode("debuffFrame", true, showDebuffDragFrame, showDebuffGrid)
+		SarychUI.DragMode:SetFramePosition("debuffFrame",
+			GetSetting("debuffFrameA", "TOPRIGHT"),
+			GetSetting("debuffFrameR", "TOPRIGHT"),
+			GetSetting("debuffFrameX", -205),
+			GetSetting("debuffFrameY", -105))
+		SarychUI.DragMode:SetFrameScale("debuffFrame", GetSetting("debuffFrameScale", 1.0))
+		self:LayoutSeparatePlayerDebuffs()
+	else
+		SarychUI.DragMode:EnableEditMode("debuffFrame", false, false, false)
+		if playerDebuffAnchor then
+			playerDebuffAnchor:SetScale(1.0)
+		end
+		self:RestoreCombinedPlayerDebuffs(true)
+	end
+
+	local buffGrowth = PlayerBuffGrowthDirection()
+	local debuffGrowth = PlayerDebuffGrowthDirection()
+	local growthChanged = self._playerBuffGrowthDirection ~= buffGrowth
+		or self._playerDebuffGrowthDirection ~= debuffGrowth
+	self._playerBuffGrowthDirection = buffGrowth
+	self._playerDebuffGrowthDirection = debuffGrowth
+	self._playerAurasSeparate = separate
+
+	if buffGrowth == "right_to_left" then
+		RestoreTemporaryEnchantGrowth()
+	end
+	if growthChanged then
+		RefreshPlayerBuffAnchors()
+	end
+	if buffGrowth == "left_to_right" then
+		self:LayoutPlayerBuffsLeftToRight()
+	end
+	if separate then
+		self:LayoutSeparatePlayerDebuffs()
+	elseif debuffGrowth == "left_to_right" then
+		self:LayoutCombinedPlayerDebuffsLeftToRight()
+	end
+
+	SarychUI.DragMode:ShowGrid((showGrid and manageBuffs) or (showDebuffGrid and separate))
 end
 
 function module:ResetBuffManagement()
-	if not ConsolidatedBuffs then return end
+	local mover = buffMoverFrame or GetPlayerBuffMoverFrame()
+	if not mover then return end
 
 	if SarychUI.DragMode then
 		local data = SarychUI.DragMode:GetFrameData("buffFrame")
 		if data and data.originalSetPoint then
-			ConsolidatedBuffs.SetPoint = data.originalSetPoint
+			mover.SetPoint = data.originalSetPoint
 		end
 		SarychUI.DragMode:EnableEditMode("buffFrame", false, false, false)
+		SarychUI.DragMode:EnableEditMode("debuffFrame", false, false, false)
 		SarychUI.DragMode:ShowGrid(false)
 	end
 
 	pcall(function()
-		if ConsolidatedBuffs:IsMovable() then
-			ConsolidatedBuffs:SetMovable(false)
+		if mover:IsMovable() then
+			mover:SetMovable(false)
 		end
 	end)
 	pcall(function()
-		if ConsolidatedBuffs:IsUserPlaced() then
-			ConsolidatedBuffs:SetUserPlaced(false)
+		if mover:IsUserPlaced() then
+			mover:SetUserPlaced(false)
 		end
 	end)
 	pcall(function()
-		ConsolidatedBuffs:SetDontSavePosition(false)
+		mover:SetDontSavePosition(false)
 	end)
 
-	ConsolidatedBuffs:ClearAllPoints()
+	mover:ClearAllPoints()
 	if buffFrameBlizzardDefaultPosition then
 		local relativeTo = _G[buffFrameBlizzardDefaultPosition.relativeTo] or UIParent
 		pcall(function()
-			ConsolidatedBuffs:SetPoint(
+			mover:SetPoint(
 				buffFrameBlizzardDefaultPosition.point,
 				relativeTo,
 				buffFrameBlizzardDefaultPosition.relativePoint,
@@ -915,30 +1373,50 @@ function module:ResetBuffManagement()
 		end)
 	else
 		pcall(function()
-			ConsolidatedBuffs:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -205, -13)
+			mover:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -205, -13)
 		end)
 	end
 
-	if BuffFrame then
-		BuffFrame:SetScale(1.0)
+	SetPlayerBuffGroupScale(1.0)
+	RestoreTemporaryEnchantGrowth()
+	self._playerBuffGrowthDirection = nil
+	self._playerDebuffGrowthDirection = nil
+	self._playerAurasSeparate = nil
+	self._playerEnchantGrowthMask = nil
+	if playerDebuffAnchor then
+		playerDebuffAnchor:SetScale(1.0)
 	end
-	if ConsolidatedBuffs then
-		ConsolidatedBuffs:SetScale(1.0)
-	end
+	self:RestoreCombinedPlayerDebuffs(true)
+	RefreshPlayerBuffAnchors()
 end
 
 function module:ResetBuffManagementToDefaults()
 	local db = ModuleDB()
 	if not db then return end
+	db.playerAuraPositionMode = "together"
+	db.playerAuraGrowthDirection = "right_to_left"
+	db.playerBuffGrowthDirection = "right_to_left"
+	db.playerDebuffGrowthDirection = "right_to_left"
 	db.buffFrameA = "TOPRIGHT"
 	db.buffFrameR = "TOPRIGHT"
 	db.buffFrameX = -205
 	db.buffFrameY = -13
 	db.buffFrameScale = 1.0
+	db.debuffFrameA = "TOPRIGHT"
+	db.debuffFrameR = "TOPRIGHT"
+	db.debuffFrameX = -205
+	db.debuffFrameY = -105
+	db.debuffFrameScale = 1.0
+	db.showBuffDragFrame = 0
+	db.showBuffGrid = 0
+	db.showDebuffDragFrame = 0
+	db.showDebuffGrid = 0
 
 	if SarychUI.DragMode then
 		SarychUI.DragMode:SetFramePosition("buffFrame", "TOPRIGHT", "TOPRIGHT", -205, -13)
 		SarychUI.DragMode:SetFrameScale("buffFrame", 1.0)
+		SarychUI.DragMode:SetFramePosition("debuffFrame", "TOPRIGHT", "TOPRIGHT", -205, -105)
+		SarychUI.DragMode:SetFrameScale("debuffFrame", 1.0)
 	end
 	self:ApplyBuffManagement()
 end
@@ -963,7 +1441,7 @@ function module:Enable()
 	end
 	self.auraUpdateBucket = self:RegisterBucketEvent("UNIT_AURA", 0.2, "OnAuraUpdate")
 
-	if SarychUI.DragMode and ConsolidatedBuffs then
+	if SarychUI.DragMode and GetPlayerBuffMoverFrame() then
 		self:SaveDefaultBuffPosition()
 	end
 
@@ -1005,7 +1483,9 @@ function module:Disable()
 			pcall(TargetFrame_UpdateAuras, FocusFrame)
 		end
 	end
-	if BuffFrame_UpdateAllBuffAnchors then
+	if BuffFrame_Update then
+		pcall(BuffFrame_Update)
+	elseif BuffFrame_UpdateAllBuffAnchors then
 		pcall(BuffFrame_UpdateAllBuffAnchors)
 	end
 

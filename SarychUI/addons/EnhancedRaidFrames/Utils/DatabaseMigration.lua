@@ -6,12 +6,18 @@
 ---@type EnhancedRaidFrames
 local EnhancedRaidFrames = _G.EnhancedRaidFrames
 
+-- Import libraries
+local L = LibStub("AceLocale-3.0"):GetLocale("EnhancedRaidFrames")
+
 -------------------------------------------------------------------------
 -------------------------------------------------------------------------
 
 --- Handle the migration of the database from one version to another
 function EnhancedRaidFrames:MigrateDatabase()
 	if not self.db.profile.DB_VERSION or self.db.profile.DB_VERSION < self.DATABASE_VERSION then
+		-- Migrate the database to the current specification
+		self:Print(L["The database is being migrated to version:"] .. " " .. self.DATABASE_VERSION)
+
 		-----------------------------------------------------------
 		-----------------------------------------------------------
 
@@ -48,6 +54,7 @@ function EnhancedRaidFrames:MigrateDatabase()
 		-----------------------------------------------------------
 		-----------------------------------------------------------
 
+		self:Print(L["Database migration successful."])
 		self.db.profile.DB_VERSION = self.DATABASE_VERSION
 	end
 end

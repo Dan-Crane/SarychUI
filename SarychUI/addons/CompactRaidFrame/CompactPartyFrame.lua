@@ -2,18 +2,16 @@ function CompactPartyFrame_OnLoad(self)
     self.applyFunc = CompactRaidGroup_ApplyFunctionToAllFrames;
 
     local unitFrame = _G[self:GetName().."Member1"];
-    CompactUnitFrame_SetUpFrame(unitFrame, DefaultCompactUnitFrameSetup);
     CompactUnitFrame_SetUnit(unitFrame, "player");
-    CompactUnitFrame_SetUpdateAllEvent(unitFrame, "GROUP_ROSTER_UPDATE");
-    RegisterUnitWatch(unitFrame);
+    CompactUnitFrame_SetUpFrame(unitFrame, DefaultCompactUnitFrameSetup);
+    CompactUnitFrame_SetUpdateAllEvent(unitFrame, "PARTY_MEMBERS_CHANGED");
 
     for i=1, MEMBERS_PER_RAID_GROUP do
         if ( i > 1 ) then	--Player has to be done separately.
             local unitFrame = _G[self:GetName().."Member"..i];
-            CompactUnitFrame_SetUpFrame(unitFrame, DefaultCompactUnitFrameSetup);
             CompactUnitFrame_SetUnit(unitFrame, "party"..(i-1));
-            CompactUnitFrame_SetUpdateAllEvent(unitFrame, "GROUP_ROSTER_UPDATE");
-            RegisterUnitWatch(unitFrame);
+            CompactUnitFrame_SetUpFrame(unitFrame, DefaultCompactUnitFrameSetup);
+            CompactUnitFrame_SetUpdateAllEvent(unitFrame, "PARTY_MEMBERS_CHANGED");
         end
     end
 

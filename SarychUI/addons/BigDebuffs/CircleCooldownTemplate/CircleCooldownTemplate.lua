@@ -188,14 +188,8 @@ function CircleCooldownMixin:SetText(seconds)
     elseif ( seconds > 60 ) then
         text = WrapTextInColorCode(string.format("%.fm", minutes), self.textFormatted and "ffffff" or colorHexString);
         self:SetFormattedText("%s", text);
-    elseif ( seconds > 5 ) then
-        text = WrapTextInColorCode(string.format("%.f", sec), self.textFormatted and "ffff00" or colorHexString);
-        self:SetFormattedText("%s", text);
-    elseif (seconds > 2 ) then
-        text = WrapTextInColorCode(string.format("%.f", sec), self.textFormatted and "ff0000" or colorHexString);
-        self:SetFormattedText("%s", text);
     else
-        text = WrapTextInColorCode(string.format("%.1f", sec), self.textFormatted and"ff0000" or colorHexString);
+        text = WrapTextInColorCode(string.format(" %.1f ", sec), self.textFormatted and "ffff00" or colorHexString);
         self:SetFormattedText("%s", text);
     end
 end

@@ -67,6 +67,7 @@ do
 		self.db = LibStub("AceDB-3.0"):New("TalentedDB", self.defaults)
 		self:UpgradeOptions()
 		self:LoadTemplates()
+		self:EnsureBuiltinTemplates()
 
 		local AceDBOptions = LibStub("AceDBOptions-3.0", true)
 		if AceDBOptions then
@@ -105,9 +106,42 @@ do
 		end
 	end
 
+	function Talented:IsBuiltinTemplate(name)
+		return type(name) == "string" and self.BUILTIN_TEMPLATES and self.BUILTIN_TEMPLATES[name] ~= nil
+	end
+
+	function Talented:EnsureBuiltinTemplates()
+		local builtins = self.BUILTIN_TEMPLATES
+		local db = self.db and self.db.global and self.db.global.templates
+		if type(builtins) ~= "table" or type(db) ~= "table" then
+			return
+		end
+		for name, code in pairs(builtins) do
+			local cur = db[name]
+			local class
+			if type(cur) == "table" and cur.class and (cur.code or cur[1]) then
+				class = cur.class
+			elseif type(cur) == "string" then
+				class = self:GetTemplateStringClass(cur)
+				if class then
+					db[name] = { name = name, code = cur, class = class }
+				end
+			end
+			if not class then
+				class = self:GetTemplateStringClass(code)
+				if class then
+					db[name] = { name = name, code = code, class = class }
+				end
+			end
+		end
+	end
+
 	function Talented:DeleteCurrentTemplate()
 		local template = self.template
 		if template.talentGroup then return end
+		if self:IsBuiltinTemplate(template.name) then
+			return
+		end
 		local templates = self.db.global.templates
 		templates[template.name] = nil
 		self:SetTemplate()
@@ -179,8 +213,10 @@ do
 		self:UnpackTemplate(template)
 		if not self:ValidateTemplate(template, true) then
 			local name = template.name
-			self.db.global.templates[name] = nil
-			self:Print(L["The template '%s' is no longer valid and has been removed."], name)
+			if not self:IsBuiltinTemplate(name) then
+				self.db.global.templates[name] = nil
+				self:Print(L["The template '%s' is no longer valid and has been removed."], name)
+			end
 			return
 		end
 		local base = self:CreateBaseFrame()
@@ -255,6 +291,8 @@ do
 		if not enabled then
 			return
 		end
+
+		self:EnsureBuiltinTemplates()
 
 		self:RawHook("ToggleTalentFrame", true)
 		self:RawHook("ToggleGlyphFrame", true)
@@ -353,15 +391,18 @@ do
 						code = code,
 						class = class
 					}
-				else
+				elseif not self:IsBuiltinTemplate(name) then
 					db[name] = nil
 					invalid[#invalid + 1] = name
 				end
 			elseif not self:ValidateTemplate(code) then
-				db[name] = nil
-				invalid[#invalid + 1] = name
+				if not self:IsBuiltinTemplate(name) then
+					db[name] = nil
+					invalid[#invalid + 1] = name
+				end
 			end
 		end
+		self:EnsureBuiltinTemplates()
 		if next(invalid) then
 			table.sort(invalid)
 			self:Print(L["The following templates are no longer valid and have been removed:"])
@@ -2400,7 +2441,18 @@ do
 				end
 			end
 		end
-		Talented:OpenTemplate(pet and self.pet_current or self:GetActiveSpec())
+		local current = pet and self.pet_current or self:GetActiveSpec()
+		if self._suiSilentApply then
+			-- Quick Start applies its built-in template in the background.
+			self._suiSilentApply = nil
+			Talented:SetTemplate(current)
+			local base = self.base or _G.TalentedFrame
+			if base and base.IsShown and base:IsShown() then
+				HideUIPanel(base)
+			end
+		else
+			Talented:OpenTemplate(current)
+		end
 		Talented:EnableUI(true)
 
 		return not failed

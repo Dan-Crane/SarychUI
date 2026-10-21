@@ -84,6 +84,23 @@ local function ToggleDrag(frameId, enabled)
 	end
 end
 
+local function ResetCombatTextPos(xKey, yKey, xFallback, yFallback, frameId, previewX, previewY)
+	local db = DB()
+	if not db then return end
+	local def = SarychUI.defaults and SarychUI.defaults.profile.modules.floating_text
+	local x = (def and def[xKey]) or xFallback
+	local y = (def and def[yKey]) or yFallback
+	db[xKey] = x
+	db[yKey] = y
+	local panel = SarychUI and (SarychUI.PositionDragPanel or SarychUI.CombatTextDragPanel)
+	if not (panel and panel.SyncDraftIfOpen and panel:SyncDraftIfOpen(frameId, x, y)) then
+		ApplyCombat()
+	end
+	NotifyCombatPreview(previewX, nil, true)
+	NotifyCombatPreview(previewY, nil, true)
+	RefreshConfig()
+end
+
 local function RefreshConfig()
 	if SarychUI and SarychUI.NotifySarychUIOptionsChange then
 		SarychUI:NotifySarychUIOptionsChange()
@@ -944,6 +961,9 @@ function module:GetOptions()
 											ToggleDrag("combatTextPlus", val)
 											RefreshConfig()
 										end,
+										suiResetDefaults = function()
+											ResetCombatTextPos("healPlusX", "healPlusY", -467, -45, "combatTextPlus", "healPlusX", "healPlusY")
+										end,
 										hidden = function()
 											return not isOn("healShiftPlus")
 										end,
@@ -1040,6 +1060,9 @@ function module:GetOptions()
 											db.combatTextMinusDrag = val and 1 or 0
 											ToggleDrag("combatTextMinus", val)
 											RefreshConfig()
+										end,
+										suiResetDefaults = function()
+											ResetCombatTextPos("healMinusX", "healMinusY", 0, -50, "combatTextMinus", "healMinusX", "healMinusY")
 										end,
 										hidden = function()
 											return not isOn("healShiftMinus")
@@ -1185,6 +1208,9 @@ function module:GetOptions()
 											db.combatTextLessDrag = val and 1 or 0
 											ToggleDrag("combatTextLess", val)
 											RefreshConfig()
+										end,
+										suiResetDefaults = function()
+											ResetCombatTextPos("healLessX", "healLessY", -250, -30, "combatTextLess", "healLessX", "healLessY")
 										end,
 									hidden = function()
 										local db = DB() or {}

@@ -160,7 +160,10 @@ end
 function NP:Configure_HealthBar(frame, configuring)
 	local db = self.db.units[frame.UnitType].health
 	local healthBar = frame.Health
-	local pad = self:GetClickableNamePad(frame) or 0
+	-- Name-only unit types (friendly name, health only on target): pin the bar
+	-- to the frame top so it appears exactly where the nickname was.
+	-- Include Name pad still applies to plates that always show a health bar.
+	local pad = (db and db.enable) and (self:GetClickableNamePad(frame) or 0) or 0
 
 	healthBar:ClearAllPoints()
 	healthBar:SetPoint("TOP", frame, "TOP", 0, -pad)

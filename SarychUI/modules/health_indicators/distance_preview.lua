@@ -87,7 +87,7 @@ local function ResolveOutline(profile)
 	if _G.Autolos and _G.Autolos.ResolveFontOutline then
 		return _G.Autolos.ResolveFontOutline(profile)
 	end
-	local outline = profile and (profile.fontOutline or profile.fontFlags) or "OUTLINE"
+	local outline = profile and (profile.fontOutline or profile.fontFlags) or "NONE"
 	if outline == "NONE" or outline == "" or outline == nil then
 		return ""
 	end
@@ -232,21 +232,25 @@ function Preview:Create(parent, noticeText)
 
 	local function Layout()
 		local profile = ActiveProfile()
+		local mod = Module()
+		local mode = mod and mod.GetAutolosProfileMode and mod:GetAutolosProfileMode() or "classic"
+		local isElvui = mode == "elvui"
 		local fontSize = Num(LiveOr("fontSize", profile.fontSize), 12)
 		local offsetX = Num(LiveOr("offsetX", profile.offsetX), DEFAULT_OFFSET_X)
 		local offsetY = Num(LiveOr("offsetY", profile.offsetY), DEFAULT_OFFSET_Y)
-		local shadowX = Num(LiveOr("shadowX", profile.shadowX), 2)
-		local shadowY = Num(LiveOr("shadowY", profile.shadowY), -1)
+		local shadowX = Num(LiveOr("shadowX", profile.shadowX), isElvui and 1 or 0.5)
+		local shadowY = Num(LiveOr("shadowY", profile.shadowY), isElvui and -1 or -0.5)
 		local fontPath = ResolveFontPath(LiveOr("font", profile.font) or profile.font)
 		local outlineProfile = {
 			fontOutline = LiveOr("fontOutline", profile.fontOutline or profile.fontFlags),
 			fontFlags = profile.fontFlags,
 		}
 		local outline = ResolveOutline(outlineProfile)
-
-		local mod = Module()
-		local mode = mod and mod.GetAutolosProfileMode and mod:GetAutolosProfileMode() or "classic"
-		local isElvui = mode == "elvui"
+		local classicScale = 1
+		if not isElvui and mod and mod.GetNameplateScale then
+			classicScale = tonumber(mod:GetNameplateScale()) or 1
+		end
+		plate:SetScale(classicScale)
 
 		-- Place plate so real offsets keep "43" inside the stage.
 		-- classic: CENTER+CENTER with ~-95 -> plate toward the right

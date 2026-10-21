@@ -5,6 +5,7 @@
 
 	<Script file="Ace3\AceComm-3.0\AceComm-3.0.lua" />
 	<Script file="Ace3\AceSerializer-3.0\AceSerializer-3.0.lua" />
+	<!-- AceTimer 1071 calls IsCancelled and breaks Details. SarychUI libs\AceTimer-3.0 stays. -->
 
 	<Include file="AbsorbsMonitor-1.0\AbsorbsMonitor-1.0.xml" />
 </Ui>

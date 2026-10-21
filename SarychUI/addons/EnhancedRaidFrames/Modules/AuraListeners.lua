@@ -39,7 +39,7 @@ function EnhancedRaidFrames:CreateAuraListener(frame)
 
 	-- Register the unit event
 	frame.ERF_auraListenerFrame:UnregisterEvent("UNIT_AURA") -- Clear any existing events
-	frame.ERF_auraListenerFrame:RegisterUnitEvent("UNIT_AURA", frame.unit)
+	ClassicAPI.WidgetAPI.Frame.RegisterUnitEvent(frame.ERF_auraListenerFrame, "UNIT_AURA", frame.unit)
 
 	-- Assign the OnEvent callback for the listener frame
 	if not self.isWoWClassicEra and not self.isWoWClassic then

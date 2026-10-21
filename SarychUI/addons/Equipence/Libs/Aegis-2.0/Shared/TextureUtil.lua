@@ -40,7 +40,7 @@ Aegis:RegisterNamespace("TextureUtil", VERSION, function(core, _, namespace)
 		end
 
 		if setVisibility then
-			frame:SetShown(success);
+			if success then frame:Show(); else frame:Hide(); end
 		end
 
 		return success;

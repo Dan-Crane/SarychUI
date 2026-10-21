@@ -148,6 +148,21 @@ local function IsElvUIMode()
 	return Autolos.GetNameplateMode() == "elvui"
 end
 
+local function GetClassicPlateVisual(nameplate)
+	if not nameplate or not SarychUI or not SarychUI.GetModule then
+		return nil
+	end
+	local hi = SarychUI:GetModule("health_indicators", true)
+	if hi and hi.GetClassicPlateVisual then
+		return hi:GetClassicPlateVisual(nameplate)
+	end
+	return nil
+end
+
+local function ResolveClassicAnchor(nameplate)
+	return GetClassicPlateVisual(nameplate) or nameplate
+end
+
 function Autolos.GetDefaultProfile(mode)
 	local defaults = SarychUI and SarychUI.defaults and SarychUI.defaults.profile and SarychUI.defaults.profile.addons and SarychUI.defaults.profile.addons.autolos
 	if defaults and defaults.profiles and defaults.profiles[mode] then
@@ -159,9 +174,9 @@ function Autolos.GetDefaultProfile(mode)
 	return {
 		font = "Friz Quadrata TT",
 		fontSize = 12,
-		fontOutline = DEFAULT_FONT_OUTLINE,
-		shadowX = DEFAULT_SHADOW_X,
-		shadowY = DEFAULT_SHADOW_Y,
+		fontOutline = "NONE",
+		shadowX = 0.5,
+		shadowY = -0.5,
 		offsetX = -95,
 		offsetY = -9,
 	}
@@ -207,6 +222,23 @@ function Autolos.EnsureProfiles()
 			elvui.totemSupport = true
 		end
 		db.profileVersion = 3
+	end
+
+	-- Classic distance: no outline, softer shadow (old stock was OUTLINE / 2 / -1).
+	if db.profileVersion < 4 then
+		local classic = db.profiles and db.profiles.classic
+		if classic then
+			if classic.fontOutline == nil or classic.fontOutline == "OUTLINE" then
+				classic.fontOutline = "NONE"
+			end
+			if classic.shadowX == nil or classic.shadowX == 2 then
+				classic.shadowX = 0.5
+			end
+			if classic.shadowY == nil or classic.shadowY == -1 then
+				classic.shadowY = -0.5
+			end
+		end
+		db.profileVersion = 4
 	end
 end
 
@@ -380,6 +412,12 @@ function Autolos.ApplyLayout(nameplate, fontString, profile)
 	local point = "CENTER"
 	local relativePoint = "CENTER"
 	local anchor = nameplate
+	if mode ~= "elvui" then
+		anchor = ResolveClassicAnchor(nameplate)
+		if fontString.GetParent and fontString.SetParent and fontString:GetParent() ~= anchor then
+			fontString:SetParent(anchor)
+		end
+	end
 
 	if mode == "elvui" then
 		point = "RIGHT"
@@ -659,7 +697,11 @@ function Autolos.EnsurePlate(nameplate, profile)
 	local fontString = nameplate.fontStringRange
 	local justCreated = false
 	if not fontString then
-		fontString = nameplate:CreateFontString(nil, "OVERLAY")
+		local parent = nameplate
+		if not IsElvUIMode() then
+			parent = ResolveClassicAnchor(nameplate)
+		end
+		fontString = parent:CreateFontString(nil, "OVERLAY")
 		nameplate.fontStringRange = fontString
 		justCreated = true
 		DebugLog(nameplate, "created text")
@@ -678,8 +720,12 @@ function Autolos.EnsurePlate(nameplate, profile)
 		local offsetX = tonumber(profile.offsetX) or -95
 		local offsetY = tonumber(profile.offsetY) or -9
 		pcall(function()
+			local anchor = ResolveClassicAnchor(nameplate)
+			if fontString.SetParent then
+				fontString:SetParent(anchor)
+			end
 			fontString:ClearAllPoints()
-			fontString:SetPoint("CENTER", nameplate, "CENTER", offsetX, offsetY)
+			fontString:SetPoint("CENTER", anchor, "CENTER", offsetX, offsetY)
 			nameplate.autolosAnchorMode = "classic"
 		end)
 		DebugLog(nameplate, "layout error classic fallback anchor")

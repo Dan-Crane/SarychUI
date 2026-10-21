@@ -7,7 +7,7 @@ local wrapper = {
 	name = ADDON_NAME,
 	title = "CompactRaidFrame_HealEx",
 	author = "Tsoukie",
-	version = "1.7",
+	version = "1.8",
 	loaded = true,
 	enabled = false,
 }
@@ -128,7 +128,7 @@ function wrapper:GetOptions()
 				name = "Входящее лечение, HoT и поглощения на компактных рейдовых фреймах.\nВключение - сразу; полное выключение - после /reload.\n\nАвтор: "
 					.. (wrapper.author or "Tsoukie")
 					.. "\nВерсия: "
-					.. (wrapper.version or "1.7"),
+					.. (wrapper.version or "1.8"),
 				order = 2,
 				width = "full",
 			},

@@ -1228,7 +1228,9 @@ exportEditBox:SetText("")
 exportEditBox:SetFullWidth(true)
 exportEditBox:SetWidth(500)
 exportEditBox.button:Hide()
-exportEditBox.frame:SetClipsChildren(true)
+if exportEditBox.frame.SetClipsChildren then
+	exportEditBox.frame:SetClipsChildren(true)
+end
 export:AddChild(exportEditBox)
 export.editBox = exportEditBox
 OmniBar.export = export
@@ -1250,7 +1252,9 @@ importEditBox:SetText("")
 importEditBox:SetFullWidth(true)
 importEditBox:SetWidth(500)
 importEditBox.button:Hide()
-importEditBox.frame:SetClipsChildren(true)
+if importEditBox.frame.SetClipsChildren then
+	importEditBox.frame:SetClipsChildren(true)
+end
 import:AddChild(importEditBox)
 import.editBox = importEditBox
 local importButton = AceGUI:Create("Button")

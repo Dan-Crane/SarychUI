@@ -1,5 +1,5 @@
 -- Postal wrapper for SarychUI
--- Cursor-like valve: enable immediate when already loaded; reload when gated or on disable.
+-- The Addons checkbox enables and disables Postal immediately.
 
 local ADDON_NAME = "Postal"
 
@@ -11,7 +11,6 @@ local wrapper = {
 	loaded = false,
 	enabled = false,
 }
-local reloadHintShown = false
 local initDiagnosticShown = false
 
 local function GetRuntimeEnabledFromDB()
@@ -54,17 +53,53 @@ local function IsPostalLoaded()
 	return SarychUI_IsEmbeddedPostalLoaded and SarychUI_IsEmbeddedPostalLoaded()
 end
 
-local function TryActivatePostal()
-	if IsPostalLoaded() then
-		wrapper.loaded = true
-		return true, "loaded"
+local function SetPostalChromeShown(shown)
+	local menu = _G.Postal_ModuleMenuButton
+	if menu then
+		if shown then menu:Show() else menu:Hide() end
 	end
-	if SarychUI_InitializeEmbeddedPostal then
-		local ok, reason = SarychUI_InitializeEmbeddedPostal()
-		wrapper.loaded = ok and true or false
-		return ok, reason
+	for i = 1, 7 do
+		local hover = _G["PostalSubjectHover" .. i]
+		if hover then
+			if shown then hover:Show() else hover:Hide() end
+		end
 	end
-	return false, "not_initialized"
+end
+
+-- Ace Disable drops module hooks. Enable again restores the ones the user left on.
+local function ApplyPostalRuntime(enable)
+	local Postal = _G.Postal
+	if not Postal then
+		wrapper.loaded = false
+		return false
+	end
+	wrapper.loaded = true
+	if enable then
+		if Postal.db and Postal.db.profile and Postal.IterateModules then
+			local state = Postal.db.profile.ModuleEnabledState
+			for name, module in Postal:IterateModules() do
+				local on = not (type(state) == "table" and state[name] == false)
+				if module.SetEnabledState then
+					module:SetEnabledState(on)
+				end
+			end
+		end
+		if Postal.SetEnabledState then
+			Postal:SetEnabledState(true)
+		end
+		if Postal.Enable then
+			pcall(Postal.Enable, Postal)
+		end
+		SetPostalChromeShown(true)
+		return true
+	end
+	if Postal.Disable then
+		pcall(Postal.Disable, Postal)
+	elseif Postal.SetEnabledState then
+		Postal:SetEnabledState(false)
+	end
+	SetPostalChromeShown(false)
+	return true
 end
 
 function wrapper:IsRuntimeEnabled()
@@ -85,31 +120,7 @@ function wrapper:SetRuntimeEnabled(enable)
 	enable = enable and true or false
 	SetRuntimeEnabledInDB(enable)
 	wrapper.enabled = enable
-
-	if enable then
-		local ok, reason = TryActivatePostal()
-		if ok then
-			return true
-		end
-		if reason == "requires_reload" then
-			if SarychUI and SarychUI.ShowReloadPopup then
-				SarychUI:ShowReloadPopup("|cff1784d1Postal|r будет загружен после перезагрузки интерфейса (/reload).")
-			elseif StaticPopup_Show then
-				StaticPopup_Show("SARYCHUI_RELOAD_UI")
-			end
-		elseif reason == "not_initialized" and not initDiagnosticShown then
-			initDiagnosticShown = true
-			if SarychUI and SarychUI.Print then
-				SarychUI:Print("|cffff8080Postal:|r expected embedded init, but core object is missing. Check Lua errors, then /reload.")
-			end
-		end
-	else
-		if SarychUI and SarychUI.ShowReloadPopup then
-			SarychUI:ShowReloadPopup("|cff1784d1Postal|r будет выгружен после перезагрузки интерфейса (/reload).")
-		elseif StaticPopup_Show then
-			StaticPopup_Show("SARYCHUI_RELOAD_UI")
-		end
-	end
+	ApplyPostalRuntime(enable)
 	return true
 end
 
@@ -125,40 +136,27 @@ function wrapper:Initialize()
 		return
 	end
 
-	if wrapper.enabled and SarychUI_InitializeEmbeddedPostal then
-		local ok, reason = SarychUI_InitializeEmbeddedPostal()
-		wrapper.loaded = ok and true or false
-		if not ok and reason == "not_initialized" and not initDiagnosticShown then
-			initDiagnosticShown = true
-			if SarychUI and SarychUI.Print then
-				SarychUI:Print("|cffff8080Postal:|r enabled at startup, but core object was not created. Check Lua errors, then /reload.")
-			end
+	ApplyPostalRuntime(wrapper.enabled)
+	if wrapper.enabled and not wrapper.loaded and not initDiagnosticShown then
+		initDiagnosticShown = true
+		if SarychUI and SarychUI.Print then
+			SarychUI:Print("|cffff8080Postal:|r ядро не создано. Проверьте ошибки Lua.")
 		end
 	end
 end
 
 function wrapper:Enable()
-	if not GetRuntimeEnabledFromDB() then
+	if IsStandalonePostalEnabled() or not GetRuntimeEnabledFromDB() then
 		return false
 	end
-	local ok, reason = TryActivatePostal()
-	if not ok and reason == "requires_reload" and not reloadHintShown then
-		reloadHintShown = true
-		if SarychUI and SarychUI.Print then
-			SarychUI:Print("|cffff9900Postal:|r аддон был выключен при загрузке интерфейса и будет включён после |cff1784d1/reload|r.")
-		end
-	elseif not ok and reason == "not_initialized" and not initDiagnosticShown then
-		initDiagnosticShown = true
-		if SarychUI and SarychUI.Print then
-			SarychUI:Print("|cffff8080Postal:|r expected embedded init, but core object is missing. Check Lua errors, then /reload.")
-		end
-	end
-	return ok and true or false
+	wrapper.enabled = true
+	return ApplyPostalRuntime(true)
 end
 
 function wrapper:Disable()
 	wrapper.enabled = false
 	SetRuntimeEnabledInDB(false)
+	ApplyPostalRuntime(false)
 	return true
 end
 
@@ -176,17 +174,8 @@ function wrapper:OpenConfig()
 		return false
 	end
 	if not IsPostalLoaded() then
-		local reason
-		if SarychUI_InitializeEmbeddedPostal then
-			local _, initReason = SarychUI_InitializeEmbeddedPostal()
-			reason = initReason
-		end
 		if SarychUI and SarychUI.Print then
-			if reason == "requires_reload" then
-				SarychUI:Print("|cffff9900Postal:|r аддон был выключен при загрузке и станет доступен после |cff1784d1/reload|r.")
-			else
-				SarychUI:Print("|cffff8080Postal:|r embedded core не инициализирован. Проверьте Lua errors и выполните |cff1784d1/reload|r.")
-			end
+			SarychUI:Print("|cffff8080Postal:|r ядро не инициализировано. Проверьте ошибки Lua.")
 		end
 		return false
 	end
@@ -211,7 +200,7 @@ function wrapper:GetOptions()
 			enabled = {
 				type = "toggle",
 				name = "Включить",
-				desc = "Включить/выключить Postal. Включение - сразу, если уже загружен; иначе /reload. Выключение - после /reload.",
+				desc = "Включить или выключить Postal.",
 				order = 1,
 				get = function()
 					return wrapper:IsRuntimeEnabled()
@@ -236,7 +225,7 @@ function wrapper:GetOptions()
 				type = "description",
 				name = function()
 					local mode = GetLoadModeFromDB()
-					return "Расширенная поддержка почтового ящика (Open All, Express, BlackBook и др.).\nВключение - сразу (если уже загружен); выключение - после /reload.\n\nНастройки модулей - в интерфейсе почтового ящика.\nБаза настроек: |cff1784d1Postal3DB|r.\nРежим загрузки: |cff1784d1" .. tostring(mode) .. "|r (strict embedded).\n\nАвтор: " .. (wrapper.author or "Xinhuan") .. "\nВерсия: " .. (wrapper.version or "3.3.2")
+					return "Расширенная поддержка почтового ящика (Open All, Express, BlackBook и др.).\nГалочка «Включить» сразу включает и выключает Postal.\n\nНастройки модулей - в интерфейсе почтового ящика.\nБаза настроек: |cff1784d1Postal3DB|r.\nРежим загрузки: |cff1784d1" .. tostring(mode) .. "|r (strict embedded).\n\nАвтор: " .. (wrapper.author or "Xinhuan") .. "\nВерсия: " .. (wrapper.version or "3.3.2")
 				end,
 				order = 3,
 				width = "full",
@@ -279,6 +268,11 @@ if not RegisterWrapper() then
 			end
 		end
 	end)
+end
+
+-- Stop Ace from enabling Postal on login when the checkbox is off.
+if _G.Postal and _G.Postal.SetEnabledState and not GetRuntimeEnabledFromDB() then
+	_G.Postal:SetEnabledState(false)
 end
 
 return wrapper

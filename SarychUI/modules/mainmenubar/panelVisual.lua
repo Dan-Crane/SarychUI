@@ -649,9 +649,14 @@ local function ApplyActionBarBackgrounds()
         (MainMenuBarArtFrame and MainMenuBarArtFrameTexture3) or nil
     }
     
+    -- BFA replaces these stock slices with its own artwork.  Never Show() them
+    -- while that style is active or the classic bar flashes for a frame.
+    local hideClassicMainArt = hideActionBarBackgrounds
+        or (module.BFAStyle and module.BFAStyle.active)
+
     for i, texture in ipairs(mainTextures) do
         if texture then
-            if hideActionBarBackgrounds then
+            if hideClassicMainArt then
                 texture:Hide()
                 if texture.SetScript then
                     texture:SetScript("OnShow", texture.Hide)
@@ -748,25 +753,39 @@ local function ApplySecondaryPanelsBackgrounds()
 end
 
 
--- Apply page buttons settings
+-- OnShow must be cleared before Show(). Otherwise the hide hook runs
+-- inside Show() and the button stays hidden. A hidden frame also never
+-- receives OnUpdate, so a "show until visible" ticker cannot recover it.
+local function PageButtonKeepHidden(self)
+    if GetSetting("hidePageButtons", false) then
+        self:Hide()
+    end
+end
+
 local function ApplyPageButtonsSettings()
-    local hidePageButtons = GetSetting('hidePageButtons', false)
-    
-    local pageButtons = {
-        ActionBarUpButton, ActionBarDownButton
-    }
+    local hidePageButtons = GetSetting("hidePageButtons", false)
+    local pageButtons = { ActionBarUpButton, ActionBarDownButton }
     for _, button in ipairs(pageButtons) do
         if button then
+            if button.SetScript then
+                button:SetScript("OnUpdate", nil)
+            end
             if hidePageButtons then
-                button:Hide()
                 if button.SetScript then
-                    button:SetScript("OnShow", button.Hide)
+                    button:SetScript("OnShow", PageButtonKeepHidden)
+                end
+                button:Hide()
+                if button.SetAlpha then
+                    button:SetAlpha(0)
                 end
             else
-                button:Show()
                 if button.SetScript then
                     button:SetScript("OnShow", nil)
                 end
+                if button.SetAlpha then
+                    button:SetAlpha(1)
+                end
+                button:Show()
             end
         end
     end
@@ -806,19 +825,19 @@ end
 
 -- Apply button border alpha
 local function ApplyButtonBorderAlpha()
-    local FA = SarychUI.FrostAtomBars
-    local frostActive = FA and FA.IsActive and FA.IsActive()
-    local buttonBorderAlphaEnabled = frostActive or GetSetting('buttonBorderAlphaEnabled', false)
+    local buttonBorderAlphaEnabled = GetSetting('buttonBorderAlphaEnabled', false)
     local buttonBorderAlpha = GetSetting('buttonBorderAlpha', 0.4)
     local toolsDb = SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.modules and SarychUI.db.profile.modules.tools
     local dark = toolsDb and (toolsDb.enableDarkMode == 1 or toolsDb.enableDarkMode == true) and toolsDb.darkModeColor
 
     local function Paint(button)
         if not button then return end
+        -- Lorti owns these buttons while dark mode is active. Its black rim
+        -- must not inherit SarychUI's tint or border alpha.
+        if _G.SarychUI_LortiUI and _G.SarychUI_LortiUI.enabled then return end
         local nt = button.GetNormalTexture and button:GetNormalTexture()
         local pt = button.GetPushedTexture and button:GetPushedTexture()
-        local lortiOn = _G.SarychUI_LortiUI and _G.SarychUI_LortiUI.enabled
-        if dark and not lortiOn then
+        if dark then
             if nt then nt:SetVertexColor(dark.r or 0.37, dark.g or 0.37, dark.b or 0.37, dark.a or 1) end
             if pt then pt:SetVertexColor(dark.r or 0.37, dark.g or 0.37, dark.b or 0.37, dark.a or 1) end
         end
@@ -841,18 +860,6 @@ local function ApplyButtonBorderAlpha()
     end
     Paint(_G["MainMenuBarBackpackButton"])
 
-    if FA and FA.IsActive and FA.IsActive() and FA.ForEachStyledButton then
-        FA.ForEachStyledButton(Paint)
-        local petButtons = FA.ActionBar and FA.ActionBar.petButtons
-        if petButtons then
-            for i = 1, #petButtons do
-                if petButtons[i].sarychSupportsBorderAlpha then
-                    Paint(petButtons[i])
-                end
-            end
-        end
-    end
-    
     for i = 1, 10 do
         Paint(_G["PetActionButton" .. i])
     end
@@ -860,6 +867,11 @@ local function ApplyButtonBorderAlpha()
     for i = 1, POSSESS_SLOTS do
         Paint(_G["PossessButton" .. i])
     end
+
+	local castbar = SarychUI.modules and SarychUI.modules.castbar
+	if castbar and castbar.ApplyPlayerIconBorderAlpha then
+		castbar:ApplyPlayerIconBorderAlpha()
+	end
 end
 
 -- Micro menu art: only swap textures; leave Blizzard size/position alone.
@@ -1309,6 +1321,39 @@ ApplyMicroMenuAlpha = function()
                 Paint(child)
             end
         end
+    end
+end
+
+local BAG_ALPHA_BUTTONS = {
+    "MainMenuBarBackpackButton",
+    "CharacterBag0Slot",
+    "CharacterBag1Slot",
+    "CharacterBag2Slot",
+    "CharacterBag3Slot",
+    "KeyRingButton",
+}
+
+local bagAlphaHooked
+
+local function ApplyBagAlpha()
+    local bagAlphaEnabled = GetSetting("bagAlphaEnabled", false)
+    local bagAlpha = GetSetting("bagAlpha", 0.95)
+    local a = bagAlphaEnabled and (bagAlpha or 0.95) or 1
+
+    for i = 1, #BAG_ALPHA_BUTTONS do
+        local button = _G[BAG_ALPHA_BUTTONS[i]]
+        if button and button.SetAlpha then
+            button:SetAlpha(a)
+        end
+    end
+
+    if not bagAlphaHooked and hooksecurefunc then
+        if PaperDollItemSlotButton_Update then
+            hooksecurefunc("PaperDollItemSlotButton_Update", function()
+                ApplyBagAlpha()
+            end)
+        end
+        bagAlphaHooked = true
     end
 end
 
@@ -1774,6 +1819,10 @@ function module:UpdateExperienceBar()
             end
         end
     end
+
+    if self.UpdateBarsLayout then
+        self:UpdateBarsLayout("UpdateExperienceBar")
+    end
 end
 
 -- Helper functions for experience bar (from original)
@@ -2170,6 +2219,10 @@ function module:UpdateReputationBar()
             ReputationWatchBar:SetAlpha(0)
         end
     end
+
+    if self.UpdateBarsLayout then
+        self:UpdateBarsLayout("UpdateReputationBar")
+    end
 end
 
 -- Side Panels Functions
@@ -2436,117 +2489,9 @@ function module:SetupPanelMouseHandlers()
         end)
     end
     
-    -- Настройка для MultiBarRight
-    if MultiBarRight then
-        -- Добавляем обработчики для всех кнопок MultiBarRight
-        for i = 1, 12 do
-            local button = _G["MultiBarRightButton" .. i]
-            if button then
-                local originalOnEnter = button:GetScript("OnEnter")
-                local originalOnLeave = button:GetScript("OnLeave")
-                
-                button:SetScript("OnEnter", function(self, ...)
-                    -- Проверяем, включена ли настройка скрытия панелей
-                    local hideSidePanels = GetSetting('hideSidePanels', false)
-                    if hideSidePanels then
-                        module:HandleMouseOverPanels(true)
-                    end
-                    if originalOnEnter then
-                        originalOnEnter(self, ...)
-                    end
-                end)
-                button:SetScript("OnLeave", function(self, ...)
-                    -- Небольшая задержка перед скрытием, чтобы трекер мыши успел проверить позицию
-                    C_Timer.After(0.05, function()
-                        -- Проверяем, действительно ли мышь покинула область панели
-                        local mouseX, mouseY = GetCursorPosition()
-                        local uiScale = UIParent:GetScale()
-                        mouseX = mouseX / uiScale
-                        mouseY = mouseY / uiScale
-                        
-                        local stillOverPanel = false
-                        if MultiBarRight and MultiBarRight:IsVisible() then
-                            local left, bottom, width, height = MultiBarRight:GetRect()
-                            if mouseX >= left and mouseX <= left + width and mouseY >= bottom and mouseY <= bottom + height then
-                                stillOverPanel = true
-                            end
-                        end
-                        if MultiBarLeft and MultiBarLeft:IsVisible() then
-                            local left, bottom, width, height = MultiBarLeft:GetRect()
-                            if mouseX >= left and mouseX <= left + width and mouseY >= bottom and mouseY <= bottom + height then
-                                stillOverPanel = true
-                            end
-                        end
-                        
-                        if not stillOverPanel then
-                            module:HandleMouseOverPanels(false)
-                        end
-                    end)
-                    if originalOnLeave then
-                        originalOnLeave(self, ...)
-                    end
-                end)
-            end
-        end
-    end
-    
-    -- Настройка для MultiBarLeft
-    if MultiBarLeft then
-        -- Добавляем обработчики для всех кнопок MultiBarLeft
-        for i = 1, 12 do
-            local button = _G["MultiBarLeftButton" .. i]
-            if button then
-                local originalOnEnter = button:GetScript("OnEnter")
-                local originalOnLeave = button:GetScript("OnLeave")
-                
-                button:SetScript("OnEnter", function(self, ...)
-                    -- Проверяем, включена ли настройка скрытия панелей
-                    local hideSidePanels = GetSetting('hideSidePanels', false)
-                    if hideSidePanels then
-                        module:HandleMouseOverPanels(true)
-                    end
-                    if originalOnEnter then
-                        originalOnEnter(self, ...)
-                    end
-                end)
-                button:SetScript("OnLeave", function(self, ...)
-                    -- Проверяем, включена ли настройка показа панелей при Alt
-                    local showSidePanelsOnAlt = GetSetting('showSidePanelsOnAlt', false)
-                    if showSidePanelsOnAlt then
-                        -- Небольшая задержка перед скрытием, чтобы трекер мыши успел проверить позицию
-                        C_Timer.After(0.05, function()
-                            -- Проверяем, действительно ли мышь покинула область панели
-                            local mouseX, mouseY = GetCursorPosition()
-                            local uiScale = UIParent:GetScale()
-                            mouseX = mouseX / uiScale
-                            mouseY = mouseY / uiScale
-                            
-                            local stillOverPanel = false
-                            if MultiBarRight and MultiBarRight:IsVisible() then
-                                local left, bottom, width, height = MultiBarRight:GetRect()
-                                if mouseX >= left and mouseX <= left + width and mouseY >= bottom and mouseY <= bottom + height then
-                                    stillOverPanel = true
-                                end
-                            end
-                            if MultiBarLeft and MultiBarLeft:IsVisible() then
-                                local left, bottom, width, height = MultiBarLeft:GetRect()
-                                if mouseX >= left and mouseX <= left + width and mouseY >= bottom and mouseY <= bottom + height then
-                                    stillOverPanel = true
-                                end
-                            end
-                            
-                            if not stillOverPanel then
-                                module:HandleMouseOverPanels(false)
-                            end
-                        end)
-                    end
-                    if originalOnLeave then
-                        originalOnLeave(self, ...)
-                    end
-                end)
-            end
-        end
-    end
+    -- Do not SetScript OnEnter/OnLeave on MultiBarLeft/Right buttons.
+    -- Replacing those scripts taints the buttons, and a macro click then
+    -- fails CastSpellByName. CheckMouseOverPanels already watches the bars.
 end
 
 -- Setup throttled timer handler for panels (оптимизация производительности)
@@ -2682,11 +2627,22 @@ function module:ApplyAppearanceSettings()
     ApplyMicroMenuStyle()
     ApplyButtonBorderAlpha()
     ApplyMicroMenuAlpha()
+    ApplyBagAlpha()
     
     -- Apply bar settings
-    ApplyExperienceBarSettings()
-    ApplyReputationBarSettings()
-    ApplySidePanelsSettings()
+	ApplyExperienceBarSettings()
+	ApplyReputationBarSettings()
+	ApplySidePanelsSettings()
+
+	-- The generic settings above operate on the standard Blizzard frames.
+	-- Re-apply the selected BFA artwork last so the same toggles also control it.
+	if module.BFAStyle and module.BFAStyle.active then
+		module.BFAStyle:ApplyAppearance()
+	end
+	-- BFA shows MainMenuBarArtFrame after the first pass. Re-apply so the
+	-- page arrows stay in the state chosen by hidePageButtons.
+	ApplyPageButtonsSettings()
+	ApplyBagAlpha()
 end
 
 -- Export functions to module
@@ -2699,6 +2655,7 @@ module.ApplySecondaryPanelsBackgrounds = ApplySecondaryPanelsBackgrounds
 module.ApplyButtonBorderAlpha = ApplyButtonBorderAlpha
 module.ApplyMicroMenuStyle = ApplyMicroMenuStyle
 module.ApplyMicroMenuAlpha = ApplyMicroMenuAlpha
+module.ApplyBagAlpha = ApplyBagAlpha
 module.ApplyExperienceBarSettings = ApplyExperienceBarSettings
 module.ApplyReputationBarSettings = ApplyReputationBarSettings
 module.ApplySidePanelsSettings = ApplySidePanelsSettings
@@ -2734,17 +2691,10 @@ function module:UpdateKeyringButton()
                     parent:UpdateVisible()
                 end
             end
-            -- Альтернативный способ показа через SetShown
-            if KeyRingButton.SetShown then
-                KeyRingButton:SetShown(true)
-            end
             -- Дополнительная попытка обновления через таймер
             C_Timer.After(0.1, function()
                 if KeyRingButton and KeyRingButton:IsVisible() then
                     KeyRingButton:Show()
-                    if KeyRingButton.SetShown then
-                        KeyRingButton:SetShown(true)
-                    end
                 end
             end)
             -- Принудительное обновление главной панели
@@ -2769,80 +2719,8 @@ function module:UpdateKeyringButton()
     end
 end
 
--- Update page buttons visibility (for real-time settings) - EXACT COPY from original
 function module:UpdatePageButtons()
-    local hidePageButtons = GetSetting('hidePageButtons', false)
-    
-    if hidePageButtons then
-        local pageButtons = {
-            ActionBarUpButton, ActionBarDownButton
-        }
-        for _, button in ipairs(pageButtons) do
-            if button then
-                button:Hide()
-                if button.SetScript then
-                    button:SetScript("OnShow", button.Hide)
-                end
-                -- Принудительно обновляем UI
-                if button.GetParent then
-                    local parent = button:GetParent()
-                    if parent and parent.UpdateVisible then
-                        parent:UpdateVisible()
-                    end
-                end
-            end
-        end
-    else
-        local pageButtons = {
-            ActionBarUpButton, ActionBarDownButton
-        }
-        for _, button in ipairs(pageButtons) do
-            if button then
-                button:Show()
-                if button.SetScript then
-                    button:SetScript("OnShow", nil)
-                end
-                -- Принудительно обновляем UI
-                if button.GetParent then
-                    local parent = button:GetParent()
-                    if parent and parent.UpdateVisible then
-                        parent:UpdateVisible()
-                    end
-                end
-                -- Альтернативный способ показа через SetShown
-                if button.SetShown then
-                    button:SetShown(true)
-                end
-                -- Дополнительная попытка обновления через таймер
-                C_Timer.After(0.1, function()
-                    if button and button:IsVisible() then
-                        button:Show()
-                        if button.SetShown then
-                            button:SetShown(true)
-                        end
-                    end
-                end)
-                -- Принудительное обновление главной панели
-                if MainMenuBar and MainMenuBar.UpdateVisible then
-                    MainMenuBar:UpdateVisible()
-                end
-                -- Попытка обновления через SetAlpha
-                if button.SetAlpha then
-                    button:SetAlpha(1)
-                end
-                -- Попытка обновления через OnUpdate
-                if button.SetScript then
-                    button:SetScript("OnUpdate", function(self, elapsed)
-                        if self:IsVisible() then
-                            self:SetScript("OnUpdate", nil)
-                        else
-                            self:Show()
-                        end
-                    end)
-                end
-            end
-        end
-    end
+    ApplyPageButtonsSettings()
 end
 
 -- Export new functions for real-time updates

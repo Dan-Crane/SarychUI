@@ -150,9 +150,10 @@ function module:SetBarColor(bar, r, g, b)
 	end
 end
 
-function module:PowerRGB(powerType)
-	local c = PowerBarColor and PowerBarColor[powerType]
-	if c then
+function module:PowerRGB(powerType, powerToken)
+	local colors = PowerBarColor
+	local c = colors and ((powerToken and colors[powerToken]) or colors[powerType])
+	if c and c.r then
 		return c.r, c.g, c.b
 	end
 	return 0, 0, 1

@@ -2812,7 +2812,7 @@ E.Options.args.nameplate = {
 											order = 3,
 											type = "toggle",
 											name = L["Include Name"],
-											desc = L["Expand the clickable area upward so hovering/clicking the name above the health bar also targets the unit."],
+											desc = L["Expand the clickable area upward so hovering/clicking the name above the health bar also targets the unit. When enabled, the nameplate shifts slightly downward to compensate for the extra clickable height."],
 										}
 									}
 								},
@@ -2851,7 +2851,7 @@ E.Options.args.nameplate = {
 											order = 3,
 											type = "toggle",
 											name = L["Include Name"],
-											desc = L["Expand the clickable area upward so hovering/clicking the name above the health bar also targets the unit."],
+											desc = L["Expand the clickable area upward so hovering/clicking the name above the health bar also targets the unit. When enabled, the nameplate shifts slightly downward to compensate for the extra clickable height."],
 										}
 									}
 								}

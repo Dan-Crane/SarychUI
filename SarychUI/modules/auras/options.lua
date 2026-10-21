@@ -50,6 +50,72 @@ local function ApplyBuffs()
 	end
 end
 
+local function SeparatePlayerAuras()
+	local db = DB()
+	return db and db.playerAuraPositionMode == "separate"
+end
+
+local PLAYER_AURA_GROWTH_VALUES = {
+	right_to_left = "Справа налево",
+	left_to_right = "Слева направо",
+	__order = { "right_to_left", "left_to_right" },
+}
+
+local function ClosePlayerAuraDragPanel()
+	local panel = SarychUI and (SarychUI.PositionDragPanel or SarychUI.CombatTextDragPanel)
+	if panel and panel.IsOpen and panel:IsOpen() and panel.GetFrameId then
+		local frameId = panel:GetFrameId()
+		if frameId == "buffFrame" or frameId == "debuffFrame" then
+			panel:Close(false)
+		end
+	end
+end
+
+local function TogglePlayerAuraDrag(frameId, dragKey, gridKey)
+	local db = DB()
+	if not db then return end
+	local value = not (db[dragKey] == 1)
+	db[dragKey] = value and 1 or 0
+	db[gridKey] = value and 1 or 0
+	local panel = SarychUI and (SarychUI.PositionDragPanel or SarychUI.CombatTextDragPanel)
+	if panel and panel.Toggle then
+		panel:Toggle(frameId, value)
+	else
+		ApplyBuffs()
+	end
+	RefreshConfig()
+end
+
+local function AuraDefault(key, fallback)
+	local def = SarychUI.defaults and SarychUI.defaults.profile
+		and SarychUI.defaults.profile.modules
+		and SarychUI.defaults.profile.modules.auras
+	if def and def[key] ~= nil then
+		return def[key]
+	end
+	return fallback
+end
+
+local function ResetPlayerAuraDefaults(frameId, xKey, yKey, xFallback, yFallback, growthKey, scaleKey)
+	local db = DB(); if not db then return end
+	local x = AuraDefault(xKey, xFallback)
+	local y = AuraDefault(yKey, yFallback)
+	db[xKey] = x
+	db[yKey] = y
+	if growthKey then
+		db[growthKey] = AuraDefault(growthKey, "right_to_left")
+	end
+	if scaleKey then
+		db[scaleKey] = AuraDefault(scaleKey, 1.0)
+	end
+	local panel = SarychUI and (SarychUI.PositionDragPanel or SarychUI.CombatTextDragPanel)
+	if panel and panel.SyncDraftIfOpen then
+		panel:SyncDraftIfOpen(frameId, x, y)
+	end
+	ApplyBuffs()
+	RefreshConfig()
+end
+
 function module:GetOptions()
 	return {
 		type = "group",
@@ -362,7 +428,7 @@ function module:GetOptions()
 							manageBuffs = {
 								type = "toggle",
 								name = "Включить",
-								desc = "Включить изменение позиции и масштаба фрейма баффов персонажа",
+								desc = "Включить изменение позиции и масштаба бафов и дебафов персонажа.",
 								order = 1,
 								width = "full",
 								suiFullRow = true,
@@ -375,8 +441,11 @@ function module:GetOptions()
 									if value then
 										ApplyBuffs()
 									else
+										ClosePlayerAuraDragPanel()
 										db.showBuffDragFrame = 0
 										db.showBuffGrid = 0
+										db.showDebuffDragFrame = 0
+										db.showDebuffGrid = 0
 										if module.ResetBuffManagement then
 											module:ResetBuffManagement()
 										end
@@ -384,14 +453,43 @@ function module:GetOptions()
 									RefreshConfig()
 								end,
 							},
+							playerAuraPositionMode = {
+								type = "select",
+								name = "Расположение",
+								desc = "Расположить бафы и дебафы одним блоком или настраивать их независимо.",
+								order = 2,
+								width = "full",
+								suiFullRow = true,
+								values = {
+									together = "Вместе",
+									separate = "По отдельности",
+									__order = { "together", "separate" },
+								},
+								hidden = function() return not isOn("manageBuffs") end,
+								get = function()
+									local db = DB()
+									return db and db.playerAuraPositionMode or "together"
+								end,
+								set = function(_, value)
+									local db = DB(); if not db then return end
+									ClosePlayerAuraDragPanel()
+									db.showBuffDragFrame = 0
+									db.showBuffGrid = 0
+									db.showDebuffDragFrame = 0
+									db.showDebuffGrid = 0
+									db.playerAuraPositionMode = value == "separate" and "separate" or "together"
+									ApplyBuffs()
+									RefreshConfig()
+								end,
+							},
 							buffFrameX = {
 								type = "range",
 								name = "Смещение по X",
-								desc = "Горизонтальное смещение фрейма баффов (относительно правого верхнего угла)",
-								min = -2000,
-								max = 2000,
+								desc = "Горизонтальное смещение общего блока аур относительно правого верхнего угла.",
+								min = -5000,
+								max = 5000,
 								step = 1,
-								order = 2,
+								order = 3,
 								get = function()
 									local db = DB()
 									return db and db.buffFrameX or -205
@@ -402,17 +500,17 @@ function module:GetOptions()
 									ApplyBuffs()
 								end,
 								hidden = function()
-									return not isOn("manageBuffs")
+									return not isOn("manageBuffs") or SeparatePlayerAuras()
 								end,
 							},
 							buffFrameY = {
 								type = "range",
 								name = "Смещение по Y",
-								desc = "Вертикальное смещение фрейма баффов (относительно правого верхнего угла)",
-								min = -2000,
-								max = 2000,
+								desc = "Вертикальное смещение общего блока аур относительно правого верхнего угла.",
+								min = -5000,
+								max = 5000,
 								step = 1,
-								order = 3,
+								order = 4,
 								get = function()
 									local db = DB()
 									return db and db.buffFrameY or -13
@@ -423,17 +521,17 @@ function module:GetOptions()
 									ApplyBuffs()
 								end,
 								hidden = function()
-									return not isOn("manageBuffs")
+									return not isOn("manageBuffs") or SeparatePlayerAuras()
 								end,
 							},
 							buffFrameScale = {
 								type = "range",
 								name = "Масштаб",
-								desc = "Масштаб фрейма баффов",
+								desc = "Масштаб общего блока бафов и дебафов.",
 								min = 0.5,
 								max = 2.0,
 								step = 0.05,
-								order = 4,
+								order = 6,
 								width = "full",
 								suiFullRow = true,
 								get = function()
@@ -446,7 +544,28 @@ function module:GetOptions()
 									ApplyBuffs()
 								end,
 								hidden = function()
-									return not isOn("manageBuffs")
+									return not isOn("manageBuffs") or SeparatePlayerAuras()
+								end,
+							},
+							playerAuraGrowthDirection = {
+								type = "select",
+								name = "Направление роста",
+								desc = "В каком направлении добавляются новые бафы и дебафы.",
+								order = 5,
+								width = "full",
+								suiFullRow = true,
+								values = PLAYER_AURA_GROWTH_VALUES,
+								hidden = function()
+									return not isOn("manageBuffs") or SeparatePlayerAuras()
+								end,
+								get = function()
+									local db = DB()
+									return db and db.playerAuraGrowthDirection or "right_to_left"
+								end,
+								set = function(_, value)
+									local db = DB(); if not db then return end
+									db.playerAuraGrowthDirection = value == "left_to_right" and "left_to_right" or "right_to_left"
+									ApplyBuffs()
 								end,
 							},
 							showBuffDragFrame = {
@@ -457,27 +576,135 @@ function module:GetOptions()
 									end
 									return "Свободное перемещение"
 								end,
-								desc = "Показать рамку и окошко для перетаскивания фрейма баффов",
-								order = 5,
+								desc = "Показать рамку для перетаскивания общего блока аур.",
+								order = 7,
 								width = "full",
 								suiFullRow = true,
-								func = function()
-									local db = DB()
-									if not db then return end
-									local val = not (db.showBuffDragFrame == 1)
-									db.showBuffDragFrame = val and 1 or 0
-									db.showBuffGrid = val and 1 or 0
-									local panel = SarychUI and (SarychUI.PositionDragPanel or SarychUI.CombatTextDragPanel)
-									if panel and panel.Toggle then
-										panel:Toggle("buffFrame", val)
-									else
-										ApplyBuffs()
-									end
-									RefreshConfig()
+								func = function() TogglePlayerAuraDrag("buffFrame", "showBuffDragFrame", "showBuffGrid") end,
+								suiResetDefaults = function()
+									ResetPlayerAuraDefaults("buffFrame", "buffFrameX", "buffFrameY", -205, -13, "playerAuraGrowthDirection", "buffFrameScale")
 								end,
 								hidden = function()
-									return not isOn("manageBuffs")
+									return not isOn("manageBuffs") or SeparatePlayerAuras()
 								end,
+							},
+							separateBuffs = {
+								type = "group",
+								name = "Бафы",
+								order = 10,
+								inline = true,
+								suiTwoCol = true,
+								hidden = function() return not isOn("manageBuffs") or not SeparatePlayerAuras() end,
+								args = {
+									buffX = {
+										type = "range", name = "Смещение по X",
+										desc = "Горизонтальное смещение блока бафов.",
+										min = -5000, max = 5000, step = 1, order = 1,
+										get = function() local db = DB(); return db and db.buffFrameX or -205 end,
+										set = function(_, val) local db = DB(); if not db then return end; db.buffFrameX = val; ApplyBuffs() end,
+									},
+									buffY = {
+										type = "range", name = "Смещение по Y",
+										desc = "Вертикальное смещение блока бафов.",
+										min = -5000, max = 5000, step = 1, order = 2,
+										get = function() local db = DB(); return db and db.buffFrameY or -13 end,
+										set = function(_, val) local db = DB(); if not db then return end; db.buffFrameY = val; ApplyBuffs() end,
+									},
+									buffScale = {
+										type = "range", name = "Масштаб",
+										desc = "Масштаб бафов и временных эффектов оружия.",
+										min = 0.5, max = 2.0, step = 0.05, order = 4,
+										width = "full", suiFullRow = true,
+										get = function() local db = DB(); return db and db.buffFrameScale or 1.0 end,
+										set = function(_, val) local db = DB(); if not db then return end; db.buffFrameScale = val; ApplyBuffs() end,
+									},
+									buffGrowthDirection = {
+										type = "select", name = "Направление роста",
+										desc = "В каком направлении добавляются новые бафы.",
+										order = 3, width = "full", suiFullRow = true,
+										values = PLAYER_AURA_GROWTH_VALUES,
+										get = function()
+											local db = DB()
+											return db and db.playerBuffGrowthDirection or "right_to_left"
+										end,
+										set = function(_, value)
+											local db = DB(); if not db then return end
+											db.playerBuffGrowthDirection = value == "left_to_right" and "left_to_right" or "right_to_left"
+											ApplyBuffs()
+										end,
+									},
+									buffDrag = {
+										type = "execute",
+										name = function()
+											return isOn("showBuffDragFrame") and "Свободное перемещение |cff00ff00(вкл)|r" or "Свободное перемещение"
+										end,
+										desc = "Показать рамку для перетаскивания блока бафов.",
+										order = 5, width = "full", suiFullRow = true,
+										func = function() TogglePlayerAuraDrag("buffFrame", "showBuffDragFrame", "showBuffGrid") end,
+										suiResetDefaults = function()
+											ResetPlayerAuraDefaults("buffFrame", "buffFrameX", "buffFrameY", -205, -13, "playerBuffGrowthDirection", "buffFrameScale")
+										end,
+									},
+								},
+							},
+							separateDebuffs = {
+								type = "group",
+								name = "Дебафы",
+								order = 11,
+								inline = true,
+								suiTwoCol = true,
+								hidden = function() return not isOn("manageBuffs") or not SeparatePlayerAuras() end,
+								args = {
+									debuffX = {
+										type = "range", name = "Смещение по X",
+										desc = "Горизонтальное смещение блока дебафов.",
+										min = -5000, max = 5000, step = 1, order = 1,
+										get = function() local db = DB(); return db and db.debuffFrameX or -205 end,
+										set = function(_, val) local db = DB(); if not db then return end; db.debuffFrameX = val; ApplyBuffs() end,
+									},
+									debuffY = {
+										type = "range", name = "Смещение по Y",
+										desc = "Вертикальное смещение блока дебафов.",
+										min = -5000, max = 5000, step = 1, order = 2,
+										get = function() local db = DB(); return db and db.debuffFrameY or -105 end,
+										set = function(_, val) local db = DB(); if not db then return end; db.debuffFrameY = val; ApplyBuffs() end,
+									},
+									debuffScale = {
+										type = "range", name = "Масштаб",
+										desc = "Масштаб дебафов персонажа.",
+										min = 0.5, max = 2.0, step = 0.05, order = 4,
+										width = "full", suiFullRow = true,
+										get = function() local db = DB(); return db and db.debuffFrameScale or 1.0 end,
+										set = function(_, val) local db = DB(); if not db then return end; db.debuffFrameScale = val; ApplyBuffs() end,
+									},
+									debuffGrowthDirection = {
+										type = "select", name = "Направление роста",
+										desc = "В каком направлении добавляются новые дебафы.",
+										order = 3, width = "full", suiFullRow = true,
+										values = PLAYER_AURA_GROWTH_VALUES,
+										get = function()
+											local db = DB()
+											return db and db.playerDebuffGrowthDirection or "right_to_left"
+										end,
+										set = function(_, value)
+											local db = DB(); if not db then return end
+											db.playerDebuffGrowthDirection = value == "left_to_right" and "left_to_right" or "right_to_left"
+											ApplyBuffs()
+										end,
+									},
+									debuffDrag = {
+										type = "execute",
+										name = function()
+											return isOn("showDebuffDragFrame") and "Свободное перемещение |cff00ff00(вкл)|r" or "Свободное перемещение"
+										end,
+										desc = "Показать рамку для перетаскивания блока дебафов.",
+										order = 5, width = "full", suiFullRow = true,
+										func = function() TogglePlayerAuraDrag("debuffFrame", "showDebuffDragFrame", "showDebuffGrid") end,
+										suiResetDefaults = function()
+											ResetPlayerAuraDefaults("debuffFrame", "debuffFrameX", "debuffFrameY", -205, -105, "playerDebuffGrowthDirection", "debuffFrameScale")
+										end,
+									},
+								},
 							},
 						},
 					},

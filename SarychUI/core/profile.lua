@@ -45,7 +45,7 @@ local function overlayProfileTable(base, overlay)
 	return dest
 end
 
-local SARYCH_2K_PRODUCT_DEFAULTS_REV = 9
+local SARYCH_2K_PRODUCT_DEFAULTS_REV = 14
 
 local function resolveBuiltinProfile(name, overlay)
 	overlay = overlay or (SarychUI.BuiltinProfiles and SarychUI.BuiltinProfiles[name])
@@ -66,6 +66,9 @@ function SarychUI:ApplySarych2KProductDefaults(profile)
 
 	profile.modules = profile.modules or {}
 	local modules = profile.modules
+
+	modules.automation = modules.automation or {}
+	modules.automation.enableAutoScreenshot = 0
 
 	modules.map = modules.map or {}
 	modules.map.mapType = "sarychui"
@@ -89,10 +92,17 @@ function SarychUI:ApplySarych2KProductDefaults(profile)
 	modules.chat.classColorMentionsEnabled = 1
 	modules.chat.classColorMentionsChat = 1
 	modules.chat.classColorMentionsSpeech = 1
+	modules.chat.lagBarEnabled = 1
+	modules.chat.lagBarLabelsEnabled = 1
+
+	modules.player_resources = modules.player_resources or {}
+	modules.player_resources.enabled = false
 
 	modules.tools = modules.tools or {}
 	modules.tools.enableTooltipCursor = 1
 	modules.tools.tooltipCursorAltOnly = 1
+	modules.tools.enableEasyGlyph = 1
+	modules.tools.easyGlyphSkipItems = 1
 
 	modules.bags = modules.bags or {}
 	modules.bags.mode = "elvui"
@@ -104,10 +114,24 @@ function SarychUI:ApplySarych2KProductDefaults(profile)
 	if modules.health_indicators.nameplateMode == nil then
 		modules.health_indicators.nameplateMode = "elvui"
 	end
+	if modules.health_indicators.scale == nil then
+		modules.health_indicators.scale = 1
+	end
 
 	modules.frame = modules.frame or {}
 	modules.frame.changeScale = 0
 	modules.frame.nameBackgroundEnabled = 0
+
+	modules.party_abilities = modules.party_abilities or {}
+	modules.party_abilities.layouts = {
+		blizzard = { side = "RIGHT", growth = "RIGHT", x = 2, y = 6, size = 24, spacing = 3, perRow = 5,
+			showBorders = true, cooldownEdge = true },
+		compact = { side = "RIGHT", growth = "RIGHT", x = 6, y = 13, size = 20, spacing = 4, perRow = 5,
+			showBorders = true, cooldownEdge = true },
+	}
+
+	modules.cc = modules.cc or {}
+	modules.cc.partyAbilitiesExempt = true
 
 	profile.addons = profile.addons or {}
 	profile.addons.Carbonite = profile.addons.Carbonite or {}
@@ -122,6 +146,22 @@ function SarychUI:ApplySarych2KProductDefaults(profile)
 	profile.addons.autolos.profiles = profile.addons.autolos.profiles or {}
 	profile.addons.autolos.profiles.elvui = profile.addons.autolos.profiles.elvui or {}
 	profile.addons.autolos.profiles.elvui.anchorToName = true
+
+	profile.addons.pw_lossofcontrol = profile.addons.pw_lossofcontrol or {}
+	local loc = profile.addons.pw_lossofcontrol
+	loc.enabled = true
+	loc.positionX = 0
+	loc.positionY = -16
+	loc.scale = 0.95
+	loc.lineStyle = "thin"
+	loc.displayMode = "multiple"
+	loc.nameFontSize = 18
+	loc.timerFontSize = 15
+	loc.showStuns = true
+	loc.showSilences = true
+	loc.showDisarms = true
+	loc.showRoots = true
+	loc.showOtherControl = true
 
 	profile._suiSarychProductDefaultsRev = SARYCH_2K_PRODUCT_DEFAULTS_REV
 	return true
@@ -1436,18 +1476,30 @@ function SarychUI:CustomizeProfileOptions(profileOpts)
 		end
 	end
 
-	-- Wrap all profile controls in one inline block (same visual style as other sections).
+	-- Two subtabs under Profiles: manage + Transfer (game settings string).
+	profileOpts.childGroups = "tab"
 	profileOpts.args = {
-		profilesBox = {
+		manage = {
 			type = "group",
 			name = "Профили",
 			order = 1,
-			inline = true,
-			suiSelectWithButton = true,
-			suiPanelDecorIcon = [[Interface\PVPFrame\Icons\PVP-Banner-Emblem-93]],
-			args = args,
+			args = {
+				profilesBox = {
+					type = "group",
+					name = "Профили",
+					order = 1,
+					inline = true,
+					suiSelectWithButton = true,
+					suiPanelDecorIcon = [[Interface\PVPFrame\Icons\PVP-Banner-Emblem-93]],
+					args = args,
+				},
+			},
 		},
 	}
+
+	if self.BuildTransferOptions then
+		profileOpts.args.transfer = self:BuildTransferOptions()
+	end
 
 	return profileOpts
 end

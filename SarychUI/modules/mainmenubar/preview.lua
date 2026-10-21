@@ -372,6 +372,7 @@ AppearancePreview._instances = AppearancePreview._instances or {}
 -- Original MainMenuBar is 1024 wide; scale to fit options content.
 local APPEARANCE_SCALE = 0.42
 local BAR_W, BAR_H = 1024, 53
+local BFA_MEDIA = [[Interface\AddOns\SarychUI\media\mainmenubar\bfa\]]
 -- Extra room for EndCaps (128 tall, extend past bar) + shapeshift strip above.
 local CANVAS_W, CANVAS_H = 1216, 180
 
@@ -470,6 +471,29 @@ function AppearancePreview:Create(parent)
 	end
 
 	--------------------------------------------------------------------
+	-- BFA-style replacement artwork.  The 806-wide frame mirrors the
+	-- in-game layout while the outer 1024-wide frame remains the classic
+	-- preview canvas.
+	--------------------------------------------------------------------
+	local bfaArt = CreateFrame("Frame", nil, art)
+	bfaArt:SetSize(806, BAR_H)
+	bfaArt:SetPoint("BOTTOM", art, "BOTTOM", 0, 0)
+	local bfaMain = {
+		MakeTex(bfaArt, "ARTWORK", BFA_MEDIA .. "main_bar_left.blp", 256, 256,
+			"BOTTOM", bfaArt, "BOTTOM", -275, 0),
+		MakeTex(bfaArt, "ARTWORK", BFA_MEDIA .. "main_bar_center.blp", 256, 256,
+			"BOTTOM", bfaArt, "BOTTOM", -19, 0),
+		MakeTex(bfaArt, "ARTWORK", BFA_MEDIA .. "main_bar_right.blp", 256, 256,
+			"BOTTOM", bfaArt, "BOTTOM", 237, 0),
+		MakeTex(bfaArt, "ARTWORK", BFA_MEDIA .. "main_bar_endcap.blp", 256, 256,
+			"BOTTOMRIGHT", bfaArt, "BOTTOMRIGHT", 2, 0),
+	}
+	local bfaTray = MakeTex(
+		art, "BACKGROUND", BFA_MEDIA .. "right_tray.blp", 512, 256,
+		"BOTTOM", art, "BOTTOM", 340, -22
+	)
+
+	--------------------------------------------------------------------
 	-- End caps (gryphons) - UI-MainMenuBar-EndCap-Dwarf
 	--------------------------------------------------------------------
 	local leftCap = MakeTex(
@@ -541,6 +565,7 @@ function AppearancePreview:Create(parent)
 		{ top = 0.75, bottom = 0.96875 },
 	}
 	local maxPrev
+	local maxTextures = {}
 	for i, slice in ipairs(maxSlices) do
 		local tex = maxBar:CreateTexture(nil, "BACKGROUND")
 		tex:SetTexture("Interface\\MainMenuBar\\UI-MainMenuBar-MaxLevel")
@@ -551,6 +576,7 @@ function AppearancePreview:Create(parent)
 		else
 			tex:SetPoint("LEFT", maxPrev, "RIGHT", 0, 0)
 		end
+		maxTextures[i] = tex
 		maxPrev = tex
 	end
 
@@ -610,19 +636,81 @@ function AppearancePreview:Create(parent)
 	emptyNotice:Hide()
 
 	local function Layout()
+		local isBFA = GetSetting("barStyle", "classic") == "bfa"
 		local hideGryphons = GetSetting("hideGryphons", false)
 		local hideBarBg = GetSetting("hideActionBarBackgrounds", false)
+		local hideTray = GetSetting("hideBagMicroMenuBackground", true)
 		local hideSecondary = GetSetting("hideSecondaryPanelsBackgrounds", false)
 		local hideMax = GetSetting("hideMaxLevelBar", false)
 		local hideKeyring = GetSetting("hideKeyringButton", false)
 		local hidePageBtns = GetSetting("hidePageButtons", false)
 		local hidePageNums = GetSetting("hidePageNumbers", false)
 
+		leftCap:ClearAllPoints()
+		rightCap:ClearAllPoints()
+		if isBFA then
+			leftCap:SetSize(115, 115)
+			rightCap:SetSize(115, 115)
+			leftCap:SetPoint("BOTTOM", bfaArt, "BOTTOM", -431, 0)
+			rightCap:SetPoint("BOTTOM", bfaArt, "BOTTOM", 431, 0)
+		else
+			leftCap:SetSize(128, 128)
+			rightCap:SetSize(128, 128)
+			leftCap:SetPoint("BOTTOM", art, "BOTTOM", -544, 0)
+			rightCap:SetPoint("BOTTOM", art, "BOTTOM", 544, 0)
+		end
 		SetShown(leftCap, not hideGryphons)
 		SetShown(rightCap, not hideGryphons)
 
 		for _, tex in ipairs(barTex) do
-			SetShown(tex, not hideBarBg)
+			SetShown(tex, not isBFA and not hideBarBg)
+		end
+		for _, tex in ipairs(bfaMain) do
+			SetShown(tex, isBFA and not hideBarBg)
+		end
+		SetShown(bfaTray, isBFA and not hideTray)
+
+		maxBar:ClearAllPoints()
+		if isBFA then
+			maxBar:SetSize(256, 9)
+			maxBar:SetPoint("CENTER", bfaArt, "CENTER", 109, 11)
+			for index = 1, 3 do
+				local tex = maxTextures[index]
+				tex:ClearAllPoints()
+				tex:SetTexture(BFA_MEDIA .. "max_level_bar.blp")
+				tex:SetSize(256, 7)
+				if index == 2 then
+					tex:SetTexCoord(0, 1, 0.25, 0.46875)
+				else
+					tex:SetTexCoord(0, 1, 0, 0.21875)
+				end
+				if index == 1 then
+					tex:SetPoint("BOTTOM", maxBar, "TOP", -384, 0)
+				else
+					tex:SetPoint("LEFT", maxTextures[index - 1], "RIGHT", 0, 0)
+				end
+			end
+			local cap = maxTextures[4]
+			cap:ClearAllPoints()
+			cap:SetTexture(BFA_MEDIA .. "max_level_bar_alt.blp")
+			cap:SetSize(38, 7)
+			cap:SetTexCoord(0, 38 / 256, 0.5, 0.71875)
+			cap:SetPoint("LEFT", maxTextures[3], "RIGHT", 0, 0)
+		else
+			maxBar:SetSize(BAR_W, 7)
+			maxBar:SetPoint("TOP", art, "TOP", 0, -11)
+			for index, tex in ipairs(maxTextures) do
+				local slice = maxSlices[index]
+				tex:ClearAllPoints()
+				tex:SetTexture("Interface\\MainMenuBar\\UI-MainMenuBar-MaxLevel")
+				tex:SetSize(256, 7)
+				tex:SetTexCoord(0, 1, slice.top, slice.bottom)
+				if index == 1 then
+					tex:SetPoint("BOTTOM", maxBar, "TOP", -384, 0)
+				else
+					tex:SetPoint("LEFT", maxTextures[index - 1], "RIGHT", 0, 0)
+				end
+			end
 		end
 
 		SetShown(secondary, not hideSecondary)
@@ -633,8 +721,9 @@ function AppearancePreview:Create(parent)
 		SetShown(pageDown, not hidePageBtns)
 		SetShown(pageNum, not hidePageNums)
 
-		local allHidden = hideGryphons and hideBarBg and hideSecondary and hideMax
-			and hideKeyring and hidePageBtns and hidePageNums
+		local trayHidden = (not isBFA) or hideTray
+		local allHidden = hideGryphons and hideBarBg and trayHidden and hideSecondary
+			and hideMax and hideKeyring and hidePageBtns and hidePageNums
 		SetShown(emptyNotice, allHidden)
 		SetShown(canvas, not allHidden)
 	end
@@ -721,7 +810,7 @@ function TransparencyPreview:Create(parent)
 	self:ClearStickyHosts()
 
 	local host = CreateFrame("Frame", nil, parent)
-	host:SetHeight(120)
+	host:SetHeight(168)
 	host.spacer = host
 	ApplyPanelBg(host)
 
@@ -760,7 +849,7 @@ function TransparencyPreview:Create(parent)
 	local microWrap = CreateFrame("Frame", nil, stage)
 	-- 10 * 28 + 9 * (-3) = 280 - 27 = 253
 	microWrap:SetSize(253, 58)
-	microWrap:SetPoint("LEFT", actionWrap, "RIGHT", 36, 0)
+	microWrap:SetPoint("TOPLEFT", actionWrap, "TOPRIGHT", 36, 7)
 
 	local microCaption = stage:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 	microCaption:SetPoint("BOTTOM", microWrap, "TOP", 0, 4)
@@ -801,6 +890,55 @@ function TransparencyPreview:Create(parent)
 			btn._portrait = portrait
 		end
 
+		prev = btn
+	end
+
+	--------------------------------------------------------------------
+	-- Bag bar sample: backpack + 4 bag slots
+	--------------------------------------------------------------------
+	local BAG_PREVIEW = {
+		"Interface\\Buttons\\Button-Backpack-Up",
+		"Interface\\Icons\\INV_Misc_Bag_08",
+		"Interface\\Icons\\INV_Misc_Bag_09",
+		"Interface\\Icons\\INV_Misc_Bag_10",
+		"Interface\\Icons\\INV_Misc_Bag_11",
+	}
+	local bagWrap = CreateFrame("Frame", nil, stage)
+	local bagSize, bagGap = 28, 2
+	bagWrap:SetSize(#BAG_PREVIEW * bagSize + (#BAG_PREVIEW - 1) * bagGap, bagSize)
+	bagWrap:SetPoint("TOPLEFT", actionWrap, "BOTTOMLEFT", -6, -18)
+
+	local bagCaption = stage:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+	bagCaption:SetPoint("BOTTOM", bagWrap, "TOP", 0, 4)
+	bagCaption:SetText(Tr("Сумки"))
+	bagCaption:SetTextColor(0.7, 0.7, 0.7)
+
+	local bagButtons = {}
+	prev = nil
+	for i, file in ipairs(BAG_PREVIEW) do
+		local btn = CreateFrame("Frame", nil, bagWrap)
+		btn:SetSize(bagSize, bagSize)
+		if i == 1 then
+			btn:SetPoint("LEFT", bagWrap, "LEFT", 0, 0)
+		else
+			btn:SetPoint("LEFT", prev, "RIGHT", bagGap, 0)
+		end
+
+		local icon = btn:CreateTexture(nil, "ARTWORK")
+		icon:SetTexture(file)
+		icon:SetPoint("TOPLEFT", 2, -2)
+		icon:SetPoint("BOTTOMRIGHT", -2, 2)
+		if i > 1 then
+			icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+		end
+
+		local rim = btn:CreateTexture(nil, "OVERLAY")
+		rim:SetTexture("Interface\\Buttons\\UI-Quickslot2")
+		rim:SetPoint("CENTER")
+		rim:SetSize(bagSize + 14, bagSize + 14)
+		btn._icon = icon
+		btn._rim = rim
+		tinsert(bagButtons, btn)
 		prev = btn
 	end
 
@@ -845,6 +983,17 @@ function TransparencyPreview:Create(parent)
 		local a = microOn and microAlpha or 1
 		for _, tex in ipairs(microTextures) do
 			tex:SetAlpha(a)
+		end
+
+		local bagOn = GetSetting("bagAlphaEnabled", false)
+		local bagAlpha = GetSetting("bagAlpha", 0.95) or 0.95
+		local bagA = bagOn and bagAlpha or 1
+		local rimA = borderOn and (borderAlpha or 0.4) or 1
+		for _, btn in ipairs(bagButtons) do
+			btn:SetAlpha(bagA)
+			if btn._rim then
+				btn._rim:SetAlpha(rimA)
+			end
 		end
 	end
 
@@ -936,8 +1085,9 @@ function BarsPreview:Create(parent)
 		{ x = 128, top = 0.33203125, bottom = 0.5 },
 		{ x = 384, top = 0.08203125, bottom = 0.25 },
 	}
+	local classicArt = {}
 	for _, slice in ipairs(artSlices) do
-		MakeTex(
+		classicArt[#classicArt + 1] = MakeTex(
 			art, "ARTWORK",
 			"Interface\\MainMenuBar\\UI-MainMenuBar-Dwarf",
 			256, 43,
@@ -945,6 +1095,17 @@ function BarsPreview:Create(parent)
 			0, 1, slice.top, slice.bottom
 		)
 	end
+	local bfaBarsArt = CreateFrame("Frame", nil, art)
+	bfaBarsArt:SetSize(806, 43)
+	bfaBarsArt:SetPoint("BOTTOM", art, "BOTTOM", 0, 0)
+	MakeTex(bfaBarsArt, "ARTWORK", BFA_MEDIA .. "main_bar_left.blp", 256, 256,
+		"BOTTOM", bfaBarsArt, "BOTTOM", -275, 0)
+	MakeTex(bfaBarsArt, "ARTWORK", BFA_MEDIA .. "main_bar_center.blp", 256, 256,
+		"BOTTOM", bfaBarsArt, "BOTTOM", -19, 0)
+	MakeTex(bfaBarsArt, "ARTWORK", BFA_MEDIA .. "main_bar_right.blp", 256, 256,
+		"BOTTOM", bfaBarsArt, "BOTTOM", 237, 0)
+	MakeTex(bfaBarsArt, "ARTWORK", BFA_MEDIA .. "main_bar_endcap.blp", 256, 256,
+		"BOTTOMRIGHT", bfaBarsArt, "BOTTOMRIGHT", 2, 0)
 
 	--------------------------------------------------------------------
 	-- MainMenuExpBar - TOP of MainMenuBar, 1024x13
@@ -961,8 +1122,9 @@ function BarsPreview:Create(parent)
 		{ x = 128, top = 0.29296875, bottom = 0.33203125 },
 		{ x = 384, top = 0.04296875, bottom = 0.08203125 },
 	}
+	local xpOverlayTextures = {}
 	for _, slice in ipairs(xpOverlaySlices) do
-		MakeTex(
+		xpOverlayTextures[#xpOverlayTextures + 1] = MakeTex(
 			xpBar, "OVERLAY",
 			"Interface\\MainMenuBar\\UI-MainMenuBar-Dwarf",
 			256, 10,
@@ -994,6 +1156,7 @@ function BarsPreview:Create(parent)
 		{ top = 0.515625, bottom = 0.6875 },
 	}
 	local prevRep
+	local repOverlayTextures = {}
 	for i, slice in ipairs(repOverlay) do
 		local tex = repBar:CreateTexture(nil, "OVERLAY")
 		tex:SetTexture("Interface\\PaperDollInfoFrame\\UI-ReputationWatchBar")
@@ -1004,6 +1167,7 @@ function BarsPreview:Create(parent)
 		else
 			tex:SetPoint("LEFT", prevRep, "RIGHT", 0, 0)
 		end
+		repOverlayTextures[i] = tex
 		prevRep = tex
 	end
 
@@ -1018,8 +1182,26 @@ function BarsPreview:Create(parent)
 	emptyNotice:Hide()
 
 	local function Layout()
+		local isBFA = GetSetting("barStyle", "classic") == "bfa"
 		local hideRep = GetSetting("hideReputationBar", false)
 		local hideXp = GetSetting("hideExperienceBar", false)
+
+		for _, tex in ipairs(classicArt) do
+			SetShown(tex, not isBFA)
+		end
+		SetShown(bfaBarsArt, isBFA)
+		local xpTexture = isBFA
+			and (BFA_MEDIA .. "experience_bar.blp")
+			or "Interface\\MainMenuBar\\UI-MainMenuBar-Dwarf"
+		for _, tex in ipairs(xpOverlayTextures) do
+			tex:SetTexture(xpTexture)
+		end
+		local repTexture = isBFA
+			and (BFA_MEDIA .. "reputation_bar.blp")
+			or "Interface\\PaperDollInfoFrame\\UI-ReputationWatchBar"
+		for _, tex in ipairs(repOverlayTextures) do
+			tex:SetTexture(repTexture)
+		end
 
 		SetShown(repBar, not hideRep)
 		SetShown(xpBar, not hideXp)

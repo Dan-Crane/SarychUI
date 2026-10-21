@@ -427,7 +427,7 @@ local function BuildSpells()
 					enabled = {
 						type = "toggle",
 						name = L and (L["Enabled"] or "Включить") or "Включить",
-						desc = L and (L["Show this spell on nameplates"] or "Показывать это заклинание на неймплейтах") or "Показывать это заклинание на неймплейтах",
+						desc = L and (L["Show this spell on nameplates"] or "Показывать это заклинание на неймплейтах. Все ранги с тем же названием тоже учитываются.") or "Показывать это заклинание на неймплейтах. Все ранги с тем же названием тоже учитываются.",
 						width = "normal",
 						order = 1,
 						get = function()
@@ -1726,7 +1726,7 @@ function module:GetOptions()
 									spellID = {
 										type = "input",
 										name = "ID",
-										desc = "ID заклинания",
+										desc = L and (L["Spell ID All Ranks Desc"] or "ID заклинания. Остальные ранги с тем же названием подхватываются автоматически.") or "ID заклинания. Остальные ранги с тем же названием подхватываются автоматически.",
 										order = 2,
 										suiSaveButton = "Добавить",
 										get = function() return spellIDToAdd end,

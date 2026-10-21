@@ -22,6 +22,7 @@ local InCombatLockdown = InCombatLockdown
 local IsInInstance = IsInInstance
 local SetCVar = SetCVar
 local UnitClass = UnitClass
+local UnitDetailedThreatSituation = UnitDetailedThreatSituation
 local UnitExists = UnitExists
 local UnitFactionGroup = UnitFactionGroup
 local UnitGUID = UnitGUID
@@ -280,20 +281,42 @@ function NP:UnitClass(frame, unitType)
 end
 
 function NP:UnitDetailedThreatSituation(frame)
+	-- Prefer the real threat API when this plate has a unit token (Awesome,
+	-- target, mouseover). The default threat glow often hides again when you
+	-- take aggro back, so a glow-only read stays stuck on the "safe" color.
+	local unit = frame.unit
+	if not (unit and UnitExists(unit)) then
+		if frame.isTarget and UnitExists("target") then
+			unit = "target"
+		elseif frame.isMouseover and UnitExists("mouseover") then
+			unit = "mouseover"
+		end
+	end
+	if unit and UnitExists(unit) and UnitDetailedThreatSituation then
+		local _, status = UnitDetailedThreatSituation("player", unit)
+		return status
+	end
+
 	if not frame.Threat:IsShown() then
 		if frame.UnitType == "ENEMY_NPC" then
 			local r, g = frame.oldName:GetTextColor()
-			return (r > 0.5 and g < 0.5) and 0 or nil
-		end
-	else
-		local r, g, b = frame.Threat:GetVertexColor()
-		if r > 0 then
-			if g > 0 then
-				if b > 0 then return 1 end
-				return 2
+			-- WotLK: red name + no glow = the mob is attacking you (aggro).
+			-- The previous "return 0" treated that as safe, so pulling aggro
+			-- back from a pet never restored the bad/threat color.
+			if r and g and r > 0.5 and g < 0.5 then
+				return 3
 			end
-			return 3
 		end
+		return nil
+	end
+
+	local r, g, b = frame.Threat:GetVertexColor()
+	if r > 0 then
+		if g > 0 then
+			if b > 0 then return 1 end
+			return 2
+		end
+		return 3
 	end
 end
 
@@ -701,10 +724,10 @@ function NP:GetClickableNamePad(unitFrame)
 
 	local fontSize = nameDB.fontSize or self.db.fontSize or 11
 	local yOffset = nameDB.yOffset or 0
+	-- Only the unit-type health toggle counts. alwaysShowTargetHealth must not
+	-- change the pad on click: that resized/shifted the bar away from the
+	-- name-only nickname (original ElvUI keeps the bar where the name was).
 	local healthEnabled = unitDB.health and unitDB.health.enable
-	if not healthEnabled and self.db.alwaysShowTargetHealth and unitFrame.isTarget then
-		healthEnabled = true
-	end
 
 	if healthEnabled then
 		local position = nameDB.position or ""

@@ -138,6 +138,54 @@ local function ToggleFrameDrag(frameId, enabled)
     ApplyPositionDrag()
 end
 
+local function FrameDefault(key, fallback)
+	local d = SarychUI.defaults and SarychUI.defaults.profile.modules.frame
+	if d and d[key] ~= nil then
+		return d[key]
+	end
+	return fallback
+end
+
+-- Move only this unit frame — other "По умолчанию" buttons stay put.
+local function ApplyOneFramePos(frame, frameId, x, y)
+	if not frame or (InCombatLockdown and InCombatLockdown()) then
+		return
+	end
+	if SarychUI.DragMode then
+		local data = SarychUI.DragMode:GetFrameData(frameId)
+		if data then
+			data.justDragged = false
+			data.isMoving = false
+		end
+	end
+	if SarychUI.DragMode and SarychUI.DragMode.SetFramePosition then
+		SarychUI.DragMode:SetFramePosition(frameId, "CENTER", "CENTER", x, y)
+		return
+	end
+	local data = SarychUI.DragMode and SarychUI.DragMode:GetFrameData(frameId)
+	local setPoint = (data and data.originalSetPoint) or frame.SetPoint
+	frame:ClearAllPoints()
+	setPoint(frame, "CENTER", UIParent, "CENTER", x, y)
+end
+
+local function ResetFramePos(xKey, yKey, xFallback, yFallback, frameId, frame)
+	local db = FrameDB()
+	if not db then return end
+	local x = FrameDefault(xKey, xFallback)
+	local y = FrameDefault(yKey, yFallback)
+	db[xKey] = x
+	db[yKey] = y
+	local panel = SarychUI and (SarychUI.PositionDragPanel or SarychUI.CombatTextDragPanel)
+	if not (panel and panel.SyncDraftIfOpen and panel:SyncDraftIfOpen(frameId, x, y)) then
+		ApplyOneFramePos(frame or _G[frameId], frameId, x, y)
+	end
+	if SarychUI.SyncOpenOptionsValues then
+		SarychUI:SyncOpenOptionsValues()
+	else
+		RefreshConfig()
+	end
+end
+
 local function NotifyCombatPreview(key, value)
     local preview = SarychUI and SarychUI.CombatIndicatorPreview
     if not preview then return end
@@ -311,6 +359,9 @@ function module:GetOptions()
                                     ToggleFrameDrag("playerFrame", val)
                                     RefreshConfig()
                                 end,
+                                suiResetDefaults = function()
+                                    ResetFramePos("playerFrameX", "playerFrameY", -514, 200, "playerFrame", PlayerFrame)
+                                end,
                             },
                         },
                     },
@@ -377,6 +428,9 @@ function module:GetOptions()
                                     end
                                     ToggleFrameDrag("targetFrame", val)
                                     RefreshConfig()
+                                end,
+                                suiResetDefaults = function()
+                                    ResetFramePos("targetFrameX", "targetFrameY", -240, 200, "targetFrame", TargetFrame)
                                 end,
                             },
                         },
@@ -445,6 +499,9 @@ function module:GetOptions()
                                     ToggleFrameDrag("focusFrame", val)
                                     RefreshConfig()
                                 end,
+                                suiResetDefaults = function()
+                                    ResetFramePos("focusFrameX", "focusFrameY", 350, -150, "focusFrame", FocusFrame)
+                                end,
                             },
                         },
                     },
@@ -458,7 +515,7 @@ function module:GetOptions()
                             change_scale = {
                                 type = "toggle",
                                 name = "Включить",
-                                desc = "Разрешить изменение масштаба фреймов игрока, цели и фокуса",
+                                desc = "Разрешить изменение масштаба фреймов игрока (включая питомца), цели и фокуса",
                                 order = 1,
                                 width = "full",
                                 get = function() return isOn("changeScale") end,
@@ -477,7 +534,7 @@ function module:GetOptions()
                             frame_scale = {
                                 type = "range",
                                 name = "Масштаб",
-                                desc = "Масштаб фреймов (0.5 = 50%, 1.0 = 100%, 2.0 = 200%)",
+                                desc = "Масштаб фреймов игрока, питомца, цели и фокуса (0.5 = 50%, 1.0 = 100%, 2.0 = 200%). Фрейм питомца масштабируется вместе с фреймом игрока.",
                                 min = 0.5, max = 2.0, step = 0.05,
                                 order = 2,
                                 width = "full",
@@ -1099,6 +1156,27 @@ function module:GetOptions()
                                             if not db then return end
                                             db.playerClassColorHP = value and true or false
                                             RefreshUnitFrameLayersHealthColors()
+                                        end,
+                                    },
+                                },
+                            },
+							leaderIconBox = {
+                                type = "group",
+                                name = "Иконка лидера",
+                                order = 1.25,
+                                inline = true,
+                                args = {
+                                    hide_leader_icon = {
+                                        type = "toggle",
+                                        name = "Скрыть иконку лидера",
+                                        desc = "Скрывает корону лидера и значок гида на рамках игрока, цели, фокуса и группы.",
+                                        order = 1,
+                                        width = "full",
+                                        suiPreviewKey = "hideLeaderIcon",
+                                        get = function() return SarychUI.db.profile.modules.frame.hideLeaderIcon == 1 end,
+                                        set = function(_, v)
+                                            SarychUI.db.profile.modules.frame.hideLeaderIcon = v and 1 or 0
+                                            ApplyFrameSettings()
                                         end,
                                     },
                                 },

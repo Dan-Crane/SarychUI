@@ -187,6 +187,7 @@ local typedkeys = {
 		control = optstring,
 		dialogControl = optstring,
 		dropdownControl = optstring,
+		suiResetDefaults = { ["nil"] = true, ["function"] = true, _ = "funcref" },
 	},
 	input = {
 		pattern = optstring,

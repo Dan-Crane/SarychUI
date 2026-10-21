@@ -1,7 +1,6 @@
 -- SarychUI Arena Module Options
 
 local moduleName = "arena"
-local GLADIUS_ADDON = "GladiusEx"
 local L = SarychUI.L
 local ACR = LibStub and LibStub("AceConfigRegistry-3.0", true)
 local originalEnabledSnapshot = nil
@@ -9,20 +8,6 @@ local originalEnabledSnapshot = nil
 -- Get module
 local module = SarychUI and SarychUI.modules and SarychUI.modules[moduleName]
 if not module then return end
-
-local function GetWrapper()
-	return SarychUI.GetAddOn and SarychUI:GetAddOn(GLADIUS_ADDON)
-end
-
-local function ShowReloadPopup(onCancel)
-	if SarychUI and SarychUI.ShowReloadPopup then
-		SarychUI:ShowReloadPopup(nil, onCancel)
-		return
-	end
-	if StaticPopup_Show then
-		StaticPopup_Show("SARYCHUI_RELOAD_UI")
-	end
-end
 
 local function RefreshArenaOptions()
 	if SarychUI and SarychUI.NotifySarychUIOptionsChange then
@@ -52,17 +37,6 @@ local function NotifyArenaPreview(key, value, clear)
 	end
 end
 
-local function IsGladiusExMode()
-	if module.IsGladiusExMode then
-		return module:IsGladiusExMode()
-	end
-	if SarychUI.IsAddOnEnabled then
-		return SarychUI:IsAddOnEnabled(GLADIUS_ADDON)
-	end
-	local addons = SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.addons
-	return addons and addons[GLADIUS_ADDON] and addons[GLADIUS_ADDON].enabled == true
-end
-
 local function IsAwesomeWotlkDetected()
 	local compat = SarychUI and SarychUI.Compatibility
 	if not compat then
@@ -80,35 +54,6 @@ end
 local function GetDB()
 	local root = SarychUI and SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.modules
 	return root and root[moduleName]
-end
-
-local function SetGladiusExRuntime(enable)
-	if SarychUI.SetArenaMode then
-		SarychUI:SetArenaMode(enable and "gladiusex" or "classic")
-		return
-	end
-
-	local wrapper = GetWrapper()
-	if wrapper and wrapper.SetRuntimeEnabled then
-		wrapper:SetRuntimeEnabled(enable)
-	else
-		if enable then
-			SarychUI:EnableAddOn(GLADIUS_ADDON)
-		else
-			SarychUI:DisableAddOn(GLADIUS_ADDON)
-		end
-	end
-
-	local db = GetDB()
-	if db then
-		db.frameType = enable and "gladiusex" or "classic"
-	end
-end
-
--- Helper
-local function ToggleModule(enabled)
-	local db = GetDB(); if not db then return end
-	db.enabled = enabled and true or false
 end
 
 -- Options table
@@ -137,9 +82,6 @@ function module:GetOptions()
 						desc = "Включить или выключить модуль",
 						order = 1,
 						width = "full",
-						disabled = function()
-							return IsGladiusExMode()
-						end,
 						get = function()
 							local db = GetDB()
 							return db and db.enabled or false
@@ -165,77 +107,12 @@ function module:GetOptions()
 							return current == (originalEnabled and true or false)
 						end,
 					},
-					typeRow = {
-						type = "group",
-						name = L and (L["Arena Frame Type"] or "Тип фреймов арены") or "Тип фреймов арены",
-						order = 2,
-						inline = true,
-						suiSelectWithButton = true,
-						args = {
-							frameType = {
-								type = "select",
-								name = "",
-								desc = L and (L["Arena Frame Type Desc"] or "GladiusEx - встроенные фреймы GladiusEx. Классические WoW - стандартный модуль арены SarychUI.") or "GladiusEx - встроенные фреймы GladiusEx. Классические WoW - стандартный модуль арены SarychUI.",
-								order = 1,
-								values = {
-									classic = L and (L["Classic WoW Arena Frames"] or "Классические WoW") or "Классические WoW",
-									gladiusex = "GladiusEx",
-								},
-								get = function()
-									return IsGladiusExMode() and "gladiusex" or "classic"
-								end,
-								set = function(_, value)
-									local enable = (value == "gladiusex")
-									local previous = IsGladiusExMode()
-									if enable == previous then return end
-									SetGladiusExRuntime(enable)
-									RefreshArenaOptions()
-									ShowReloadPopup(function()
-										SetGladiusExRuntime(previous)
-										RefreshArenaOptions()
-									end)
-								end,
-							},
-							openSettings = {
-								type = "execute",
-								name = "Настройки",
-								desc = function()
-									if IsGladiusExMode() then
-										return L and (L["Open GladiusEx Settings Desc"] or "Открыть окно настроек GladiusEx (/gex ui).") or "Открыть окно настроек GladiusEx (/gex ui)."
-									end
-									return "Открыть настройки классических фреймов арены."
-								end,
-								order = 2,
-								func = function()
-									if IsGladiusExMode() then
-										if SarychUI and SarychUI.OpenGladiusExConfig then
-											SarychUI:OpenGladiusExConfig()
-										else
-											SarychUI:Print("OpenGladiusExConfig missing (options.lua not loaded?)")
-										end
-										return
-									end
-									local OC = SarychUI and SarychUI.OptionsCore
-									if OC and OC.SelectTab then
-										OC:SelectTab("appearance")
-									end
-								end,
-							},
-						},
-					},
-					modeHint = {
-						type = "description",
-						name = "|cFFFFD700Внимание:|r После применения потребуется перезагрузка интерфейса.",
-						order = 3,
-						width = "full",
-					},
 					useAwesomeWotlk = {
 						type = "group",
 						name = "Использовать AwesomeWotlk",
 						order = 4,
 						inline = true,
 						hidden = function()
-							if IsGladiusExMode() then return true end
 							local db = GetDB()
 							return not (db and db.enabled)
 						end,
@@ -287,7 +164,6 @@ function module:GetOptions()
 						order = 5,
 						width = "full",
 						hidden = function()
-							if IsGladiusExMode() then return true end
 							local db = GetDB()
 							return not (db and db.enabled)
 						end,
@@ -295,14 +171,11 @@ function module:GetOptions()
 				},
 			},
 			
-			-- Settings tab (classic arena only)
+			-- Arena settings
 			appearance = {
 				type = "group",
 				name = "Настройки",
 				order = 2,
-				hidden = function()
-					return IsGladiusExMode()
-				end,
 				disabled = function()
 					local db = GetDB()
 					return not (db and db.enabled)
@@ -410,6 +283,7 @@ function module:GetOptions()
 								desc = "Показать зелёную рамку для перетаскивания контейнера арены",
 								order = 1,
 								width = "full",
+								suiFullRow = true,
 								func = function()
 									local db = GetDB()
 									if not db then return end
@@ -418,6 +292,17 @@ function module:GetOptions()
 									if val and db.showGrid ~= 1 then
 										db.showGrid = 1
 									end
+									local m = SarychUI.modules[moduleName]
+									if m and m.ApplySettings then
+										m:ApplySettings()
+									end
+									RefreshArenaOptions()
+								end,
+								suiResetDefaults = function()
+									local db = GetDB(); if not db then return end
+									local def = SarychUI.defaults and SarychUI.defaults.profile.modules.arena
+									db.arenaX = (def and def.arenaX) or -311
+									db.arenaY = (def and def.arenaY) or 131
 									local m = SarychUI.modules[moduleName]
 									if m and m.ApplySettings then
 										m:ApplySettings()
@@ -554,6 +439,7 @@ function module:GetOptions()
 									if m and m.ApplySettings then
 										m:ApplySettings()
 									end
+									if m and m.Trinkets then m.Trinkets:RefreshIcons() end
 									NotifyArenaPreview("trinketEnabled", value and true or false)
 								end,
 							},
@@ -576,6 +462,7 @@ function module:GetOptions()
 									if m and m.ApplySettings then
 										m:ApplySettings()
 									end
+									if m and m.Trinkets then m.Trinkets:RefreshIcons() end
 									NotifyArenaPreview("racialEnabled", value and true or false)
 								end,
 							},
@@ -602,6 +489,7 @@ function module:GetOptions()
 									if m and m.ApplySettings then
 										m:ApplySettings()
 									end
+									if m and m.Trinkets then m.Trinkets:RefreshIcons() end
 									NotifyArenaPreview("trinketsScale", nil, true)
 								end,
 							},
@@ -685,7 +573,7 @@ function module:GetOptions()
 							arenaNumbersArenaFrames = {
 								type = "toggle",
 								name = "Заменять на арена-фреймах",
-								desc = "На арене заменяет имена на номера в стандартных арена-фреймах и во встроенном GladiusEx.",
+									desc = "На арене заменяет имена на номера в стандартных арена-фреймах.",
 								order = 3,
 								width = "full",
 								suiPreviewKey = "arenaNumbersArenaFrames",

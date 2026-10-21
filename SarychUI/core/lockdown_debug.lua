@@ -77,6 +77,77 @@ local function PrintStack(skip)
 	end
 end
 
+-- The forbidden-action stack shows where protected execution stopped, not
+-- where its taint first entered. Inspect the globals and the clicked action
+-- button separately so the next report can identify which path is dirty.
+local function PrintSecuritySnapshot()
+	if type(issecurevariable) ~= "function" then return end
+
+	local function Check(object, field, label)
+		if not object then return false end
+		local ok, secure, source = pcall(issecurevariable, object, field)
+		if ok and secure == false then
+			Chat(PREFIX .. " taint " .. label .. " = " .. tostring(source or "?"))
+			return true
+		end
+		return false
+	end
+
+	local dirty = false
+	for _, name in ipairs({
+		"CreateFrame", "UseAction", "CastSpellByName", "ActionButton_CalculateAction",
+		"ChatEdit_SendText", "ChatEdit_ParseText", "SecureCmdOptionParse",
+		"GetItemInfo", "GetMacroInfo", "MacroFrame_SaveMacro",
+		"GetActionInfo", "MacroEditBox", "SecureCmdList",
+	}) do
+		if Check(_G, name, name) then dirty = true end
+	end
+	if Check(_G.SecureCmdList, "CASTSEQUENCE", "SecureCmdList.CASTSEQUENCE") then dirty = true end
+	if Check(_G.SecureCmdList, "CAST", "SecureCmdList.CAST") then dirty = true end
+	local macroEditBox = _G.MacroEditBox
+	if macroEditBox then
+		for _, field in ipairs({ "SetText", "GetText", "SetAttribute", "GetAttribute" }) do
+			if Check(macroEditBox, field, "MacroEditBox." .. field) then dirty = true end
+		end
+	end
+
+	local focus = GetMouseFocus and GetMouseFocus()
+	if focus then
+		local name = focus.GetName and focus:GetName() or "<без имени>"
+		Chat(PREFIX .. " под курсором: " .. tostring(name))
+	end
+
+	local prefixes = {
+		"ActionButton", "MultiBarBottomLeftButton", "MultiBarBottomRightButton",
+		"MultiBarLeftButton", "MultiBarRightButton", "BonusActionButton",
+	}
+	local shown = 0
+	for _, prefix in ipairs(prefixes) do
+		for i = 1, 12 do
+			local name = prefix .. i
+			local button = _G[name]
+			if button then
+				for _, field in ipairs({
+					"action", "buttonType", "isBonus", "alwaysBonus",
+					"SetNormalTexture", "eventsRegistered", "rangeTimer",
+					"feedback_action", "UpdateTooltip",
+				}) do
+					local ok, secure, source = pcall(issecurevariable, button, field)
+					if ok and secure == false then
+						dirty = true
+						if shown < 12 then
+							Chat(PREFIX .. " taint " .. name .. "." .. field .. " = " .. tostring(source or "?"))
+							shown = shown + 1
+						end
+					end
+				end
+			end
+		end
+	end
+	if shown == 12 then Chat(PREFIX .. " показаны первые 12 заражённых полей кнопок") end
+	if not dirty then Chat(PREFIX .. " проверенные глобальные функции и поля кнопок чисты") end
+end
+
 local function PrintLockdown(source, addon, func, extra)
 	if not IsEnabled() then
 		return
@@ -108,6 +179,9 @@ local function PrintLockdown(source, addon, func, extra)
 		Chat(PREFIX .. " " .. extra)
 	end
 	PrintStack(4)
+	if source == "ADDON_ACTION_FORBIDDEN" and func == "CastSpellByName()" then
+		PrintSecuritySnapshot()
+	end
 end
 
 local watcher = CreateFrame("Frame")

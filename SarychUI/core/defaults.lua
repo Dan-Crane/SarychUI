@@ -135,6 +135,7 @@ SarychUI.defaults = {
 			speedyLoadPostGC = true,
 			speedyLoadRefreshUI = true,
 			lockdownErrorSearch = false,
+			allowOptionsInCombat = false,
 			runtime = {
 				enabled = true,
 				gcEnabled = true,
@@ -157,6 +158,19 @@ SarychUI.defaults = {
 		
 		-- Module settings
 		modules = {
+			party_abilities = {
+				enabled = true,
+				displayMode = "all",
+				contexts = { arena = true, group = true, raid = false },
+				seeded = false,
+				spells = {},
+				layouts = {
+					blizzard = { side = "RIGHT", growth = "RIGHT", x = 2, y = 6, size = 24, spacing = 3, perRow = 5,
+						showBorders = true, cooldownEdge = true },
+					compact = { side = "RIGHT", growth = "RIGHT", x = 6, y = 13, size = 20, spacing = 4, perRow = 5,
+						showBorders = true, cooldownEdge = true },
+				},
+			},
             -- Arena module
             arena = {
                 enabled = true,
@@ -214,7 +228,6 @@ SarychUI.defaults = {
                 enableAltCD = 1,
                 enableAltUnitBars = 1,
                 enableAltAuras = 1,
-                enableAltOmniCD = 0,
                 -- Per-place Alt announce channel: adaptive | say | party | raid | battleground | guild | yell
                 altAnnounceChannelBG = "say",
                 altAnnounceChannelArena = "adaptive",
@@ -265,9 +278,12 @@ SarychUI.defaults = {
 				-- DarkMode
 				enableDarkMode = 0,
 				darkModeColor = {r = 0.37, g = 0.37, b = 0.37, a = 1},
+				darkModeSkipPlayerAuras = 0,
 
-				-- Double-tap action keys (RougeUI KeyEcho)
-				enableKeyEcho = 0,
+				-- EasyGlyph (custom glyph icons in glyph UI, bags, vendors)
+				enableEasyGlyph = 1,
+				easyGlyphSkipItems = 1,
+
 				-- Class-colored names on the PvP scoreboard (RougeUI ScoreBoard)
 				enablePvpScoreboardClassNames = 0,
 
@@ -285,6 +301,7 @@ SarychUI.defaults = {
             health_indicators = {
                 enabled = true,
                 nameplateMode = "elvui",
+                scale = 1,
             },
 
             -- Loot coordination (pretty_lootalert via mode; LootClicker/LootHistory independent)
@@ -469,13 +486,33 @@ SarychUI.defaults = {
 				minScale = 0.5,
 				minDuration = 3,
 				minIconSize = 23,
-				-- Timers (moved from tools)
+				partyAbilitiesExempt = true,
+				-- Invite / arena countdown (castbar timers live under modules.castbar)
+				enableInviteCountdown = 1,
+				enableArenaCountdown = 1,
+			},
+
+			-- Castbar (classic Blizzard or Dragonflight artwork)
+			castbar = {
+				enabled = true,
+				-- classic | dragonflight (requires /reload when changed)
+				barStyle = "classic",
+				scale = 1,
+				showPlayerIcon = false,
+				showPlayerIconCooldown = true,
+				playerTimerOffsetX = 0,
+				playerTimerOffsetY = 0,
 				enableCastbarTimers = 1,
 				enableCastbarPlayer = 1,
 				enableCastbarTarget = 1,
 				enableCastbarFocus = 1,
-				enableInviteCountdown = 1,
-				enableArenaCountdown = 1,
+				enableCastbarTicks = 1,
+				enableCastbarTicksPlayer = 1,
+				enableCastbarTicksTarget = 1,
+				enableCastbarTicksFocus = 1,
+				castbarTickColor = { r = 1, g = 1, b = 1, a = 0.90 },
+				castbarTickWidth = 2,
+				castbarTickHaste = 0,
 			},
 
 			-- Floating text filter (moved from tools)
@@ -522,58 +559,8 @@ SarychUI.defaults = {
 			-- Main Menu Bar module
 			mainmenubar = {
 				enabled = true,
-
-				-- "classic" = Blizzard bars + SarychUI tweaks; "frostatom" = FrostAtomUI bars (ported).
-				barMode = "classic",
-
-				-- FrostAtomUI action bars (used when barMode == "frostatom").
-				-- Layout copied from a live profile; first-run still boots classic bars.
-				frostatom = {
-					experienceBar = {
-						enabled = true,
-						point = "TOP",
-						relativePoint = "TOP",
-						x = 0,
-						y = 0,
-						width = 456,
-						height = 5,
-						showReputation = true,
-						xpColor = { 0.58, 0, 0.55, 1 },
-						restedColor = { 0, 0.39, 0.88, 0.6 },
-						backgroundAlpha = 0.6,
-					},
-					bar1 = { enabled = true, point = "BOTTOM", relativePoint = "BOTTOM", x = 0, y = 32, buttons = 12, columns = 12, buttonSize = 38, spacing = 6, mouseover = false, combat = "any", fadeAlpha = 0.1 },
-					bar2 = { enabled = false, point = "BOTTOM", relativePoint = "BOTTOM", x = 0, y = 216, buttons = 12, columns = 12, buttonSize = 38, spacing = 6, mouseover = false, combat = "any", fadeAlpha = 0.1 },
-					bar3 = { enabled = false, point = "BOTTOM", relativePoint = "BOTTOM", x = 0, y = 260, buttons = 12, columns = 12, buttonSize = 38, spacing = 6, mouseover = false, combat = "any", fadeAlpha = 0.1 },
-					bar4 = { enabled = false, point = "BOTTOM", relativePoint = "BOTTOM", x = 0, y = 304, buttons = 12, columns = 12, buttonSize = 38, spacing = 6, mouseover = false, combat = "any", fadeAlpha = 0.1 },
-					bar5 = { enabled = true, point = "BOTTOM", relativePoint = "BOTTOM", x = 0, y = 120, buttons = 12, columns = 12, buttonSize = 38, spacing = 6, mouseover = false, combat = "any", fadeAlpha = 0.1 },
-					bar6 = { enabled = true, point = "RIGHT", relativePoint = "RIGHT", x = -662, y = -424, buttons = 12, columns = 12, buttonSize = 38, spacing = 6, mouseover = false, combat = "any", fadeAlpha = 0.1 },
-					extraBars = {},
-					stance = { point = "BOTTOMLEFT", relativePoint = "BOTTOM", x = -230, y = 166, columns = 10, buttonSize = 30, spacing = 2, mouseover = false, combat = "any", fadeAlpha = 0.1 },
-					pet = { point = "BOTTOM", relativePoint = "BOTTOM", x = 68, y = 116, columns = 10, buttonSize = 30, spacing = 2, mouseover = false, combat = "any", fadeAlpha = 0.1 },
-					vehicleExit = { point = "BOTTOM", relativePoint = "BOTTOM", x = 250, y = 116, buttonSize = 32 },
-					totemBar = { enabled = true, point = "BOTTOM", relativePoint = "BOTTOM", x = -150, y = 154, columns = 6, buttonSize = 30, spacing = 2, mouseover = false, combat = "any", fadeAlpha = 0.1, flyoutButtonSize = 24, flyoutSpacing = 2, flyoutRows = 10 },
-					microMenu = { point = "BOTTOMRIGHT", relativePoint = "BOTTOMRIGHT", x = -45, y = 3 },
-					microMenuScale = 1,
-					microMenuMouseover = false,
-					microMenuCombat = "any",
-					bagButton = { point = "BOTTOMRIGHT", relativePoint = "BOTTOMRIGHT", x = -10, y = 5 },
-					-- Extras vs live Blizzard CastingBarFrame (menuBarTop + 40).
-					playerCastbar = { point = "BOTTOM", relativePoint = "BOTTOM", x = 0, y = 0 },
-					bagButtonMouseover = false,
-					bagButtonCombat = "any",
-					showKeyRing = false,
-					menuFadeAlpha = 0.1,
-					hideEmptyButtons = true,
-					dragButton = "LeftButton",
-					dragModifier = "shift",
-					rangeColor = { 1, 0, 0 },
-					manaColor = { 0.5, 0.5, 1 },
-					unusableColor = { 0.4, 0.4, 0.4 },
-					rangeIconTint = true,
-					rangeHotkey = true,
-					desaturateOnCooldown = false,
-				},
+				-- classic | bfa (requires /reload when changed)
+				barStyle = "classic",
 				
 				-- Hotkey settings
 				hideHotkeysEnabled = true,
@@ -600,6 +587,7 @@ SarychUI.defaults = {
 				-- Appearance settings
 				hideGryphons = true,
 				hideActionBarBackgrounds = true,
+				hideBagMicroMenuBackground = true,
 				hideSecondaryPanelsBackgrounds = true,
 				hideMaxLevelBar = true,
 				hideKeyringButton = true,
@@ -615,6 +603,8 @@ SarychUI.defaults = {
 				buttonBorderAlpha = 0.4,
 				microMenuAlphaEnabled = true,
 				microMenuAlpha = 0.95,
+				bagAlphaEnabled = true,
+				bagAlpha = 0.95,
 				-- classic | dragonflight (только текстуры микроменю)
 				microMenuStyle = "dragonflight",
 				-- DF only: hide latency pip while green; show on yellow/red
@@ -637,7 +627,7 @@ SarychUI.defaults = {
 
 			-- Player resources (FrostAtomUI: Player plate / runes / totems / shield)
 			player_resources = {
-				enabled = true,
+				enabled = false,
 				plate = {
 					enabled = 1,
 					alwaysShow = 0,
@@ -734,6 +724,7 @@ SarychUI.defaults = {
 				hideClock = 0,
 				hideTracking = 1,
 				hideCalendar = 1,
+				hideInstanceDifficulty = 0,
 				moveZoneText = 1,
 				zoneTextOffsetX = 0,
 				zoneTextOffsetY = 4,
@@ -756,6 +747,10 @@ SarychUI.defaults = {
 				wheelEnabled = 1,
 				-- Play Blizzard minimap zoom button sound on mouse wheel (FrostAtomUI)
 				wheelZoomSound = 1,
+				minimapVisibility = {
+					enabled = 0,
+					key = nil,
+				},
 			},
 			
 			-- Frame module
@@ -818,6 +813,7 @@ SarychUI.defaults = {
 				pvpTimerOnAlt = 1,
 				hideFrameLevel = 0,
 				hidePlayerRestState = 0,
+				hideLeaderIcon = 0,
 				classColoredNames = 0,
 				classColoredNamesExcludePlayer = 0,
 				nameBackgroundEnabled = 0,
@@ -858,6 +854,10 @@ SarychUI.defaults = {
 				hideTargetOfTargetAuras = 1,
 				enableDispelHighlight = 1,
 				manageBuffs = 0,
+				playerAuraPositionMode = "together",
+				playerAuraGrowthDirection = "right_to_left",
+				playerBuffGrowthDirection = "right_to_left",
+				playerDebuffGrowthDirection = "right_to_left",
 				buffFrameA = "TOPRIGHT",
 				buffFrameR = "TOPRIGHT",
 				buffFrameX = -205,
@@ -865,6 +865,13 @@ SarychUI.defaults = {
 				buffFrameScale = 1.0,
 				showBuffDragFrame = 0,
 				showBuffGrid = 0,
+				debuffFrameA = "TOPRIGHT",
+				debuffFrameR = "TOPRIGHT",
+				debuffFrameX = -205,
+				debuffFrameY = -105,
+				debuffFrameScale = 1.0,
+				showDebuffDragFrame = 0,
+				showDebuffGrid = 0,
 				changeFrameAuraSize = 0,
 				frameAuraOtherSize = 23,
 				frameAuraSelfSize = 23,
@@ -1080,6 +1087,11 @@ SarychUI.defaults = {
 					phrase8Text = "Подтверждаю",
 					phrase8Emote = "/кивок"
 				},
+
+				chatVisibility = {
+					enabled = 0,
+					key = nil,
+				},
 			},
 			
 		},
@@ -1095,6 +1107,18 @@ SarychUI.defaults = {
 			-- pw_lossofcontrol addon
 			pw_lossofcontrol = {
 				enabled = true,
+				positionX = 0,
+				positionY = -16,
+				scale = 0.95,
+				lineStyle = "thin",
+				displayMode = "multiple",
+				nameFontSize = 18,
+				timerFontSize = 15,
+				showStuns = true,
+				showSilences = true,
+				showDisarms = true,
+				showRoots = true,
+				showOtherControl = true,
 			},
 			-- BNetToast addon
 			BNetToast = {
@@ -1152,10 +1176,6 @@ SarychUI.defaults = {
 			ElvUI_NamePlates = {
 				enabled = true,
 			},
-			-- GladiusEx (embedded)
-			GladiusEx = {
-				enabled = false,
-			},
 			-- External Carbonite (map mode flag only; addon lives in Interface/AddOns/Carbonite)
 			Carbonite = {
 				enabled = false,
@@ -1194,14 +1214,14 @@ SarychUI.defaults = {
 			autolos = {
 				enabled = true,
 				debug = false,
-				profileVersion = 2,
+				profileVersion = 4,
 				profiles = {
 					classic = {
 						font = "Friz Quadrata TT",
 						fontSize = 12,
-						fontOutline = "OUTLINE",
-						shadowX = 2,
-						shadowY = -1,
+						fontOutline = "NONE",
+						shadowX = 0.5,
+						shadowY = -0.5,
 						offsetX = -95,
 						offsetY = -9,
 					},
@@ -1231,12 +1251,8 @@ SarychUI.defaults = {
 			EnhancedRaidFrames = {
 				enabled = true,
 			},
-			-- OmniCD addon
-			OmniCD = {
-				enabled = true,
-			},
-			-- !!!ClassicAPI addon
-			["!!!ClassicAPI"] = {
+			-- RaidFrameSorter addon
+			RaidFrameSorter = {
 				enabled = true,
 			},
 			-- Bagnon_FT addon
@@ -1286,6 +1302,20 @@ SarychUI.defaults = {
 	-- Global settings (not per character)
 	global = {
         version = "1.2.0",
+		quickStartCatalog = false,
+		quickStartCatalogCleared = false,
+		quickStartMiscEnabled = false,
+		-- Per-character checkpoints for the applied Quick Start route.
+		quickStartProgress = {},
+		-- Account-wide Quick Start templates.  They intentionally live in the
+		-- global namespace so every character sees the same cloned profiles.
+		quickStartSelectedProfile = "__builtin",
+		quickStartProfiles = {
+			version = 1,
+			nextID = 1,
+			order = {},
+			entries = {},
+		},
 		general = {
 			-- Saved size of the config window (matches ElvUI / ElvUI_NamePlates_Standalone defaults).
 			AceGUI = {
@@ -1305,6 +1335,13 @@ SarychUI.defaults = {
 			-- SarychUI options language (independent of client GetLocale).
 			uiLocale = nil,
 		},
+		-- Transfer export category selection (account-wide).
+		-- Off by default: friends and ignore list.
+		transfer = {
+			friends = false,
+			ignore = false,
+		},
+		transferChannelColors = {},
 	},
 	
 	-- Character-specific settings
@@ -1366,6 +1403,9 @@ local function MigrateProfileDefaults(profile)
 		if profile.system.lockdownErrorSearch == nil then
 			profile.system.lockdownErrorSearch = sysDef.lockdownErrorSearch
 		end
+		if profile.system.allowOptionsInCombat == nil then
+			profile.system.allowOptionsInCombat = sysDef.allowOptionsInCombat
+		end
 		if not profile.system.runtime then
 			profile.system.runtime = CopyTable(sysDef.runtime)
 		else
@@ -1385,6 +1425,11 @@ local function MigrateProfileDefaults(profile)
 		if not profile.modules[moduleName] then
 			profile.modules[moduleName] = CopyTable(moduleDefaults)
 		end
+	end
+
+	local healthIndicators = profile.modules.health_indicators
+	if healthIndicators and healthIndicators.scale == nil then
+		healthIndicators.scale = 1
 	end
 
 	local bagsDb = profile.modules and profile.modules.bags
@@ -1628,17 +1673,21 @@ local function MigrateProfileDefaults(profile)
 		if mmbDb.microMenuHideGreenLatency == nil then
 			mmbDb.microMenuHideGreenLatency = mmbDefaults.microMenuHideGreenLatency
 		end
-		if mmbDb.frostatom then
-			local faDef = mmbDefaults.frostatom and mmbDefaults.frostatom.playerCastbar
-			if type(mmbDb.frostatom.playerCastbar) ~= "table" and faDef then
-				mmbDb.frostatom.playerCastbar = {
-					point = faDef.point or "BOTTOM",
-					relativePoint = faDef.relativePoint or "BOTTOM",
-					x = faDef.x or 0,
-					y = faDef.y or 0,
-				}
-			end
+		if mmbDb.barStyle ~= "bfa" then
+			mmbDb.barStyle = "classic"
 		end
+		if mmbDb.hideBagMicroMenuBackground == nil then
+			mmbDb.hideBagMicroMenuBackground = mmbDefaults.hideBagMicroMenuBackground
+		end
+		if mmbDb.bagAlphaEnabled == nil then
+			mmbDb.bagAlphaEnabled = mmbDefaults.bagAlphaEnabled
+		end
+		if mmbDb.bagAlpha == nil then
+			mmbDb.bagAlpha = mmbDefaults.bagAlpha
+		end
+		-- Remove settings left by the retired free action-bar implementation.
+		mmbDb.barMode = nil
+		mmbDb.frostatom = nil
 	end
 	
 	if not profile.addons then
@@ -1664,9 +1713,6 @@ local function MigrateProfileDefaults(profile)
 	if modules and modules.tools and modules.tools.enableAltAuras == nil then
 		modules.tools.enableAltAuras = SarychUI.defaults.profile.modules.tools.enableAltAuras
 	end
-	if modules and modules.tools and modules.tools.enableAltOmniCD == nil then
-		modules.tools.enableAltOmniCD = SarychUI.defaults.profile.modules.tools.enableAltOmniCD
-	end
 	if modules and modules.tools then
 		local tools = modules.tools
 		local toolsDef = SarychUI.defaults.profile.modules.tools
@@ -1688,11 +1734,18 @@ local function MigrateProfileDefaults(profile)
 		-- Retired single global channel picker.
 		tools.altAnnounceChannelMode = nil
 	end
-	if modules and modules.tools and modules.tools.enableKeyEcho == nil then
-		modules.tools.enableKeyEcho = 0
+	-- Retired: double-tap / KeyEcho key overrides.
+	if modules and modules.tools then
+		modules.tools.enableKeyEcho = nil
 	end
 	if modules and modules.tools and modules.tools.enablePvpScoreboardClassNames == nil then
 		modules.tools.enablePvpScoreboardClassNames = 0
+	end
+	if modules and modules.tools and modules.tools.enableEasyGlyph == nil then
+		modules.tools.enableEasyGlyph = 1
+	end
+	if modules and modules.tools and modules.tools.easyGlyphSkipItems == nil then
+		modules.tools.easyGlyphSkipItems = 1
 	end
 	if modules and modules.tools and modules.tools.fpsExtraOffsetX == nil then
 		modules.tools.fpsExtraOffsetX = 0
@@ -1810,6 +1863,9 @@ local function MigrateProfileDefaults(profile)
 		if frameDb.hideFrameLevel == nil then
 			frameDb.hideFrameLevel = frameDef.hideFrameLevel
 		end
+		if frameDb.hideLeaderIcon == nil then
+			frameDb.hideLeaderIcon = frameDef.hideLeaderIcon
+		end
 		if frameDb.classColoredNames == nil then
 			frameDb.classColoredNames = frameDef.classColoredNames
 		end
@@ -1913,6 +1969,39 @@ local function MigrateProfileDefaults(profile)
 		end
 		if aurasDb.playerBuffsPerRow == nil then
 			aurasDb.playerBuffsPerRow = aurasDef and aurasDef.playerBuffsPerRow or 8
+		end
+		if aurasDb.playerAuraPositionMode == nil then
+			aurasDb.playerAuraPositionMode = "together"
+		end
+		if aurasDb.playerAuraGrowthDirection == nil then
+			aurasDb.playerAuraGrowthDirection = "right_to_left"
+		end
+		if aurasDb.playerBuffGrowthDirection == nil then
+			aurasDb.playerBuffGrowthDirection = "right_to_left"
+		end
+		if aurasDb.playerDebuffGrowthDirection == nil then
+			aurasDb.playerDebuffGrowthDirection = "right_to_left"
+		end
+		if aurasDb.debuffFrameA == nil then
+			aurasDb.debuffFrameA = "TOPRIGHT"
+		end
+		if aurasDb.debuffFrameR == nil then
+			aurasDb.debuffFrameR = "TOPRIGHT"
+		end
+		if aurasDb.debuffFrameX == nil then
+			aurasDb.debuffFrameX = -205
+		end
+		if aurasDb.debuffFrameY == nil then
+			aurasDb.debuffFrameY = -105
+		end
+		if aurasDb.debuffFrameScale == nil then
+			aurasDb.debuffFrameScale = 1.0
+		end
+		if aurasDb.showDebuffDragFrame == nil then
+			aurasDb.showDebuffDragFrame = 0
+		end
+		if aurasDb.showDebuffGrid == nil then
+			aurasDb.showDebuffGrid = 0
 		end
 	end
 
@@ -2019,6 +2108,15 @@ local function MigrateProfileDefaults(profile)
 			end
 		end
 	end
+	if chatDb and chatDef and chatDef.chatVisibility then
+		if type(chatDb.chatVisibility) ~= "table" then
+			chatDb.chatVisibility = CopyTable(chatDef.chatVisibility)
+		else
+			local visibility = chatDb.chatVisibility
+			if visibility.enabled == nil then visibility.enabled = chatDef.chatVisibility.enabled end
+			if visibility.key == nil then visibility.key = chatDef.chatVisibility.key end
+		end
+	end
 
 	local addons = profile.addons
 	if modules and modules.arena then
@@ -2041,16 +2139,10 @@ local function MigrateProfileDefaults(profile)
 			modules.arena.retab = 0
 		end
 	end
-	if modules and modules.arena and addons and addons.GladiusEx then
-		if addons.GladiusEx.enabled == true then
-			modules.arena.frameType = "gladiusex"
-		elseif modules.arena.frameType == nil then
-			modules.arena.frameType = "classic"
-		elseif modules.arena.frameType == "gladiusex" and addons.GladiusEx.enabled ~= true then
-			addons.GladiusEx.enabled = true
-		elseif modules.arena.frameType == "classic" and addons.GladiusEx.enabled == nil then
-			addons.GladiusEx.enabled = false
-		end
+	if modules and modules.arena then
+		-- Saved profiles may still select a removed arena implementation.
+		modules.arena.frameType = "classic"
+		if addons then addons.GladiusEx = nil end
 	end
 
 	if modules and modules.map and addons then
@@ -2094,7 +2186,8 @@ local function MigrateProfileDefaults(profile)
 	-- Removed: weather density override (tools).
 	-- Removed: raid target icons radial menu (tools.rti).
 	-- Moved: SpeedyLoad -> system (Система).
-	-- Moved: castbar / invite / arena countdown timers -> cc (Текст перезарядки).
+	-- Moved: invite / arena countdown timers -> cc (Текст перезарядки).
+	-- Moved: castbar timers -> castbar (Кастбар).
 	-- Moved: pet name shortening -> frame (Фреймы).
 	-- Moved: dispel highlight / buff management / focus-ToT auras -> auras (Ауры).
 	local toolsDb = modules and modules.tools
@@ -2129,27 +2222,139 @@ local function MigrateProfileDefaults(profile)
 			frameDb.enableDispelHighlight = nil
 		end
 		if ccDb then
-			local timerKeys = {
-				"enableCastbarTimers",
-				"enableCastbarPlayer",
-				"enableCastbarTarget",
-				"enableCastbarFocus",
+			local countdownKeys = {
 				"enableInviteCountdown",
 				"enableArenaCountdown",
 			}
-			for _, key in ipairs(timerKeys) do
+			for _, key in ipairs(countdownKeys) do
 				if ccDb[key] == nil and toolsDb[key] ~= nil then
 					ccDb[key] = toolsDb[key]
 				end
 				toolsDb[key] = nil
 			end
 		else
-			toolsDb.enableCastbarTimers = nil
-			toolsDb.enableCastbarPlayer = nil
-			toolsDb.enableCastbarTarget = nil
-			toolsDb.enableCastbarFocus = nil
 			toolsDb.enableInviteCountdown = nil
 			toolsDb.enableArenaCountdown = nil
+		end
+		local castbarDb = modules.castbar
+		if not castbarDb then
+			modules.castbar = {}
+			castbarDb = modules.castbar
+		end
+		local castbarTimerKeys = {
+			"enableCastbarTimers",
+			"enableCastbarPlayer",
+			"enableCastbarTarget",
+			"enableCastbarFocus",
+		}
+		for _, key in ipairs(castbarTimerKeys) do
+			if castbarDb[key] == nil then
+				if ccDb and ccDb[key] ~= nil then
+					castbarDb[key] = ccDb[key]
+				elseif toolsDb[key] ~= nil then
+					castbarDb[key] = toolsDb[key]
+				end
+			end
+			if ccDb then
+				ccDb[key] = nil
+			end
+			toolsDb[key] = nil
+		end
+		if castbarDb.enabled == nil then
+			castbarDb.enabled = true
+		end
+		if castbarDb.barStyle == nil then
+			castbarDb.barStyle = "classic"
+		end
+		if castbarDb.showPlayerIcon == nil then
+			castbarDb.showPlayerIcon = false
+		end
+		if castbarDb.showPlayerIconCooldown == nil then
+			castbarDb.showPlayerIconCooldown = true
+		end
+		castbarDb.playerIconActionBarStyle = nil
+		if castbarDb.enableCastbarTicks == nil then
+			castbarDb.enableCastbarTicks = 1
+		end
+		if castbarDb.enableCastbarTicksPlayer == nil then
+			castbarDb.enableCastbarTicksPlayer = 1
+		end
+		if castbarDb.enableCastbarTicksTarget == nil then
+			castbarDb.enableCastbarTicksTarget = 1
+		end
+		if castbarDb.enableCastbarTicksFocus == nil then
+			castbarDb.enableCastbarTicksFocus = 1
+		end
+		if type(castbarDb.castbarTickColor) ~= "table" then
+			castbarDb.castbarTickColor = { r = 1, g = 1, b = 1, a = 0.90 }
+		elseif (castbarDb.castbarTickColor.r or 0) + (castbarDb.castbarTickColor.g or 0) + (castbarDb.castbarTickColor.b or 0) < 0.15 then
+			-- Previous default was a black line; the DF spark needs a light tint.
+			castbarDb.castbarTickColor = { r = 1, g = 1, b = 1, a = 0.90 }
+		end
+		if castbarDb.castbarTickWidth == nil then
+			castbarDb.castbarTickWidth = 2
+		end
+		if castbarDb.castbarTickHaste == nil then
+			castbarDb.castbarTickHaste = 0
+		end
+	elseif modules then
+		-- Old profiles without tools still need cc timer keys moved to castbar.
+		local ccDb = modules.cc
+		local castbarDb = modules.castbar
+		if not castbarDb then
+			modules.castbar = {}
+			castbarDb = modules.castbar
+		end
+		local castbarTimerKeys = {
+			"enableCastbarTimers",
+			"enableCastbarPlayer",
+			"enableCastbarTarget",
+			"enableCastbarFocus",
+		}
+		for _, key in ipairs(castbarTimerKeys) do
+			if castbarDb[key] == nil and ccDb and ccDb[key] ~= nil then
+				castbarDb[key] = ccDb[key]
+			end
+			if ccDb then
+				ccDb[key] = nil
+			end
+		end
+		if castbarDb.enabled == nil then
+			castbarDb.enabled = true
+		end
+		if castbarDb.barStyle == nil then
+			castbarDb.barStyle = "classic"
+		end
+		if castbarDb.showPlayerIcon == nil then
+			castbarDb.showPlayerIcon = false
+		end
+		if castbarDb.showPlayerIconCooldown == nil then
+			castbarDb.showPlayerIconCooldown = true
+		end
+		castbarDb.playerIconActionBarStyle = nil
+		if castbarDb.enableCastbarTicks == nil then
+			castbarDb.enableCastbarTicks = 1
+		end
+		if castbarDb.enableCastbarTicksPlayer == nil then
+			castbarDb.enableCastbarTicksPlayer = 1
+		end
+		if castbarDb.enableCastbarTicksTarget == nil then
+			castbarDb.enableCastbarTicksTarget = 1
+		end
+		if castbarDb.enableCastbarTicksFocus == nil then
+			castbarDb.enableCastbarTicksFocus = 1
+		end
+		if type(castbarDb.castbarTickColor) ~= "table" then
+			castbarDb.castbarTickColor = { r = 1, g = 1, b = 1, a = 0.90 }
+		elseif (castbarDb.castbarTickColor.r or 0) + (castbarDb.castbarTickColor.g or 0) + (castbarDb.castbarTickColor.b or 0) < 0.15 then
+			-- Previous default was a black line; the DF spark needs a light tint.
+			castbarDb.castbarTickColor = { r = 1, g = 1, b = 1, a = 0.90 }
+		end
+		if castbarDb.castbarTickWidth == nil then
+			castbarDb.castbarTickWidth = 2
+		end
+		if castbarDb.castbarTickHaste == nil then
+			castbarDb.castbarTickHaste = 0
 		end
 	end
 

@@ -1271,7 +1271,9 @@ do
 				apply.disabled = restricted and pet_restricted
 			end
 		end
-		self:GetNamedMenu("Delete").disabled = templateTalentGroup or not self.db.global.templates[self.template.name]
+		self:GetNamedMenu("Delete").disabled = templateTalentGroup
+			or not self.db.global.templates[self.template.name]
+			or (Talented.IsBuiltinTemplate and Talented:IsBuiltinTemplate(self.template.name))
 		local switch = self:GetNamedMenu("SwitchTalentGroup")
 		switch.disabled = (restricted or not templateTalentGroup or templateTalentGroup == activeTalentGroup)
 		switch.arg1 = templateTalentGroup

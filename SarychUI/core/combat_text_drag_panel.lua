@@ -224,8 +224,30 @@ local FRAME_MAP = {
 		defaultY = -13,
 		defaultA = "TOPRIGHT",
 		defaultR = "TOPRIGHT",
-		min = -2000,
-		max = 2000,
+		min = -5000,
+		max = 5000,
+		point = "TOPRIGHT",
+		relativePoint = "TOPRIGHT",
+		onApply = function()
+			local m = SarychUI and SarychUI:GetModule("auras", true)
+			if m and m.ApplyBuffManagement then m:ApplyBuffManagement() end
+		end,
+	},
+	debuffFrame = {
+		title = "Дебафы",
+		moduleKey = "auras",
+		xKey = "debuffFrameX",
+		yKey = "debuffFrameY",
+		aKey = "debuffFrameA",
+		rKey = "debuffFrameR",
+		dragFlag = "showDebuffDragFrame",
+		gridFlag = "showDebuffGrid",
+		defaultX = -205,
+		defaultY = -105,
+		defaultA = "TOPRIGHT",
+		defaultR = "TOPRIGHT",
+		min = -5000,
+		max = 5000,
 		point = "TOPRIGHT",
 		relativePoint = "TOPRIGHT",
 		onApply = function()
@@ -358,106 +380,6 @@ local FRAME_MAP = {
 	},
 }
 
--- FrostAtomUI action bars (mainmenubar module, barMode = "frostatom").
--- Config: modules.mainmenubar.frostatom.<key> (extra bars: .extraBars.barN).
-do
-	local FA_KEYS = {
-		{ "bar1", "frostatom.bar1", "BOTTOM", 0, 32 },
-		{ "bar2", "frostatom.bar2", "BOTTOM", 0, 216 },
-		{ "bar3", "frostatom.bar3", "BOTTOM", 0, 260 },
-		{ "bar4", "frostatom.bar4", "BOTTOM", 0, 304 },
-		{ "bar5", "frostatom.bar5", "BOTTOM", 0, 120 },
-		{ "bar6", "frostatom.bar6", "RIGHT", -662, -424 },
-		{ "bar7", "frostatom.extraBars.bar7", "CENTER", 0, 0 },
-		{ "bar8", "frostatom.extraBars.bar8", "CENTER", 0, -40 },
-		{ "bar9", "frostatom.extraBars.bar9", "CENTER", 0, -80 },
-		{ "bar10", "frostatom.extraBars.bar10", "CENTER", 0, -120 },
-		{ "stance", "frostatom.stance", "BOTTOMLEFT", -230, 166, "BOTTOM" },
-		{ "pet", "frostatom.pet", "BOTTOM", 68, 116 },
-		{ "totemBar", "frostatom.totemBar", "BOTTOM", -150, 154 },
-		{ "vehicleExit", "frostatom.vehicleExit", "BOTTOM", 250, 116 },
-		{ "microMenu", "frostatom.microMenu", "BOTTOMRIGHT", -45, 3 },
-		{ "bagButton", "frostatom.bagButton", "BOTTOMRIGHT", -10, 5 },
-	}
-	local FA_TITLES = {
-		bar1 = "Панель команд 1", bar2 = "Панель команд 2", bar3 = "Панель команд 3",
-		bar4 = "Панель команд 4", bar5 = "Панель команд 5", bar6 = "Панель команд 6",
-		bar7 = "Панель команд 7", bar8 = "Панель команд 8", bar9 = "Панель команд 9",
-		bar10 = "Панель команд 10",
-		stance = "Панель стоек", pet = "Панель питомца", totemBar = "Панель тотемов",
-		vehicleExit = "Выход из транспорта", microMenu = "Микроменю", bagButton = "Кнопка сумки",
-	}
-	for _, def in ipairs(FA_KEYS) do
-		local key, subKey, point, dx, dy, relPoint = def[1], def[2], def[3], def[4], def[5], def[6]
-		FRAME_MAP["faBar_" .. key] = {
-			title = FA_TITLES[key] or key,
-			moduleKey = "mainmenubar",
-			subKey = subKey,
-			xKey = "x",
-			yKey = "y",
-			aKey = "point",
-			rKey = "relativePoint",
-			dragFlag = "showDragFrame",
-			gridFlag = "showGrid",
-			alwaysPosition = true,
-			defaultX = dx,
-			defaultY = dy,
-			defaultA = point,
-			defaultR = relPoint or point,
-			min = -1600,
-			max = 1600,
-			onApply = function()
-				local FA = SarychUI and SarychUI.FrostAtomBars
-				if FA and FA.Refresh then
-					FA.Refresh(key)
-				end
-			end,
-		}
-	end
-	FRAME_MAP["faBar_playerCastbar"] = {
-		title = "Полоса каста",
-		moduleKey = "mainmenubar",
-		subKey = "frostatom.playerCastbar",
-		xKey = "x",
-		yKey = "y",
-		aKey = "point",
-		rKey = "relativePoint",
-		dragFlag = "showDragFrame",
-		gridFlag = "showGrid",
-		alwaysPosition = true,
-		defaultX = 0,
-		defaultY = 0,
-		defaultA = "BOTTOM",
-		defaultR = "BOTTOM",
-		min = -1600,
-		max = 1600,
-		point = "BOTTOM",
-		relativePoint = "BOTTOM",
-		resolveFramePosition = function(x, y)
-			local FA = SarychUI and SarychUI.FrostAtomBars
-			local dx, dy = 0, 95
-			if FA and FA.GetPlayerCastbarDefault then
-				dx, dy = FA.GetPlayerCastbarDefault()
-			end
-			return (tonumber(x) or 0) + dx, (tonumber(y) or 0) + dy
-		end,
-		fromFramePosition = function(x, y)
-			local FA = SarychUI and SarychUI.FrostAtomBars
-			local dx, dy = 0, 95
-			if FA and FA.GetPlayerCastbarDefault then
-				dx, dy = FA.GetPlayerCastbarDefault()
-			end
-			return (tonumber(x) or 0) - dx, (tonumber(y) or 0) - dy
-		end,
-		onApply = function()
-			local FA = SarychUI and SarychUI.FrostAtomBars
-			if FA and FA.Refresh then
-				FA.Refresh("playerCastbar")
-			end
-		end,
-	}
-end
-
 local session = nil -- { frameId, snapshot, draft, gridWasOn }
 
 local function ModuleDB(moduleKey)
@@ -471,7 +393,7 @@ local function ConfigDB(meta)
 		return nil
 	end
 	if meta.subKey then
-		-- Dotted sub keys walk nested tables ("frostatom.extraBars.bar7").
+		-- Dotted sub keys walk nested configuration tables.
 		local t = db
 		for part in string.gmatch(meta.subKey, "[^%.]+") do
 			t = t and t[part]
@@ -1096,6 +1018,9 @@ function Panel:Close(commit)
 			SarychUI.DragMode:EnableEditMode(frameId, posOn and true or false, false, false)
 		elseif meta and meta.moduleKey == "auras" then
 			local posOn = db and (db.manageBuffs == 1)
+			if frameId == "debuffFrame" then
+				posOn = posOn and db.playerAuraPositionMode == "separate"
+			end
 			SarychUI.DragMode:EnableEditMode(frameId, posOn and true or false, false, false)
 		elseif meta and meta.moduleKey == "tools" and frameId == "questTracker" then
 			local posOn = db and db.questTrackerStyle == "dragonflight" and db.questTrackerDragonflightPosition ~= false
@@ -1109,13 +1034,6 @@ function Panel:Close(commit)
 				posOn = false
 			end
 			SarychUI.DragMode:EnableEditMode(frameId, posOn and true or false, false, false)
-			if meta.onApply then
-				meta.onApply()
-			end
-		elseif meta and meta.moduleKey == "mainmenubar" then
-			-- FrostAtomUI bars: position is always applied from config; just
-			-- drop the drag chrome and re-layout.
-			SarychUI.DragMode:EnableEditMode(frameId, false, false, false)
 			if meta.onApply then
 				meta.onApply()
 			end
@@ -1146,6 +1064,14 @@ function Panel:OnDragPosition(frameId, x, y, point, relativePoint)
 		x, y = meta.fromFramePosition(x, y)
 	end
 	self:SetDraft(x, y, false, point, relativePoint, true)
+	return true
+end
+
+function Panel:SyncDraftIfOpen(frameId, x, y, point, relativePoint)
+	if not self:IsOpen() or self:GetFrameId() ~= frameId then
+		return false
+	end
+	self:SetDraft(x, y, false, point, relativePoint)
 	return true
 end
 

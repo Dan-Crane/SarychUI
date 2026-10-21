@@ -229,7 +229,13 @@ local function FontTemplate(fs, font, fontSize, fontStyle)
 		fontSize, fontStyle = 10, "MONOCHROMEOUTLINE"
 	end
 
-	fs:SetFont(font, fontSize, fontStyle)
+	-- SetFont can fail silently for a media path supplied by another addon.
+	-- A font string without a valid font throws on its first SetText call.
+	if type(font) ~= "string" or font == "" or not fs:SetFont(font, fontSize, fontStyle) then
+		if not fs:SetFont([[Fonts\FRIZQT__.TTF]], fontSize, fontStyle) then
+			fs:SetFont([[Fonts\ARIALN.TTF]], fontSize, "OUTLINE")
+		end
+	end
 
 	if fontStyle == "NONE" then
 		local s = E.mult or 1

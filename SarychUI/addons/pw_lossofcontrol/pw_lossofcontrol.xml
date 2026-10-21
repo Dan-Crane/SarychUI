@@ -5,6 +5,13 @@
 	<Script file="utils.lua"/>
 	<Script file="core.lua"/>
 
+	<Cooldown name="SUI_LossOfControlMultiCooldownTemplate" virtual="true" hidden="true" hideCountdownNumbers="true" drawEdge="true" inherits="CooldownFrameTemplate">
+		<SwipeTexture>
+			<Color r="0.17" g="0" b="0" a="0.8"/>
+		</SwipeTexture>
+		<EdgeTexture file="Interface\AddOns\SarychUI\addons\pw_lossofcontrol\cooldown\edge-LoC.blp"/>
+	</Cooldown>
+
 	<Frame name="LossOfControlFrame" frameStrata="MEDIUM" movable="true" toplevel="true" parent="UIParent" hidden="true">
 		<Size x="256" y="58"/>
 		<Anchors>

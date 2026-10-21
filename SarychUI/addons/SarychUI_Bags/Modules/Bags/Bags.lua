@@ -13,6 +13,7 @@ local tinsert, tremove, twipe = table.insert, table.remove, table.wipe
 local BankFrameItemButton_Update = BankFrameItemButton_Update
 local BankFrameItemButton_UpdateLocked = BankFrameItemButton_UpdateLocked
 local CloseBag, CloseBackpack, CloseBankFrame = CloseBag, CloseBackpack, CloseBankFrame
+local CursorHasItem = CursorHasItem
 local CooldownFrame_SetTimer = CooldownFrame_SetTimer
 local CreateFrame = CreateFrame
 local DeleteCursorItem = DeleteCursorItem
@@ -404,8 +405,14 @@ function B:CanReuseAdiBagsSlotMetadata(frame)
 				return false
 			end
 			local link = GetContainerItemLink(bagID, slotID)
-			local _, count = GetContainerItemInfo(bagID, slotID)
+			local texture, count, locked = GetContainerItemInfo(bagID, slotID)
 			if link ~= slot._suiItemLink or (count or 0) ~= (slot._suiItemCount or 0) then
+				return false
+			end
+			if (texture and true or false) ~= (slot.hasItem and true or false) then
+				return false
+			end
+			if (locked and true or false) ~= (slot.locked and true or false) then
 				return false
 			end
 		end
@@ -494,7 +501,7 @@ local ADIBAGS_SECTION_ORDER = {
 
 -- Labels match AdiBags category headers (RU UI).
 local ADIBAGS_SECTION_LABELS = {
-	new = "Новое",
+	new = "Новые",
 	quest = "Задания",
 	equipment = "Экипировка",
 	consumable = "Расходные материалы",
@@ -556,10 +563,11 @@ local ADIBAGS_HEADER_GAP = 2
 -- Extra air under the toolbar for the first category header row.
 local ADIBAGS_FIRST_HEADER_TOP_PAD = 2
 
--- AdiBags NewItemTracking-compatible presentation. The status is session-local:
--- clean baseline after login, cleared on slot hover / bag close, or via the N button.
-local NEW_ITEM_GLOW_COLOR = { 0.3, 1, 0.3, 0.7 }
-local NEW_ITEM_GLOW_SCALE = 1.5
+-- New items: glow + «Новые» section. Hover only stops the glow (seen).
+-- Close/reopen moves seen items to normal categories; unseen stay new.
+-- Sort and /reload clear every new item immediately.
+local NEW_ITEM_GLOW_COLOR = { 0.55, 1, 0.45, 1 }
+local NEW_ITEM_GLOW_SCALE = 1.28
 local NEW_ITEM_SCAN_DELAY = 0.15
 
 local function GetSlotItemID(bagID, slotID, slot)
@@ -610,12 +618,111 @@ local function CollectTrackedItemCounts(previous)
 	return counts
 end
 
-function B:IsNewItemID(itemID)
-	return itemID and B._suiNewItemIDs and B._suiNewItemIDs[itemID] == true
+local function NewSlotKey(bagID, slotID)
+	if bagID == nil or slotID == nil then
+		return nil
+	end
+	return tostring(bagID) .. ":" .. tostring(slotID)
 end
 
-function B:IsNewItemSlot(bagID, slotID, slot)
-	return B:IsNewItemID(GetSlotItemID(bagID, slotID, slot))
+local function CollectSlotSnapshot()
+	local snap = {}
+	for bagID = 0, 4 do
+		for slotID = 1, (Blizzard_GetContainerNumSlots(bagID) or 0) do
+			local itemID = GetSlotItemID(bagID, slotID)
+			if itemID then
+				local count = select(2, GetContainerItemInfo(bagID, slotID)) or 1
+				snap[NewSlotKey(bagID, slotID)] = itemID .. ":" .. count
+			end
+		end
+	end
+	return snap
+end
+
+local function ParseSlotSnapshot(value)
+	if type(value) ~= "string" then
+		return nil, 0
+	end
+	local itemID, count = strmatch(value, "^(%d+):(%d+)$")
+	return tonumber(itemID), tonumber(count) or 0
+end
+
+local function RemapMovedNewSlots(oldSnap, newSnap)
+	local newSlots = B._suiNewSlots
+	local seenSlots = B._suiSeenSlots
+	if not newSlots or not next(newSlots) then
+		return
+	end
+	oldSnap = oldSnap or {}
+	newSnap = newSnap or {}
+	local usedDest, remove, add = {}, {}, {}
+	for key in pairs(newSlots) do
+		local oldVal = oldSnap[key]
+		local newVal = newSnap[key]
+		if not newVal then
+			local dest
+			for destKey, destVal in pairs(newSnap) do
+				if destVal == oldVal and destKey ~= key and not usedDest[destKey] and oldSnap[destKey] ~= destVal then
+					dest = destKey
+					break
+				end
+			end
+			if dest then
+				usedDest[dest] = true
+				add[dest] = seenSlots and seenSlots[key]
+			end
+			remove[key] = true
+		elseif oldVal and newVal ~= oldVal then
+			local dest
+			for destKey, destVal in pairs(newSnap) do
+				if destVal == oldVal and destKey ~= key and not usedDest[destKey] and oldSnap[destKey] ~= destVal then
+					dest = destKey
+					break
+				end
+			end
+			if dest then
+				usedDest[dest] = true
+				add[dest] = seenSlots and seenSlots[key]
+				remove[key] = true
+			else
+				local oldItemID = ParseSlotSnapshot(oldVal)
+				local newItemID = ParseSlotSnapshot(newVal)
+				if oldItemID ~= newItemID then
+					remove[key] = true
+				end
+			end
+		end
+	end
+	for key in pairs(remove) do
+		newSlots[key] = nil
+		if seenSlots then
+			seenSlots[key] = nil
+		end
+	end
+	for key, seen in pairs(add) do
+		newSlots[key] = true
+		if seenSlots then
+			if seen then
+				seenSlots[key] = true
+			else
+				seenSlots[key] = nil
+			end
+		end
+	end
+end
+
+function B:IsNewItemSlot(bagID, slotID)
+	local key = NewSlotKey(bagID, slotID)
+	return key and B._suiNewSlots and B._suiNewSlots[key] == true
+end
+
+function B:IsNewItemSeenSlot(bagID, slotID)
+	local key = NewSlotKey(bagID, slotID)
+	return key and B._suiSeenSlots and B._suiSeenSlots[key] == true
+end
+
+function B:IsNewItemGlowingSlot(bagID, slotID)
+	return B:IsNewItemSlot(bagID, slotID) and not B:IsNewItemSeenSlot(bagID, slotID)
 end
 
 function B:CreateNewItemGlow(slot)
@@ -623,7 +730,7 @@ function B:CreateNewItemGlow(slot)
 		return slot and slot._suiNewItemGlow
 	end
 	local glow = CreateFrame("Frame", nil, slot)
-	glow:SetFrameLevel(slot:GetFrameLevel() + 15)
+	glow:SetFrameLevel((slot:GetFrameLevel() or 0) + 1)
 	glow:SetPoint("CENTER")
 	local size = max(slot:GetWidth() or 0, slot:GetHeight() or 0, B.db and B.db.bagSize or 32)
 	glow:Size(size)
@@ -644,6 +751,10 @@ function B:CreateNewItemGlow(slot)
 	rotation:SetDegrees(360)
 	rotation:SetOrigin("CENTER", 0, 0)
 	glow.Animation = animation
+	glow:EnableMouse(false)
+	if glow.EnableMouseWheel then
+		glow:EnableMouseWheel(false)
+	end
 	glow:Hide()
 	slot._suiNewItemGlow = glow
 	return glow
@@ -651,11 +762,15 @@ end
 
 function B:UpdateNewItemGlow(slot, allow)
 	if not slot then return end
-	local show = allow ~= false and slot.hasItem and B:IsNewItemID(slot.itemID)
+	local show = allow ~= false and slot.hasItem and B:IsNewItemGlowingSlot(slot.bagID, slot.slotID)
 	local glow = slot._suiNewItemGlow
 	if show then
 		glow = glow or B:CreateNewItemGlow(slot)
 		if glow then
+			glow:EnableMouse(false)
+			if glow.EnableMouseWheel then
+				glow:EnableMouseWheel(false)
+			end
 			local size = max(slot:GetWidth() or 0, slot:GetHeight() or 0, B.db and B.db.bagSize or 32)
 			glow:Size(size)
 			glow:SetScale(NEW_ITEM_GLOW_SCALE)
@@ -666,6 +781,7 @@ function B:UpdateNewItemGlow(slot, allow)
 			end
 		end
 	elseif glow then
+		glow:EnableMouse(false)
 		glow:Hide()
 		if glow.Animation and glow.Animation:IsPlaying() then
 			glow.Animation:Stop()
@@ -688,7 +804,7 @@ end
 function B:UpdateNewItemsButton()
 	local button = B.BagFrame and B.BagFrame.newItemsButton
 	if not button then return end
-	local hasNew = B._suiNewItemIDs and next(B._suiNewItemIDs) ~= nil
+	local hasNew = B._suiNewSlots and next(B._suiNewSlots) ~= nil
 	if hasNew then
 		button:Enable()
 		button:SetAlpha(1)
@@ -713,7 +829,9 @@ function B:RefreshNewItemPresentation()
 	local frame = B.BagFrame
 	if not frame then return end
 	if frame:IsShown() and B:IsAdiBagsSplitMode() then
-		B:Layout(nil, frame._suiInvSig, true)
+		-- Mass loot/buy: never relayout on the same frame as BAG_UPDATE.
+		-- Immediate category layout hides items whose links are not cached yet.
+		B:ScheduleSplitLayout(frame)
 	end
 	-- A category-only layout deliberately reuses slot metadata, so refresh the
 	-- dynamic glow explicitly after both adding and resetting New status.
@@ -726,16 +844,34 @@ function B:ProcessNewItemUpdate()
 	if B._suiNewItemFrozen or not B._suiNewItemBaselineReady then return end
 	local oldCounts = B._suiNewItemCounts or {}
 	local newCounts = CollectTrackedItemCounts(oldCounts)
-	B._suiNewItemIDs = B._suiNewItemIDs or {}
-	local changed
+	local oldSnap = B._suiSlotSnapshot or {}
+	local newSnap = CollectSlotSnapshot()
+	B._suiNewSlots = B._suiNewSlots or {}
+	B._suiSeenSlots = B._suiSeenSlots or {}
+	RemapMovedNewSlots(oldSnap, newSnap)
+
+	local gained = {}
 	for itemID, count in pairs(newCounts) do
-		local oldCount = oldCounts[itemID] or 0
-		if count > oldCount and not B._suiNewItemIDs[itemID] then
-			B._suiNewItemIDs[itemID] = true
-			changed = true
+		if count > (oldCounts[itemID] or 0) then
+			gained[itemID] = true
 		end
 	end
+
+	local changed
+	for key, value in pairs(newSnap) do
+		local itemID, count = ParseSlotSnapshot(value)
+		if itemID and gained[itemID] then
+			local oldItemID, oldCount = ParseSlotSnapshot(oldSnap[key])
+			if not oldItemID or oldItemID ~= itemID or count > oldCount then
+				B._suiNewSlots[key] = true
+				B._suiSeenSlots[key] = nil
+				changed = true
+			end
+		end
+	end
+
 	B._suiNewItemCounts = newCounts
+	B._suiSlotSnapshot = newSnap
 	if changed then B:RefreshNewItemPresentation() end
 end
 
@@ -758,6 +894,7 @@ function B:FinishNewItemBaseline()
 		return
 	end
 	B._suiNewItemCounts = CollectTrackedItemCounts(B._suiNewItemCounts)
+	B._suiSlotSnapshot = CollectSlotSnapshot()
 	B._suiNewItemBaselineReady = true
 	B._suiNewItemFrozen = nil
 	B:RefreshNewItemPresentation()
@@ -765,8 +902,10 @@ end
 
 function B:InitializeNewItemTracking()
 	if not E.embeddedInSarychUI or B._suiNewItemBaselineReady or B._suiNewItemFrozen then return end
-	B._suiNewItemIDs = B._suiNewItemIDs or {}
+	B._suiNewSlots = B._suiNewSlots or {}
+	B._suiSeenSlots = B._suiSeenSlots or {}
 	B._suiNewItemCounts = CollectTrackedItemCounts(B._suiNewItemCounts)
+	B._suiSlotSnapshot = CollectSlotSnapshot()
 	B._suiNewItemFrozen = true
 	if B.ScheduleTimer then
 		B._suiNewItemBaselineTimer = B:ScheduleTimer("FinishNewItemBaseline", 2)
@@ -776,9 +915,12 @@ function B:InitializeNewItemTracking()
 end
 
 function B:ResetNewItems()
-	B._suiNewItemIDs = B._suiNewItemIDs or {}
-	twipe(B._suiNewItemIDs)
+	B._suiNewSlots = B._suiNewSlots or {}
+	B._suiSeenSlots = B._suiSeenSlots or {}
+	twipe(B._suiNewSlots)
+	twipe(B._suiSeenSlots)
 	B._suiNewItemCounts = CollectTrackedItemCounts(B._suiNewItemCounts)
+	B._suiSlotSnapshot = CollectSlotSnapshot()
 	B._suiNewItemBaselineReady = true
 	if C_NewItems and C_NewItems.ClearAll then
 		pcall(C_NewItems.ClearAll)
@@ -786,24 +928,36 @@ function B:ResetNewItems()
 	B:RefreshNewItemPresentation()
 end
 
-function B:ClearNewItemID(itemID)
-	if not itemID or not B._suiNewItemIDs or B._suiNewItemIDs[itemID] ~= true then
-		return false
+function B:PromoteSeenNewItems()
+	B._suiNewSlots = B._suiNewSlots or {}
+	B._suiSeenSlots = B._suiSeenSlots or {}
+	local changed
+	for key in pairs(B._suiSeenSlots) do
+		if B._suiNewSlots[key] then
+			B._suiNewSlots[key] = nil
+			changed = true
+		end
 	end
-	B._suiNewItemIDs[itemID] = nil
-	B:RefreshNewItemPresentation()
-	return true
+	twipe(B._suiSeenSlots)
+	if changed and B.BagFrame then
+		B.BagFrame._suiBagsNeedFullLayout = true
+	end
+	B:UpdateNewItemsButton()
+	return changed and true or false
 end
 
--- Blizzard/C_NewItems-compatible acknowledge: hover clears "new" for that item.
+-- Hover: stop glow on this bag slot only. The slot stays in «Новые»
+-- until the bag is closed, sorted, or the UI is reloaded.
 function B:MarkNewItemSlotSeen(slot)
 	if not (E.embeddedInSarychUI and slot and slot.hasItem) then return end
 	local bagID, slotID = slot.bagID, slot.slotID
-	if bagID and slotID and C_NewItems and C_NewItems.RemoveNewItem then
-		pcall(C_NewItems.RemoveNewItem, bagID, slotID)
+	local key = NewSlotKey(bagID, slotID)
+	if not key or not B:IsNewItemSlot(bagID, slotID) then
+		return
 	end
-	local itemID = slot.itemID or GetSlotItemID(bagID, slotID, slot)
-	B:ClearNewItemID(itemID)
+	B._suiSeenSlots = B._suiSeenSlots or {}
+	B._suiSeenSlots[key] = true
+	B:UpdateNewItemGlow(slot, true)
 end
 
 function B:ClearAdiBagsFreeSpaceFlags(slot)
@@ -926,7 +1080,8 @@ end
 function B:GetAdiBagsSectionKey(bagID, slotID, slot)
 	local hasSlotMetadata = slot and slot._suiItemMetadataReady
 	local link = hasSlotMetadata and slot._suiItemLink or GetContainerItemLink(bagID, slotID)
-	if not link then
+	local texture = (slot and slot.hasItem) or GetContainerItemInfo(bagID, slotID)
+	if not link and not texture then
 		return "empty"
 	end
 	-- New is a dynamic, highest-priority section and must never be cached with
@@ -947,6 +1102,9 @@ function B:GetAdiBagsSectionKey(bagID, slotID, slot)
 	end
 	if isQuestItem or questId then
 		return "quest"
+	end
+	if not link then
+		return "miscellaneous"
 	end
 
 	B._adiBagsSectionKeyCache = B._adiBagsSectionKeyCache or {}
@@ -1477,6 +1635,99 @@ local function refreshDebug(...)
 	print("[SarychUI_Bags Refresh]", ...)
 end
 
+function B:EnsureLiveBagSlotInteraction(slot)
+	if not slot then return end
+
+	-- ContainerFrameItemButton_OnLoad normally installs these registrations.
+	-- Reassert them for buttons created by a live bag-size change: some 3.3.5
+	-- clients leave a newly inherited button without active click/drag bindings
+	-- until the next UI load.
+	if slot.Enable then
+		slot:Enable()
+	end
+	if slot.EnableMouse then
+		slot:EnableMouse(true)
+	end
+	if slot.SetChecked then
+		slot:SetChecked(false)
+	end
+	if slot.SetButtonState then
+		slot:SetButtonState("NORMAL")
+	end
+	if slot.RegisterForClicks then
+		slot:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+	end
+	if slot.RegisterForDrag then
+		slot:RegisterForDrag("LeftButton")
+	end
+
+	local glow = slot._suiNewItemGlow
+	if glow and glow.EnableMouse then
+		glow:EnableMouse(false)
+	end
+	if slot.cooldown and slot.cooldown.EnableMouse then
+		slot.cooldown:EnableMouse(false)
+	end
+	B:UpdateOfflineBankSlotInteraction(slot, false)
+end
+
+function B:RepairLiveBagSlots(frame)
+	if not (E.embeddedInSarychUI and frame and frame.BagIDs) or frame.isBank then
+		return
+	end
+	B:PrimeEquippedClientBags()
+	local needsLayout
+	for _, bagID in ipairs(frame.BagIDs) do
+		local bag = frame.Bags and frame.Bags[bagID]
+		if bag then
+			for slotID = 1, (GetContainerNumSlots(bagID) or 0) do
+				local slot = bag[slotID]
+				if slot then
+					local texture = GetContainerItemInfo(bagID, slotID)
+					if texture and (slot._suiFreeSpaceHidden or slot._suiFreeSpaceStack) then
+						B:ClearAdiBagsFreeSpaceFlags(slot)
+						needsLayout = true
+					end
+					B:EnsureLiveBagSlotInteraction(slot)
+					-- Refresh icon/border after /equip swaps and newly generated bags.
+					-- Empty slots must be cleared too: a weapon swap can leave the
+					-- previous icon painted while GetContainerItemInfo is still catching up.
+					B:UpdateSlot(frame, bagID, slotID)
+				end
+			end
+		end
+	end
+	B:RaiseLiveBagSlotFrames(frame)
+	if needsLayout then
+		B:ScheduleSplitLayout(frame)
+	end
+end
+
+function B:ScheduleLiveBagSlotRepair(frame)
+	if not (E.embeddedInSarychUI and frame) or frame.isBank then
+		return
+	end
+	B._suiLiveRepairFrame = frame
+	local driver = B._suiLiveRepairDriver
+	if not driver then
+		driver = CreateFrame("Frame")
+		B._suiLiveRepairDriver = driver
+		driver:SetScript("OnUpdate", function(self, elapsed)
+			self._t = (self._t or 0) + elapsed
+			if self._t < 0.4 then
+				return
+			end
+			self._t = 0
+			self:Hide()
+			local checkFrame = B._suiLiveRepairFrame
+			B._suiLiveRepairFrame = nil
+			B:RepairLiveBagSlots(checkFrame)
+		end)
+	end
+	driver._t = 0
+	driver:Show()
+end
+
 function B:EnsureSlotLayers(slot)
 	if not slot or slot._layersResolved then return end
 
@@ -1494,6 +1745,9 @@ end
 
 function B:PreferSarychUICooldown(cooldown)
 	if not cooldown then return end
+	if cooldown.EnableMouse then
+		cooldown:EnableMouse(false)
+	end
 
 	cooldown.forceDisabled = true
 	cooldown.CooldownOverride = nil
@@ -1533,6 +1787,7 @@ function B:ClearEmptySlotVisuals(slot)
 
 	if slot.cooldown then
 		CooldownFrame_SetTimer(slot.cooldown, 0, 0, 0)
+		if SarychUI_NotifyCooldown then SarychUI_NotifyCooldown(slot.cooldown, 0, 0, 0) end
 		slot.cooldown:Hide()
 	end
 
@@ -1748,15 +2003,45 @@ function B:ScheduleSplitLayout(bagFrame)
 	driver:Show()
 end
 
+function B:ScheduleDeferredBagRefresh(bagFrame, notBefore)
+	if not (bagFrame and bagFrame:IsShown()) then return end
+
+	B._suiDeferredBagRefreshFrames = B._suiDeferredBagRefreshFrames or {}
+	local deadline = tonumber(notBefore) or 0
+	local previous = B._suiDeferredBagRefreshFrames[bagFrame] or 0
+	B._suiDeferredBagRefreshFrames[bagFrame] = max(previous, deadline)
+
+	local driver = B._suiDeferredBagRefreshDriver
+	if not driver then
+		driver = CreateFrame("Frame")
+		B._suiDeferredBagRefreshDriver = driver
+		driver:SetScript("OnUpdate", function(self)
+			local now = GetTime and GetTime() or 0
+			local pending = B._suiDeferredBagRefreshFrames
+			local waiting
+			for frame, refreshAt in pairs(pending or {}) do
+				if now < refreshAt then
+					waiting = true
+				else
+					pending[frame] = nil
+					if frame:IsShown() then
+						B:Layout(frame.isBank)
+						if B:IsSearching() then
+							B:RefreshSearch()
+						end
+					end
+				end
+			end
+			if not waiting and not next(pending or {}) then
+				self:Hide()
+			end
+		end)
+	end
+	driver:Show()
+end
+
 function B:RefreshAdditionalSplitLayout(bagFrame, reason, immediate)
 	if not (bagFrame and bagFrame:IsShown() and B:IsAdditionalSplitEnabled(bagFrame.isBank)) then return false end
-	if E.embeddedInSarychUI and B._suiSkipSplitUntil then
-		local now = GetTime and GetTime() or 0
-		if now < B._suiSkipSplitUntil then
-			return false
-		end
-		B._suiSkipSplitUntil = nil
-	end
 	if E.embeddedInSarychUI and not immediate then
 		B:ScheduleSplitLayout(bagFrame)
 		if DEBUG_ELVUI_BAGS_REFRESH then
@@ -2185,13 +2470,13 @@ local TOOLBAR_H = 28
 local TOOL_BTN = 22
 local BAGS_SCALE_MULT = 0.96
 local BAG_TOOLBAR_H = TOOLBAR_H
--- QuestTracker.BLP atlas slices (1024x512) - NOT the ornate filigree header.
--- alt header = clean gold rails with soft side fade; line = thin footer underline.
-local DF_BAG_HEADER = [[Interface\AddOns\SarychUI\media\textures\questtracker\QuestTracker.BLP]]
+-- QuestTracker atlas slices (1024x512). Use the visible gold header, not the
+-- near-transparent fade rail that disappears on the bag chrome.
+local DF_BAG_HEADER = [[Interface\AddOns\SarychUI\media\textures\questtracker\QuestTracker]]
 local DF_TEX_W, DF_TEX_H = 1024, 512
-local DF_HDR = { l = 36, r = 566, t = 328, b = 376 }   -- clean header; 2px crop off bottom
-local DF_LINE = { l = 21, r = 656, t = 384, b = 395 }   -- thin fade underline
-local DF_TITLE_BAR_H = 24
+local DF_HDR = { l = 11, r = 571, t = 247, b = 317 }
+local DF_LINE = { l = 21, r = 656, t = 384, b = 395 }
+local DF_TITLE_BAR_H = 28
 
 local function GetBagsElvuiDb()
 	local bagsDb = SarychUI and SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.modules
@@ -2234,18 +2519,6 @@ local function SetDfSlice(tex, slice)
 	tex:SetTexCoord(slice.l / DF_TEX_W, slice.r / DF_TEX_W, slice.t / DF_TEX_H, slice.b / DF_TEX_H)
 end
 
-local function EnsureDfHeaderLayer(titleBar, key, drawLayer, subLevel)
-	local tex = titleBar[key]
-	if not tex then
-		tex = titleBar:CreateTexture(nil, drawLayer or "ARTWORK")
-		if subLevel and tex.SetDrawLayer then
-			tex:SetDrawLayer(drawLayer or "ARTWORK", subLevel)
-		end
-		titleBar[key] = tex
-	end
-	return tex
-end
-
 local function HideDfHeaderLayers(titleBar)
 	for _, key in ipairs({ "suiDfGlow", "suiDfHeader", "suiDfLine" }) do
 		local tex = titleBar[key]
@@ -2255,31 +2528,34 @@ end
 
 local function ApplyDragonflightTitleHeader(titleBar)
 	if not titleBar then return end
+	local tex = titleBar.suiDfHeader
 	if not IsDragonflightBagHeaderEnabled() then
 		HideDfHeaderLayers(titleBar)
 		return
 	end
 
-	-- Fill the title bar edge-to-edge (no empty padding around the strip).
 	if titleBar.suiDfGlow then
 		titleBar.suiDfGlow:Hide()
 	end
-
-	local tex = EnsureDfHeaderLayer(titleBar, "suiDfHeader", "ARTWORK", 2)
-	SetDfSlice(tex, DF_HDR)
-	tex:ClearAllPoints()
-	tex:SetPoint("TOPLEFT", titleBar, "TOPLEFT", 0, 0)
-	tex:SetPoint("BOTTOMRIGHT", titleBar, "BOTTOMRIGHT", 0, -1)
-	tex:SetAlpha(1)
-	tex:Show()
-
-	-- Underline belongs on the window footer, not under the title.
 	if titleBar.suiDfLine then
 		titleBar.suiDfLine:Hide()
 		titleBar.suiDfLine:ClearAllPoints()
 	end
 
-	-- Hide plate fill/border so only the DF strip shows (no gray gap / seam line).
+	-- Same as Talented: ARTWORK strip under the OVERLAY title text.
+	if not tex then
+		tex = titleBar:CreateTexture(nil, "ARTWORK")
+		titleBar.suiDfHeader = tex
+	end
+	SetDfSlice(tex, DF_HDR)
+	tex:ClearAllPoints()
+	tex:SetPoint("TOPLEFT", titleBar, "TOPLEFT", 0, 0)
+	tex:SetPoint("BOTTOMRIGHT", titleBar, "BOTTOMRIGHT", 0, 0)
+	tex:SetAlpha(1)
+	tex:Show()
+
+	if titleBar.iborder then titleBar.iborder:Hide() end
+	if titleBar.oborder then titleBar.oborder:Hide() end
 	if titleBar.SetBackdrop then
 		local bd = titleBar:GetBackdrop()
 		if bd then
@@ -3021,6 +3297,37 @@ function B:ApplySarychUIBagFrameLayers(frame)
 	bagsDragDebug("frame layers", FrameDebugName(frame), strata, frame.GetFrameLevel and frame:GetFrameLevel() or "?")
 end
 
+function B:RaiseLiveBagSlotFrames(frame)
+	if not (E.embeddedInSarychUI and frame and frame.Bags and frame.holderFrame) then
+		return
+	end
+	local holder = frame.holderFrame
+	local base = (holder.GetFrameLevel and holder:GetFrameLevel()) or 0
+	local bagLevel = base + 1
+	local slotLevel = base + 2
+	local ids = frame.BagIDs
+	if not ids then return end
+	for i = 1, #ids do
+		local bag = frame.Bags[ids[i]]
+		if bag and bag.SetFrameLevel then
+			bag:SetFrameLevel(bagLevel)
+			for slotID = 1, (bag.numSlots or 0) do
+				local slot = bag[slotID]
+				if slot and slot.SetFrameLevel then
+					slot:SetFrameLevel(slotLevel)
+					local glow = slot._suiNewItemGlow
+					if glow and glow.SetFrameLevel then
+						glow:SetFrameLevel(slotLevel + 1)
+					end
+					if slot.cooldown and slot.cooldown.SetFrameLevel then
+						slot.cooldown:SetFrameLevel(slotLevel + 1)
+					end
+				end
+			end
+		end
+	end
+end
+
 function B:RaiseSarychUIBagFrame(frame)
 	if not E.embeddedInSarychUI or not frame then return end
 	B:ApplySarychUIBagFrameLayers(frame)
@@ -3028,6 +3335,7 @@ function B:RaiseSarychUIBagFrame(frame)
 	if (frame:GetFrameLevel() or 0) < level then
 		frame:SetFrameLevel(level)
 	end
+	B:RaiseLiveBagSlotFrames(frame)
 end
 
 function B:SarychUIBagsDragStart(frame)
@@ -3255,6 +3563,10 @@ function B:HandleSortButtonClick(f, sortGroup)
 	end
 	if B.SortUpdateTimer and B.SortUpdateTimer.IsShown and B.SortUpdateTimer:IsShown() then
 		return
+	end
+
+	if E.embeddedInSarychUI and not isBank then
+		B:ResetNewItems()
 	end
 
 	-- ElvUI/Modules/Bags/Bags.lua sortButton OnClick
@@ -3584,7 +3896,97 @@ function B:DisableBlizzard()
 	end
 
 	for i = 1, NUM_CONTAINER_FRAMES do
-		_G["ContainerFrame"..i]:Kill()
+		local frame = _G["ContainerFrame"..i]
+		if frame then
+			frame:UnregisterAllEvents()
+			-- Never parent these to HiddenFrame. A bag equipped mid-session only
+			-- unlocks its slots after ContainerFrame_GenerateFrame can Show().
+			if E.HiddenFrame and frame.GetParent and frame:GetParent() == E.HiddenFrame then
+				frame:SetParent(UIParent)
+			end
+			B:SuppressBlizzardContainer(frame)
+			if not B._suiAllowBlizzardBagShow then
+				frame:Hide()
+			end
+		end
+	end
+end
+
+function B:SuppressBlizzardContainer(frame)
+	if not frame or frame._suiBagShowHooked then return end
+	frame._suiBagShowHooked = true
+	frame:HookScript("OnShow", function(self)
+		if B._suiAllowBlizzardBagShow then return end
+		self:Hide()
+	end)
+end
+
+-- Newly equipped bags stay locked/desaturated until the client has generated
+-- the matching ContainerFrame once. Backpack (bag 0) is initialized at login;
+-- bags 1-4 equipped later are not, which is ElvUI_ContainerFrameBag1Slot1+.
+function B:PrimeClientBag(bagID)
+	if not E.embeddedInSarychUI then return end
+	if type(bagID) ~= "number" or bagID < 0 or bagID > 4 then return end
+
+	local size = Blizzard_GetContainerNumSlots(bagID) or 0
+	if size <= 0 then
+		if B._suiPrimedBags then
+			local prefix = bagID .. ":"
+			for key in pairs(B._suiPrimedBags) do
+				if type(key) == "string" and key:sub(1, #prefix) == prefix then
+					B._suiPrimedBags[key] = nil
+				end
+			end
+			B._suiPrimedBags[bagID] = nil
+		end
+		return
+	end
+
+	local invID = (bagID > 0 and ContainerIDToInventoryID) and ContainerIDToInventoryID(bagID)
+	local itemID = 0
+	if bagID == 0 then
+		itemID = 0
+	elseif invID and GetInventoryItemID then
+		itemID = GetInventoryItemID("player", invID) or 0
+	end
+	local primeKey = bagID .. ":" .. tostring(itemID)
+
+	B._suiPrimedBags = B._suiPrimedBags or {}
+	if B._suiPrimedBags[primeKey] then return end
+
+	local generate = _G.ContainerFrame_GenerateFrame
+	if not generate then return end
+
+	local frame
+	if _G.ContainerFrame_GetOpenFrame then
+		frame = _G.ContainerFrame_GetOpenFrame()
+	end
+	frame = frame or _G["ContainerFrame1"]
+	if not frame then return end
+
+	if E.HiddenFrame and frame.GetParent and frame:GetParent() == E.HiddenFrame then
+		frame:SetParent(UIParent)
+	end
+	B:SuppressBlizzardContainer(frame)
+
+	B._suiAllowBlizzardBagShow = true
+	local oldAlpha = frame.GetAlpha and frame:GetAlpha() or 1
+	if frame.SetAlpha then frame:SetAlpha(0) end
+	local ok, err = pcall(generate, frame, size, bagID)
+	B._suiAllowBlizzardBagShow = nil
+	frame:Hide()
+	if frame.SetAlpha then frame:SetAlpha(oldAlpha) end
+	if not ok then
+		return
+	end
+
+	B._suiPrimedBags[primeKey] = true
+end
+
+function B:PrimeEquippedClientBags()
+	if not E.embeddedInSarychUI then return end
+	for bagID = 0, 4 do
+		B:PrimeClientBag(bagID)
 	end
 end
 
@@ -3695,7 +4097,7 @@ end
 function B:UpdateSearch()
 	local search = self:GetText()
 	if self.Instructions then
-		self.Instructions:SetShown(search == "")
+		if search == "" then self.Instructions:Show() else self.Instructions:Hide() end
 	end
 
 	local MIN_REPEAT_CHARACTERS = 3
@@ -3970,7 +4372,12 @@ end
 
 function B:UpdateSlot(frame, bagID, slotID)
 	if not (frame and frame.Bags) then return end
-	if (frame.Bags[bagID] and frame.Bags[bagID].numSlots ~= GetContainerNumSlots(bagID)) or not frame.Bags[bagID] or not frame.Bags[bagID][slotID] then return end
+	if (frame.Bags[bagID] and frame.Bags[bagID].numSlots ~= GetContainerNumSlots(bagID)) or not frame.Bags[bagID] or not frame.Bags[bagID][slotID] then
+		if E.embeddedInSarychUI then
+			B:ScheduleSplitLayout(frame)
+		end
+		return
+	end
 
 	local slot = frame.Bags[bagID][slotID]
 	local bagType = frame.Bags[bagID].type
@@ -3991,6 +4398,15 @@ function B:UpdateSlot(frame, bagID, slotID)
 		texture, count, locked, _, readable = GetContainerItemInfo(bagID, slotID)
 		clink = GetContainerItemLink(bagID, slotID)
 	end
+	local filledCollapsedSlot = texture and (slot._suiFreeSpaceHidden or slot._suiFreeSpaceStack)
+	if filledCollapsedSlot then
+		-- An empty slot may have been collapsed by the AdiBags layout. Once an
+		-- item lands there it must stop inheriting the old hidden/free-space state.
+		B:ClearAdiBagsFreeSpaceFlags(slot)
+		if frame:IsShown() then
+			B:ScheduleSplitLayout(frame)
+		end
+	end
 
 	slot.name, slot.rarity, slot.locked, slot.readable, slot.isJunk, slot.junkDesaturate = nil, nil, locked, readable, nil, nil
 	slot._suiItemMetadataReady = true
@@ -4009,8 +4425,10 @@ function B:UpdateSlot(frame, bagID, slotID)
 	-- Keep the secure Blizzard item button inert in offline mode, but place an
 	-- independent hover-only hitbox above it so cached item tooltips still work.
 	local offlineBank = E.embeddedInSarychUI and frame.isBank and not B.bankIsOpen and B:IsBankBagID(bagID)
-	if slot.EnableMouse then
-		slot:EnableMouse(not offlineBank)
+	if offlineBank then
+		if slot.EnableMouse then slot:EnableMouse(false) end
+	else
+		B:EnsureLiveBagSlotInteraction(slot)
 	end
 	B:UpdateOfflineBankSlotInteraction(slot, offlineBank)
 	slot.questIcon:Hide()
@@ -4123,7 +4541,10 @@ function B:UpdateSlot(frame, bagID, slotID)
 		if not useCache then
 			local start, duration, enable = GetContainerItemCooldown(bagID, slotID)
 			CooldownFrame_SetTimer(slot.cooldown, start, duration, enable)
-			if duration > 0 and enable == 0 then
+			if SarychUI_NotifyCooldown then SarychUI_NotifyCooldown(slot.cooldown, start, duration, enable) end
+			-- Unopened mid-session bags often return duration>0/enable==0 garbage.
+			-- That used to paint every icon grey from Bag1Slot1 onward.
+			if start and start > 0 and duration and duration > 0 and enable == 0 then
 				SetItemButtonTextureVertexColor(slot, 0.4, 0.4, 0.4)
 			else
 				SetItemButtonTextureVertexColor(slot, 1, 1, 1)
@@ -4143,10 +4564,16 @@ function B:UpdateSlot(frame, bagID, slotID)
 			slot.iconTexture:SetVertexColor(1, 1, 1)
 		end
 
-		if slot.iconBorder and slot.rarity and slot.rarity > 1 then
-			slot.iconBorder:Show()
-		elseif slot.iconBorder then
-			slot.iconBorder:Hide()
+		if slot.iconBorder then
+			if slot.rarity and slot.rarity > 1 then
+				local qr, qg, qb = GetItemQualityColor(slot.rarity)
+				if slot.iconBorder.SetVertexColor and qr then
+					slot.iconBorder:SetVertexColor(qr, qg, qb)
+				end
+				slot.iconBorder:Show()
+			else
+				slot.iconBorder:Hide()
+			end
 		end
 
 		if slot.Count then
@@ -4160,7 +4587,14 @@ function B:UpdateSlot(frame, bagID, slotID)
 		end
 
 		SetItemButtonCount(slot, count or 0)
-		SetItemButtonDesaturated(slot, slot.locked or slot.junkDesaturate)
+		-- A bag that the client has not generated yet reports every slot as
+		-- locked, which desaturates the icon and blocks pickup until /reload.
+		-- Keep the real lock visual only while the cursor is holding an item.
+		local showLock = (locked == 1 or locked == true) and CursorHasItem and CursorHasItem()
+		SetItemButtonDesaturated(slot, showLock or slot.junkDesaturate)
+		if not frame.isBank then
+			B:EnsureLiveBagSlotInteraction(slot)
+		end
 
 		slot.itemLink = clink
 		slot.itemID = clink and tonumber(strmatch(clink, "item:(%d+)")) or nil
@@ -4179,7 +4613,9 @@ function B:UpdateSlot(frame, bagID, slotID)
 	end
 
 	-- Keep AdiBags free-space virtual stack visuals after empty-slot reset.
-	if slot._suiFreeSpaceHidden then
+	-- Never hide a slot that currently holds an item (newly equipped bags fill
+	-- slots that were collapsed as empty a moment earlier).
+	if slot._suiFreeSpaceHidden and not texture and not slot.hasItem then
 		slot:Hide()
 	elseif slot._suiFreeSpaceStack then
 		B:ApplyAdiBagsFreeSpaceDisplay(slot, slot._suiFreeSpaceStack)
@@ -4187,10 +4623,27 @@ function B:UpdateSlot(frame, bagID, slotID)
 	B:UpdateNewItemGlow(slot, not frame.isBank)
 end
 
+function B:UpdateWCollectionsOverlays(bagID)
+	local overlays = _G.WCollections and _G.WCollections.IconOverlays
+	if not (overlays and overlays.Update) then
+		return
+	end
+	-- IconOverlays only visits addons that are both loaded and listed.
+	-- Bag buttons use ElvUI frame names, but the ElvUI addon is not loaded,
+	-- so register SarychUI and reuse that button lookup.
+	local addons = overlays.GetAddons and overlays:GetAddons()
+	local elvuiBags = addons and addons.ElvUI and addons.ElvUI.Bags
+	if addons and elvuiBags and not addons.SarychUI then
+		addons.SarychUI = { Bags = elvuiBags }
+	end
+	overlays:Update(bagID)
+end
+
 function B:UpdateBagSlots(frame, bagID)
 	for slotID = 1, GetContainerNumSlots(bagID) do
 		B:UpdateSlot(frame, bagID, slotID)
 	end
+	B:UpdateWCollectionsOverlays(bagID)
 end
 
 function B:RefreshSearch()
@@ -4244,6 +4697,7 @@ function B:UpdateCooldowns(frame)
 				B:PreferSarychUICooldown(slot.cooldown)
 				local start, duration, enable = GetContainerItemCooldown(bagID, slotID)
 				CooldownFrame_SetTimer(slot.cooldown, start, duration, enable)
+				if SarychUI_NotifyCooldown then SarychUI_NotifyCooldown(slot.cooldown, start, duration, enable) end
 			end
 		end
 	end
@@ -4797,6 +5251,10 @@ function B:Layout(isBank, inventorySignature, categoryOnly)
 						f.ContainerHolder[i]:SetScript("OnLeave", GameTooltip_Hide)
 					else
 						f.ContainerHolder[i] = CreateFrame("CheckButton", "ElvUIMainBag"..(bagID - 1).."Slot", f.ContainerHolder, "BagSlotButtonTemplate")
+						local invID = ContainerIDToInventoryID and ContainerIDToInventoryID(bagID)
+						if invID then
+							f.ContainerHolder[i]:SetID(invID)
+						end
 						f.ContainerHolder[i]:SetScript("OnClick", function(holder)
 							local id = holder:GetID()
 							PutItemInBag(id)
@@ -4858,6 +5316,14 @@ function B:Layout(isBank, inventorySignature, categoryOnly)
 				else
 					SetItemButtonTextureVertexColor(holder, 1, 0.1, 0.1)
 				end
+			elseif not isBank and bagID > 0 and f.ContainerHolder[i] then
+				local invID = ContainerIDToInventoryID and ContainerIDToInventoryID(bagID)
+				if invID then
+					f.ContainerHolder[i]:SetID(invID)
+				end
+				if PaperDollItemSlotButton_Update then
+					pcall(PaperDollItemSlotButton_Update, f.ContainerHolder[i])
+				end
 			elseif isBank and offlineBank and f.ContainerHolder[i] then
 				local cached = B:GetCachedBankBag(bagID)
 				local icon = f.ContainerHolder[i].iconTexture
@@ -4889,7 +5355,13 @@ function B:Layout(isBank, inventorySignature, categoryOnly)
 		if numSlots > 0 then
 			if not f.Bags[bagID] then
 				f.Bags[bagID] = CreateFrame("Frame", f:GetName().."Bag"..bagID, f.holderFrame)
-				f.Bags[bagID]:SetID(bagID)
+			end
+			f.Bags[bagID]:SetID(bagID)
+			if f.Bags[bagID].EnableMouse then
+				f.Bags[bagID]:EnableMouse(false)
+			end
+			if not isBank then
+				B:PrimeClientBag(bagID)
 			end
 
 			f.Bags[bagID].numSlots = numSlots
@@ -4987,6 +5459,7 @@ function B:Layout(isBank, inventorySignature, categoryOnly)
 				end
 
 				B:SetupSlotHover(f.Bags[bagID][slotID])
+				B:EnsureLiveBagSlotInteraction(f.Bags[bagID][slotID])
 				local slot = f.Bags[bagID][slotID]
 				local wasVirtualFreeSpace = slot._suiFreeSpaceStack or slot._suiFreeSpaceHidden
 				B:ClearAdiBagsFreeSpaceFlags(slot)
@@ -5158,14 +5631,25 @@ function B:Layout(isBank, inventorySignature, categoryOnly)
 		f._suiLastLayoutH = nextH
 	end
 
-	if E.embeddedInSarychUI and not f._suiChromeReady then
-		B:ApplySarychUIBagChrome(f)
-		f._suiChromeReady = true
+	if E.embeddedInSarychUI then
+		if not f._suiChromeReady then
+			B:ApplySarychUIBagChrome(f)
+			f._suiChromeReady = true
+		else
+			if f.suiTitleBar then
+				ApplyDragonflightTitleHeader(f.suiTitleBar)
+			end
+			if f.suiToolBar then
+				ApplyDragonflightToolbarLine(f.suiToolBar)
+			end
+		end
 	end
 	f._suiLaidOut = true
 	f._suiLayoutDirty = nil
 	if E.embeddedInSarychUI then
 		f._suiInvSig = inventorySignature or B:GetInventorySignature(f)
+		B:RaiseLiveBagSlotFrames(f)
+		B:ScheduleLiveBagSlotRepair(f)
 	end
 end
 
@@ -5217,6 +5701,7 @@ function B:UpdateKeySlot(slotID)
 		B:PreferSarychUICooldown(slot.cooldown)
 		local start, duration, enable = GetContainerItemCooldown(bagID, slotID)
 		CooldownFrame_SetTimer(slot.cooldown, start, duration, enable)
+		if SarychUI_NotifyCooldown then SarychUI_NotifyCooldown(slot.cooldown, start, duration, enable) end
 		if duration > 0 and enable == 0 then
 			SetItemButtonTextureVertexColor(slot, 0.4, 0.4, 0.4)
 		else
@@ -5253,18 +5738,20 @@ function B:OnEvent(event, ...)
 		B:ScheduleNewItemScan()
 	end
 	if E.embeddedInSarychUI and not self:IsShown() then
-		-- Closed bags: do not mark layout dirty (QUEST_LOG_UPDATE/ITEM_LOCK spam).
-		-- OpenBags compares inventory signature instead.
+		-- Closed bags: do not relayout on QUEST_LOG_UPDATE/ITEM_LOCK spam.
+		-- Remember real content changes so OpenBags can refresh icons/borders
+		-- after /equip macros (signature-only compare can miss same-icon swaps
+		-- or a still-stale GetContainerItemInfo).
 		if event == "BAG_UPDATE" and self.isBank and B.bankIsOpen then
 			B:CacheBankContents()
 		end
-		return
-	end
-	if E.embeddedInSarychUI and B._suiSkipSplitUntil and event == "BAG_UPDATE" then
-		local now = GetTime and GetTime() or 0
-		if now < B._suiSkipSplitUntil then
-			return
+		if not self.isBank and (event == "BAG_UPDATE" or event == "ITEM_LOCK_CHANGED" or event == "ITEM_UNLOCKED") then
+			if event == "BAG_UPDATE" then
+				self._suiBagsNeedSlotRefresh = true
+			end
+			B:ScheduleEquippedBagSync(event)
 		end
+		return
 	end
 	if event == "ITEM_LOCK_CHANGED" or event == "ITEM_UNLOCKED" then
 		local bag, slot = ...
@@ -5272,10 +5759,18 @@ function B:OnEvent(event, ...)
 			B:UpdateKeySlot(slot)
 		elseif bag and slot then
 			B:UpdateSlot(self, bag, slot)
+		elseif E.embeddedInSarychUI then
+			B:UpdateAllSlots(self)
 		end
-		if event == "ITEM_UNLOCKED" and B:RefreshAdditionalSplitLayout(self, event) then
-			if B:IsSearching() then B:RefreshSearch() end
-			return
+		if event == "ITEM_UNLOCKED" then
+			if not self.isBank and B:BagContainerSizesChanged(self) then
+				B:Layout(self.isBank)
+				return
+			end
+			if B:RefreshAdditionalSplitLayout(self, event) then
+				if B:IsSearching() then B:RefreshSearch() end
+				return
+			end
 		end
 	elseif event == "BAG_UPDATE" then
 		local bag = ...
@@ -5289,8 +5784,14 @@ function B:OnEvent(event, ...)
 			local numSlots = GetContainerNumSlots(bagID)
 			if (not self.Bags[bagID] and numSlots ~= 0) or (self.Bags[bagID] and numSlots ~= self.Bags[bagID].numSlots) then
 				B:Layout(self.isBank)
+				if not self.isBank then
+					B:ScheduleEquippedBagSync("bag-size")
+				end
 				return
 			end
+		end
+		if not self.isBank then
+			B:ScheduleEquippedBagSync("bag-update")
 		end
 
 		if self.isBank and B.bankIsOpen then
@@ -5858,36 +6359,6 @@ function B:ContructContainerFrame(name, isBank)
 			B:UpdateSectionSplitButton(f.sectionSplitButton)
 		end
 
-		-- AdiBags-style reset for the session-local "new item" status. The same
-		-- status drives the New section and the green glow in classic layout.
-		if E.embeddedInSarychUI then
-			f.newItemsButton = CreateFrame("Button", name.."NewItemsButton", f.holderFrame)
-			f.newItemsButton:Size(16 + E.Border)
-			f.newItemsButton:SetTemplate()
-			f.newItemsButton:Point("RIGHT", (f.sectionSplitButton or f.vendorGraysButton), "LEFT", -5, 0)
-			f.newItemsButton:StyleButton(nil, true)
-			f.newItemsButton.ttText = "Сбросить новые предметы"
-			f.newItemsButton.ttText2 = "Убирает секцию «Новое» и зелёную анимацию. Также снимается наведением на предмет или закрытием сумок."
-			f.newItemsButton:SetScript("OnEnter", B.Tooltip_Show)
-			f.newItemsButton:SetScript("OnLeave", GameTooltip_Hide)
-			f.newItemsButton:SetScript("OnClick", function()
-				PlaySound("igMainMenuOptionCheckBoxOn")
-				B:ResetNewItems()
-			end)
-			local text = f.newItemsButton:CreateFontString(nil, "OVERLAY")
-		text:SetAllPoints()
-		text:SetJustifyH("CENTER")
-		text:SetJustifyV("MIDDLE")
-		if B.ApplySlotTextFont then
-			B:ApplySlotTextFont(text, 12)
-		else
-			text:SetFontObject(GameFontNormal)
-		end
-		text:SetText("N")
-		f.newItemsButton.text = text
-			B:UpdateNewItemsButton()
-		end
-
 		--Search
 		f.editBox = CreateFrame("EditBox", name.."EditBox", f)
 		f.editBox:SetFrameLevel(f.editBox:GetFrameLevel() + 2)
@@ -5895,7 +6366,7 @@ function B:ContructContainerFrame(name, isBank)
 		f.editBox.backdrop:Point("TOPLEFT", f.editBox, "TOPLEFT", -20, 2)
 		f.editBox:Height(15)
 		f.editBox:Point("BOTTOMLEFT", f.holderFrame, "TOPLEFT", (E.Border * 2) + 18, E.Border * 2 + 2)
-		f.editBox:Point("RIGHT", (f.newItemsButton or f.sectionSplitButton or f.vendorGraysButton), "LEFT", -5, 0)
+		f.editBox:Point("RIGHT", (f.sectionSplitButton or f.vendorGraysButton), "LEFT", -5, 0)
 		f.editBox:SetAutoFocus(false)
 		f.editBox:SetScript("OnEscapePressed", B.ResetAndClear)
 		f.editBox:SetScript("OnEnterPressed", function(eb) eb:ClearFocus() end)
@@ -6098,6 +6569,86 @@ function B:BagContainerSizesChanged(frame)
 	return false
 end
 
+function B:EquippedBagSignature()
+	local parts = {}
+	for bagID = 0, 4 do
+		parts[#parts + 1] = tostring(Blizzard_GetContainerNumSlots(bagID) or 0)
+	end
+	if GetInventoryItemID then
+		for slot = 20, 23 do
+			parts[#parts + 1] = tostring(GetInventoryItemID("player", slot) or 0)
+		end
+	end
+	return table.concat(parts, ":")
+end
+
+function B:SyncEquippedBags(reason, forceRefresh)
+	if not E.embeddedInSarychUI or not B.BagFrame then
+		return false
+	end
+	local sig = B:EquippedBagSignature()
+	local sizesChanged = B:BagContainerSizesChanged(B.BagFrame)
+	if sig == B._suiEquippedBagSig and not sizesChanged and not forceRefresh then
+		return false
+	end
+	B._suiEquippedBagSig = sig
+	B:PrimeEquippedClientBags()
+	if not B.BagFrame:IsShown() then
+		B.BagFrame._suiBagsNeedFullLayout = true
+		return true
+	end
+	B.BagFrame._suiBagsNeedFullLayout = nil
+	B:Layout()
+	return true
+end
+
+function B:ScheduleEquippedBagSync(reason)
+	if not E.embeddedInSarychUI then
+		return
+	end
+	B._suiEquipSyncReason = reason
+	local driver = B._suiEquipSyncDriver
+	local wasRunning = driver and driver:IsShown()
+	if not driver then
+		driver = CreateFrame("Frame")
+		B._suiEquipSyncDriver = driver
+		driver:SetScript("OnUpdate", function(self, elapsed)
+			self._t = (self._t or 0) + elapsed
+			if self._t >= 0.05 and not self._earlySyncDone then
+				self._earlySyncDone = true
+				if B:SyncEquippedBags(B._suiEquipSyncReason) then
+					self._bagChangeObserved = true
+				end
+			end
+			if self._t >= 0.4 then
+				-- The late forced pass clears transient item locks and repairs click
+				-- registrations after the client has finalized the new container.
+				B:SyncEquippedBags(B._suiEquipSyncReason, self._bagChangeObserved == true)
+				self._t = 0
+				self._earlySyncDone = nil
+				self._bagChangeObserved = nil
+				self:Hide()
+			end
+		end)
+	end
+	driver._t = 0
+	driver._earlySyncDone = nil
+	if not wasRunning then
+		driver._bagChangeObserved = nil
+	end
+	driver:Show()
+end
+
+function B:OnUnitInventoryChanged(_, unit)
+	if unit and unit ~= "player" then
+		return
+	end
+	if B.BagFrame and not B.BagFrame:IsShown() then
+		B.BagFrame._suiBagsNeedSlotRefresh = true
+	end
+	B:ScheduleEquippedBagSync("inventory")
+end
+
 function B:GetInventorySignature(frame)
 	if not (frame and frame.BagIDs) then return "" end
 	local parts = {}
@@ -6110,8 +6661,11 @@ function B:GetInventorySignature(frame)
 		parts[n] = tostring(numSlots)
 		for slotID = 1, numSlots do
 			local texture, count = GetContainerItemInfo(bagID, slotID)
+			local link = GetContainerItemLink(bagID, slotID)
 			n = n + 1
-			parts[n] = texture and tostring(texture) or "-"
+			-- Texture+count alone misses /equip swaps of two items that share
+			-- an icon (common for weapons). Identity must include the link.
+			parts[n] = link or (texture and tostring(texture) or "-")
 			n = n + 1
 			parts[n] = tostring(count or 0)
 		end
@@ -6126,14 +6680,23 @@ function B:OpenBags()
 		if B:IsAdiBagsSplitMode() then
 			B:WarmAdiBagsFirstPaint(B.BagFrame)
 		end
-		B._suiSkipSplitUntil = (GetTime and GetTime() or 0) + 0.2
+		-- Generate client bag frames before reading contents. Otherwise
+		-- GetContainerItemInfo can still report the pre-swap item.
+		B:PrimeEquippedClientBags()
 	end
 
 	local needLayout = true
+	local needSlotRefresh = E.embeddedInSarychUI and B.BagFrame._suiBagsNeedSlotRefresh
 	local inventorySignature
-	if E.embeddedInSarychUI and B.BagFrame._suiLaidOut and not B:BagContainerSizesChanged(B.BagFrame) then
+	if E.embeddedInSarychUI then
+		B.BagFrame._suiBagsNeedSlotRefresh = nil
+	end
+	if E.embeddedInSarychUI and B.BagFrame._suiBagsNeedFullLayout then
+		needLayout = true
+		B.BagFrame._suiBagsNeedFullLayout = nil
+	elseif E.embeddedInSarychUI and B.BagFrame._suiLaidOut and not B:BagContainerSizesChanged(B.BagFrame) then
 		inventorySignature = B:GetInventorySignature(B.BagFrame)
-		needLayout = (inventorySignature ~= B.BagFrame._suiInvSig)
+		needLayout = (inventorySignature ~= B.BagFrame._suiInvSig) or needSlotRefresh
 		if not needLayout then
 			B.BagFrame._suiInvSig = inventorySignature
 		end
@@ -6141,6 +6704,11 @@ function B:OpenBags()
 
 	if needLayout and B.Layout then
 		B:Layout(nil, inventorySignature)
+	elseif E.embeddedInSarychUI then
+		-- Same bag sizes, but icons/borders can still be stale after an
+		-- equipment swap while the window was closed.
+		B:UpdateAllSlots(B.BagFrame)
+		B:ScheduleLiveBagSlotRepair(B.BagFrame)
 	end
 	if E.embeddedInSarychUI then
 		B:UpdateGoldText()
@@ -6173,9 +6741,9 @@ function B:CloseBags()
 		B.BankFrame:Hide()
 	end
 
-	-- Closing bags acknowledges unseen loot (same idea as C_NewItems on BAG_CLOSED).
-	if E.embeddedInSarychUI and B._suiNewItemIDs and next(B._suiNewItemIDs) then
-		B:ResetNewItems()
+	-- Close: viewed items leave «Новые» on the next open. Unseen keep glow.
+	if E.embeddedInSarychUI then
+		B:PromoteSeenNewItems()
 	end
 
 	B:UpdateBlizzardBagButtonCheckedState()
@@ -6700,6 +7268,10 @@ function B:Initialize()
 	B:RegisterEvent("BANKFRAME_CLOSED", "CloseBank")
 	B:RegisterEvent("PLAYERBANKBAGSLOTS_CHANGED")
 	B:RegisterEvent("GUILDBANKBAGSLOTS_CHANGED")
+	if E.embeddedInSarychUI then
+		B:RegisterEvent("UNIT_INVENTORY_CHANGED", "OnUnitInventoryChanged")
+		B._suiEquippedBagSig = B:EquippedBagSignature()
+	end
 
 	B:ApplyBagFont()
 

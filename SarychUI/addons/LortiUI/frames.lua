@@ -227,11 +227,29 @@ local function PaintList(list, restore)
 	end
 end
 
+-- BFA action-bar artwork is created dynamically by SarychUI and therefore has
+-- no global region names for the original Lorti lists to discover.
+function L:ApplySarychUIMainMenuBarArtwork(restore)
+	local mainMenuBar = SarychUI and SarychUI.modules and SarychUI.modules.mainmenubar
+	local bfa = mainMenuBar and mainMenuBar.BFAStyle
+	local artwork = bfa and bfa.artwork
+	if not artwork then return end
+
+	for _, region in pairs(artwork) do
+		if restore then
+			self:RestoreTexture(region)
+		else
+			self:DarkenTexture(region)
+		end
+	end
+end
+
 function L:ApplyFrames()
 	PaintList(self.unitFrameNames, false)
 	PaintList(self.barFrameNames, false)
 	PaintList(self.endCapNames, false)
 	PaintList(self.arenaFrameNames, false)
+	self:ApplySarychUIMainMenuBarArtwork(false)
 	self:DarkenFirstRegion(TimeManagerClockButton)
 	self:DarkenFirstRegion(GameTimeFrame)
 	self:ApplyTotemRings()
@@ -249,6 +267,7 @@ function L:RestoreFrames()
 	PaintList(self.barFrameNames, true)
 	PaintList(self.endCapNames, true)
 	PaintList(self.arenaFrameNames, true)
+	self:ApplySarychUIMainMenuBarArtwork(true)
 	self:RestoreFirstRegion(TimeManagerClockButton)
 	self:RestoreFirstRegion(GameTimeFrame)
 	self:RestorePathTextures()

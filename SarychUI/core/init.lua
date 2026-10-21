@@ -104,6 +104,16 @@ function SarychUI:IsPlayerInCombat()
 	return UnitAffectingCombat and UnitAffectingCombat("player") and true or false
 end
 
+function SarychUI:AllowOptionsInCombat()
+	local system = self.db and self.db.profile and self.db.profile.system
+	return system and (system.allowOptionsInCombat == true or system.allowOptionsInCombat == 1) or false
+end
+
+-- Blocks opening /sui while in combat unless the System Overview override is on.
+function SarychUI:IsOptionsBlockedByCombat()
+	return self:IsPlayerInCombat() and not self:AllowOptionsInCombat()
+end
+
 function SarychUI:IsSarychUIConfigOpen()
 	local ACD = LibStub and LibStub("AceConfigDialog-3.0", true)
 	if not ACD or not ACD.OpenFrames then
@@ -261,14 +271,14 @@ function SarychUI:OnInitialize()
 		self:SetUILocale(self:GetUILocale())
 	end
 	
-	-- Register chat commands
+	-- Register chat commands (/ыгш = /sui on a Russian keyboard)
 	self:RegisterChatCommand("sarychui", "ChatCommand")
 	self:RegisterChatCommand("sui", "ChatCommand")
+	self:RegisterChatCommand("ыгш", "ChatCommand")
 	
 	if self.ResolveFeatureConflicts then
 		profileStartup("OnInitialize.ResolveFeatureConflicts", self.ResolveFeatureConflicts, self)
 	end
-
 	-- Initialize modules
 	profileStartup("OnInitialize.InitializeModules", self.InitializeModules, self)
 
@@ -506,7 +516,7 @@ end
 
 -- Open options panel
 function SarychUI:OpenOptions()
-	if self:IsPlayerInCombat() then
+	if self:IsOptionsBlockedByCombat() then
 		self:PrintOptionsUnavailableInCombat()
 		return
 	end
@@ -538,7 +548,6 @@ function SarychUI:OpenOptions()
 
 	profile("CloseOtherConfigWindows", function()
 		self:CloseNamePlatesConfig()
-		self:CloseGladiusExConfig()
 		if self.CloseMapsterConfig then
 			self:CloseMapsterConfig()
 		end
@@ -626,6 +635,12 @@ initFrame:SetScript("OnEvent", function(self, event, arg1)
 				end
 				if db.showBuffGrid == 1 then
 					db.showBuffGrid = 0
+				end
+				if db.showDebuffDragFrame == 1 then
+					db.showDebuffDragFrame = 0
+				end
+				if db.showDebuffGrid == 1 then
+					db.showDebuffGrid = 0
 				end
 				if aurasModule.ApplyBuffManagement then
 					aurasModule:ApplyBuffManagement()

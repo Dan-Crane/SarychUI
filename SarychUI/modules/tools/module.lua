@@ -14,11 +14,17 @@ local moduleName = "tools"
 local module = {}
 local S = {}  -- State table to stay under Lua's 200 locals limit
 
--- Timers UI lives under «Текст перезарядки» (cc); keep runtime in tools.
+-- Invite / arena countdown UI lives under «Перезарядка и таймеры» (cc).
+-- Castbar timers UI lives under «Кастбар»; runtime stays here.
 local TIMERS_MODULE = "cc"
 local function TimersDB()
 	local modules = SarychUI and SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.modules
 	return modules and modules[TIMERS_MODULE]
+end
+
+function S.CastbarTimersDB()
+	local modules = SarychUI and SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.modules
+	return modules and modules.castbar
 end
 
 -- Floating text filter settings live under floating_text; runtime stays in tools.
@@ -59,6 +65,8 @@ local AceTimer = LibStub("AceTimer-3.0", true)
 -- Focuser functionality
 local mouseButton = "1"
 S.focuserButton, S.createFrameHook, S.scannerFrame = nil, nil, nil
+S.focuserSteerActive, S.focuserSteerTurnHooked = false, false
+S.focuserUsedMoveForward, S.focuserKeyMode, S.focuserSteerFrame = false, "focus", nil
 S.updateTimers = {}
 
 -- Helper function to get modifier key name from setting
@@ -78,7 +86,7 @@ local function GetFocuserModifier()
 end
 
 -- EscToOK functionality
-S.escToOkHooked, S.origOnKeyDown, S.origCancelOnClick = false, nil, nil
+S.escToOkHooked, S.origCancelOnClick = false, nil
 
 -- Loot reanchor functionality
 S.lootFramesHooked, S.lootFrameHooks, S.lootDefaultPositions = false, {}, {}
@@ -168,13 +176,232 @@ S.blizzMoveDefaults = {
     GuildBankFrame = {save = true},
 }
 
-local function ShouldSkipPlayerFrameFocus()
+-- 3.3.5 has no [mouseover] macro condition. Unit id mouseover is valid.
+local FOCUSER_MACROTEXT = "/focus mouseover"
+
+-- Alt+LMB announces only the numeric resource text, not the whole bar.
+local ANNOUNCE_UNIT_TEXTS = {
+    "PlayerFrameHealthBarText", "PlayerFrameManaBarText",
+    "TargetFrameTextureFrameHealthBarText", "TargetFrameTextureFrameManaBarText",
+    "FocusFrameHealthBarText", "FocusFrameManaBarText",
+    "PartyMemberFrame1HealthBarText", "PartyMemberFrame1ManaBarText",
+    "PartyMemberFrame2HealthBarText", "PartyMemberFrame2ManaBarText",
+    "PartyMemberFrame3HealthBarText", "PartyMemberFrame3ManaBarText",
+    "PartyMemberFrame4HealthBarText", "PartyMemberFrame4ManaBarText",
+}
+
+local ANNOUNCE_UNIT_BARS = {
+    "PlayerFrameHealthBar", "PlayerFrameManaBar",
+    "TargetFrameHealthBar", "TargetFrameManaBar",
+    "FocusFrameHealthBar", "FocusFrameManaBar",
+    "PartyMemberFrame1HealthBar", "PartyMemberFrame1ManaBar",
+    "PartyMemberFrame2HealthBar", "PartyMemberFrame2ManaBar",
+    "PartyMemberFrame3HealthBar", "PartyMemberFrame3ManaBar",
+    "PartyMemberFrame4HealthBar", "PartyMemberFrame4ManaBar",
+}
+
+local function ShouldSuppressFocusOnAnnounceBars()
     local db = SarychUI and SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.modules and SarychUI.db.profile.modules[moduleName]
-    return db and db.enabled and db.enableFocuser == 1 and db.enableAltUnitBars == 1
+    return db and db.enabled and db.enableFocuser == 1 and db.enableAltUnitBars == 1 and GetFocuserModifier() == "ALT"
 end
 
-local function InstallFocuserPlayerMouseoverGuard(button)
-    if not button or not button.HookScript or button.__SarychUIPlayerMouseoverGuard then
+local function IsCursorOverBox(frame)
+    if not frame or not frame.IsShown or not frame:IsShown() then
+        return false
+    end
+    if not GetCursorPosition or not frame.GetLeft or not frame.GetBottom then
+        return false
+    end
+    local left, bottom = frame:GetLeft(), frame:GetBottom()
+    local width, height = frame:GetWidth(), frame:GetHeight()
+    if not left or not bottom or not width or not height or width <= 0 or height <= 0 then
+        return false
+    end
+    local scale = frame.GetEffectiveScale and frame:GetEffectiveScale() or 1
+    if not scale or scale == 0 then
+        scale = 1
+    end
+    local x, y = GetCursorPosition()
+    x, y = x / scale, y / scale
+    return x >= left and x <= (left + width) and y >= bottom and y <= (bottom + height)
+end
+
+local function IsCursorOverFrame(frame)
+    if not frame or not frame.IsShown or not frame:IsShown() then
+        return false
+    end
+    if frame.GetAlpha and frame:GetAlpha() <= 0 then
+        return false
+    end
+    if not GetCursorPosition or not frame.GetCenter then
+        return false
+    end
+    local cx, cy = frame:GetCenter()
+    if not cx or not cy then
+        return false
+    end
+    local scale = frame.GetEffectiveScale and frame:GetEffectiveScale() or 1
+    if not scale or scale == 0 then
+        scale = 1
+    end
+    local x, y = GetCursorPosition()
+    x, y = x / scale, y / scale
+    local width = (frame.GetStringWidth and frame:GetStringWidth()) or 0
+    local height = (frame.GetStringHeight and frame:GetStringHeight()) or 0
+    if not width or width < 8 then
+        width = frame.GetWidth and frame:GetWidth() or 0
+    end
+    if not height or height < 8 then
+        height = frame.GetHeight and frame:GetHeight() or 0
+    end
+    if not width or width < 8 then
+        width = 48
+    end
+    if not height or height < 8 then
+        height = 14
+    end
+    return x >= (cx - width / 2 - 6) and x <= (cx + width / 2 + 6)
+        and y >= (cy - height / 2 - 4) and y <= (cy + height / 2 + 4)
+end
+
+local function IsOverNamedFrame(name)
+    return IsCursorOverFrame(name and _G[name])
+end
+
+local function IsOverCompactResourceText()
+    local function over(frame)
+        local text = frame and (frame.statusText or (frame.overlay and frame.overlay.statusText))
+        return text and IsCursorOverFrame(text)
+    end
+    local i = 1
+    while i <= 40 do
+        local frame = _G["CompactRaidFrame" .. i]
+        if not frame then
+            break
+        end
+        if over(frame) then
+            return true
+        end
+        i = i + 1
+    end
+    for n = 1, 5 do
+        if over(_G["CompactPartyFrameMember" .. n]) then
+            return true
+        end
+    end
+    return false
+end
+
+local function IsOverAnnounceUnitBar()
+    if S.suppressFocuserForAnnounceBar then
+        return true
+    end
+    for i = 1, #ANNOUNCE_UNIT_TEXTS do
+        if IsOverNamedFrame(ANNOUNCE_UNIT_TEXTS[i]) then
+            return true
+        end
+    end
+    if IsOverCompactResourceText() then
+        return true
+    end
+    if S.resourceHits then
+        for i = 1, #S.resourceHits do
+            local hit = S.resourceHits[i]
+            if hit and hit:IsShown() and IsCursorOverBox(hit) then
+                return true
+            end
+        end
+    end
+    local focus = GetMouseFocus and GetMouseFocus()
+    while focus and focus ~= UIParent and focus ~= WorldFrame do
+        local name = focus.GetName and focus:GetName()
+        if name then
+            for i = 1, #ANNOUNCE_UNIT_TEXTS do
+                if name == ANNOUNCE_UNIT_TEXTS[i] then
+                    return true
+                end
+            end
+        end
+        if not focus.GetParent then
+            break
+        end
+        focus = focus:GetParent()
+    end
+    return false
+end
+
+-- FrameXML PlayerFrame.xml Health/Mana:
+--   <OnMouseUp> self:GetParent():Click(button); </OnMouseUp>
+-- Never call parent:Click() from addon code (ADDON_ACTION_FORBIDDEN).
+-- Alt+bar announce must not focus (ALT-type1) or target (*type1) via that Click.
+local function ShouldSuppressPlayerBarSecureClick()
+    local db = SarychUI and SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.modules and SarychUI.db.profile.modules[moduleName]
+    return db and db.enabled and db.enableAltUnitBars == 1
+end
+
+local function InstallPlayerBarFrameXMLClickGuard()
+    local bars = {}
+    for i = 1, #ANNOUNCE_UNIT_BARS do
+        bars[i] = _G[ANNOUNCE_UNIT_BARS[i]]
+    end
+    for i = 1, #bars do
+        local bar = bars[i]
+        if not bar then
+            -- skip
+        else
+            if bar.__SarychUIFrameXMLClickGuard and not bar.__SarychUIFrameXMLAltAttrGuard then
+                -- Old build: tainted SetScript Click wrapper — strip it.
+                bar:SetScript("OnMouseUp", nil)
+                bar.__SarychUIAltCDUnitBarHooked = nil
+            end
+            S.barXMLGuard = S.barXMLGuard or setmetatable({}, { __mode = "k" })
+            if not bar.__SarychUIFrameXMLAltAttrGuard and not S.barXMLGuard[bar] then
+                bar:HookScript("OnMouseDown", function(self, button)
+                    if not ShouldSuppressPlayerBarSecureClick() then
+                        return
+                    end
+                    if button ~= "LeftButton" or not IsAltKeyDown or not IsAltKeyDown() then
+                        return
+                    end
+                    if not IsOverAnnounceUnitBar() then
+                        return
+                    end
+                    if InCombatLockdown and InCombatLockdown() then
+                        return
+                    end
+                    local parent = self.GetParent and self:GetParent()
+                    if not parent or not parent.SetAttribute then
+                        return
+                    end
+                    S.barAttrGuard = S.barAttrGuard or setmetatable({}, { __mode = "k" })
+                    if S.barAttrGuard[self] then
+                        return
+                    end
+                    local modKey = GetFocuserModifier() .. "-type" .. mouseButton
+                    S.barAttrGuard[self] = { parent, modKey, parent:GetAttribute(modKey) }
+                    parent:SetAttribute(modKey, nil)
+                    S.suppressFocuserForAnnounceBar = true
+                end)
+                bar:HookScript("OnMouseUp", function(self)
+                    local saved = S.barAttrGuard and S.barAttrGuard[self]
+                    if not saved then
+                        return
+                    end
+                    local parent, key, value = saved[1], saved[2], saved[3]
+                    if parent and parent.SetAttribute and not (InCombatLockdown and InCombatLockdown()) then
+                        parent:SetAttribute(key, value)
+                    end
+                    S.barAttrGuard[self] = nil
+                end)
+                S.barXMLGuard[bar] = true
+            end
+        end
+    end
+end
+
+-- Suppress focuser override /focus when Alt+LMB is on an announce bar.
+local function InstallFocuserAnnounceBarGuard(button)
+    if not button or not button.HookScript or button.__SarychUIAnnounceBarGuard then
         return
     end
 
@@ -182,50 +409,238 @@ local function InstallFocuserPlayerMouseoverGuard(button)
         if not down or clickedButton ~= "LeftButton" then
             return
         end
-        if not ShouldSkipPlayerFrameFocus() then
+        if not ShouldSuppressFocusOnAnnounceBars() then
             return
         end
-        if not UnitExists("mouseover") or not UnitIsUnit("mouseover", "player") then
+        if not IsOverAnnounceUnitBar() then
             return
         end
-        self._sarychFocuserOldType1 = self:GetAttribute("type1")
-        self._sarychFocuserOldMacro = self:GetAttribute("macrotext")
+        if self._sarychFocuserOldType1 == nil and self._sarychFocuserOldMacro == nil then
+            self._sarychFocuserOldType1 = self:GetAttribute("type1")
+            self._sarychFocuserOldMacro = self:GetAttribute("macrotext")
+        end
         self:SetAttribute("type1", nil)
         self:SetAttribute("macrotext", nil)
     end)
     button:HookScript("PostClick", function(self)
+        S.suppressFocuserForAnnounceBar = nil
         if self._sarychFocuserOldType1 == nil and self._sarychFocuserOldMacro == nil then
             return
         end
         self:SetAttribute("type1", self._sarychFocuserOldType1 or "macro")
-        self:SetAttribute("macrotext", self._sarychFocuserOldMacro or "/focus mouseover")
+        self:SetAttribute("macrotext", self._sarychFocuserOldMacro or FOCUSER_MACROTEXT)
         self._sarychFocuserOldType1 = nil
         self._sarychFocuserOldMacro = nil
     end)
-    button.__SarychUIPlayerMouseoverGuard = true
+    button.__SarychUIAnnounceBarGuard = true
 end
 
--- Set focus hotkey on unit frame
-local function SetFocusHotkey(frame)
-    -- ПРОВЕРЯЕМ, ВКЛЮЧЕН ЛИ МОДУЛЬ
+-- Alt/Shift/Ctrl+LMB steals BUTTON1 from Blizzard CAMERAORSELECTORMOVE, so
+-- vanilla LMB+RMB forward-run breaks. CameraOrSelectOrMove* is Blizzard-only
+-- (ADDON_ACTION_FORBIDDEN if called from the addon). FrameXML-correct options:
+--   1) SetOverrideBinding(..., "CAMERAORSELECTORMOVE") — runs Blizzard binding
+--   2) MoveForwardStart/Stop from our binding — same as FrameXML MOVEFORWARD
+local function IsFocuserEnabled()
     local db = SarychUI and SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.modules and SarychUI.db.profile.modules[moduleName]
-    if not db or not db.enabled then return end
-    
-    if not frame or not frame.SetAttribute then return end
-    
-    -- Всегда сначала очищаем все возможные модификаторы
-    frame:SetAttribute("SHIFT-type"..mouseButton, nil)
-    frame:SetAttribute("ALT-type"..mouseButton, nil)
-    frame:SetAttribute("CTRL-type"..mouseButton, nil)
-    
-    -- Если Focuser включен, устанавливаем только выбранный модификатор
-    if db.enableFocuser == 1 then
-        if frame == PlayerFrame and ShouldSkipPlayerFrameFocus() then
-            return
-        end
-        local modifier = GetFocuserModifier()
-        frame:SetAttribute(modifier.."-type"..mouseButton, "focus")
+    return db and db.enabled and db.enableFocuser == 1
+end
+
+local function IsFocuserModifierDown()
+    local modifier = GetFocuserModifier()
+    if modifier == "SHIFT" then
+        return IsShiftKeyDown and IsShiftKeyDown()
+    elseif modifier == "CTRL" then
+        return IsControlKeyDown and IsControlKeyDown()
     end
+    return IsAltKeyDown and IsAltKeyDown()
+end
+
+local function FocuserOverrideKey()
+    return GetFocuserModifier() .. "-BUTTON" .. mouseButton
+end
+
+-- mode: "focus"          -> SetOverrideBindingClick (/focus mouseover)
+--       "camera"          -> Blizzard CAMERAORSELECTORMOVE on mod+LMB (run)
+--       "camera-release"  -> CAMERAORSELECTORMOVE on plain BUTTON1 until LMB up
+-- Never call CameraOrSelectOrMove*/MoveForward*/RunBinding from Lua — FORBIDDEN.
+local function SetFocuserOverrideMode(mode)
+    if not S.focuserButton then
+        return false
+    end
+    if InCombatLockdown and InCombatLockdown() then
+        return false
+    end
+    ClearOverrideBindings(S.focuserButton)
+    if mode == "camera" then
+        SetOverrideBinding(S.focuserButton, true, FocuserOverrideKey(), "CAMERAORSELECTORMOVE")
+    elseif mode == "camera-release" then
+        -- Alt released while LMB still down: keep Blizzard stop on plain LMB-up
+        -- so mouselook/cursor is not stuck (ALT-BUTTON1 up was stolen by remap).
+        SetOverrideBinding(S.focuserButton, true, "BUTTON" .. mouseButton, "CAMERAORSELECTORMOVE")
+    else
+        SetOverrideBindingClick(S.focuserButton, true, FocuserOverrideKey(), "SarychUIFocuserButton")
+    end
+    S.focuserKeyMode = mode
+    return true
+end
+
+-- Leaving camera mode safely (cursor / mouselook).
+local function RestoreFocuserFromCamera()
+    if IsMouseButtonDown and IsMouseButtonDown("LeftButton") then
+        return SetFocuserOverrideMode("camera-release")
+    end
+    S.focuserSteerActive = false
+    return SetFocuserOverrideMode("focus")
+end
+
+-- Bindings.xml stubs (no movement APIs from addon Lua).
+SarychUI = SarychUI or {}
+function SarychUI:FocuserNotifySteer(active, reason)
+    S.focuserSteerActive = active and true or false
+    if active then
+        SetFocuserOverrideMode("camera")
+    else
+        RestoreFocuserFromCamera()
+    end
+end
+
+function SarychUI:FocuserBindingDown()
+end
+
+function SarychUI:FocuserBindingUp()
+    RestoreFocuserFromCamera()
+end
+
+-- Pick override before Alt+LMB is pressed:
+--   RMB held -> CAMERAORSELECTORMOVE (vanilla-like run)
+--   otherwise -> SetOverrideBindingClick (/focus mouseover when a unit is under the cursor)
+local function UpdateFocuserOverrideForState()
+    if not IsFocuserEnabled() then
+        return
+    end
+    if InCombatLockdown and InCombatLockdown() then
+        return
+    end
+
+    -- Wait for LMB-up so Blizzard CameraOrSelectOrMoveStop can run.
+    if S.focuserKeyMode == "camera-release" then
+        if not (IsMouseButtonDown and IsMouseButtonDown("LeftButton")) then
+            S.focuserSteerActive = false
+            SetFocuserOverrideMode("focus")
+        end
+        return
+    end
+
+    if not IsFocuserModifierDown() then
+        if S.focuserKeyMode == "camera" or S.focuserSteerActive then
+            RestoreFocuserFromCamera()
+        elseif S.focuserKeyMode ~= "focus" then
+            SetFocuserOverrideMode("focus")
+        end
+        return
+    end
+
+    local rmb = IsMouseButtonDown and IsMouseButtonDown("RightButton")
+    local want = rmb and "camera" or "focus"
+    if want ~= S.focuserKeyMode then
+        S.focuserSteerActive = want == "camera"
+        SetFocuserOverrideMode(want)
+    end
+end
+
+local function InstallFocuserBothButtonMove(button)
+    if button and button.HookScript and not button.__SarychUIBothButtonMove then
+        button:HookScript("PreClick", function(self, clickedButton, down)
+            if not down or clickedButton ~= "LeftButton" then
+                return
+            end
+            if not (IsMouseButtonDown and IsMouseButtonDown("RightButton")) then
+                return
+            end
+            -- RMB held: never /focus on this click.
+            if self._sarychFocuserOldType1 == nil and self._sarychFocuserOldMacro == nil then
+                self._sarychFocuserOldType1 = self:GetAttribute("type1")
+                self._sarychFocuserOldMacro = self:GetAttribute("macrotext")
+                self:SetAttribute("type1", nil)
+                self:SetAttribute("macrotext", nil)
+            end
+        end)
+        button.__SarychUIBothButtonMove = true
+    end
+
+    if not S.focuserSteerFrame then
+        S.focuserSteerFrame = CreateFrame("Frame")
+        local acc = 0
+        S.focuserSteerFrame:SetScript("OnUpdate", function(_, elapsed)
+            -- Poll every frame while mouselook may be active / releasing.
+            if S.focuserKeyMode == "camera" or S.focuserKeyMode == "camera-release" then
+                UpdateFocuserOverrideForState()
+                return
+            end
+            acc = acc + elapsed
+            if acc < 0.05 then
+                return
+            end
+            acc = 0
+            UpdateFocuserOverrideForState()
+        end)
+    end
+    S.focuserSteerFrame:Show()
+
+    if S.focuserSteerTurnHooked or type(hooksecurefunc) ~= "function" then
+        return
+    end
+    S.focuserSteerTurnHooked = true
+
+    -- Immediate edge (same frame as RMB) — no movement API calls.
+    if TurnOrActionStart then
+        hooksecurefunc("TurnOrActionStart", function()
+            if not IsFocuserEnabled() or not IsFocuserModifierDown() then
+                return
+            end
+            S.focuserSteerActive = true
+            SetFocuserOverrideMode("camera")
+        end)
+    end
+    if TurnOrActionStop then
+        hooksecurefunc("TurnOrActionStop", function()
+            if S.focuserKeyMode == "camera" or S.focuserKeyMode == "camera-release" or S.focuserSteerActive then
+                UpdateFocuserOverrideForState()
+            end
+        end)
+    end
+end
+
+-- Blizzard toggles both the arena frames and their pet children from protected
+-- code while combat lockdown is active.  Writing secure click attributes to
+-- any object in that hierarchy can taint the later Show/Hide path.
+local function IsBlizzardArenaEnemyFrame(frame)
+    local name = frame and frame.GetName and frame:GetName()
+    return type(name) == "string" and name:match("^ArenaEnemyFrame%d+") ~= nil
+end
+
+-- Modifier+click focuses this frame's unit. Set once, out of combat.
+-- Arena frames stay on their own right-click binding.
+S.focusAttrByFrame = S.focusAttrByFrame or setmetatable({}, { __mode = "k" })
+local InstallCompactResourceAnnounce
+
+local function SetFocusHotkey(frame)
+    if not frame or not frame.SetAttribute or IsBlizzardArenaEnemyFrame(frame) then
+        return
+    end
+    if InCombatLockdown and InCombatLockdown() then
+        return
+    end
+    local attr = GetFocuserModifier() .. "-type" .. mouseButton
+    local prev = S.focusAttrByFrame[frame]
+    if prev and prev ~= attr then
+        frame:SetAttribute(prev, nil)
+    end
+    if frame:GetAttribute(attr) ~= "focus" then
+        frame:SetAttribute(attr, "focus")
+    end
+    S.focusAttrByFrame[frame] = attr
+    InstallCompactResourceAnnounce(frame)
 end
 
 -- Badge Stack Buyer: Shift+LeftClick emblem at merchant -> quantity split -> buy.
@@ -619,7 +1034,7 @@ end
 
 -- Update Compact Party frames (CompactPartyFrameMember / CompactRaidFrame; absent on 3.3.5)
 local COMPACT_PARTY_SLOTS = 8
-local COMPACT_RAID_FRAMES = 5
+local COMPACT_RAID_FRAMES = 40
 
 local function IsSecureUnitFrame(frame)
 	return type(frame) == "table" and type(frame.SetAttribute) == "function"
@@ -632,7 +1047,26 @@ local function UpdateCompactParty()
 
     if InCombatLockdown and InCombatLockdown() then return end
 
-    -- Skip on clients without compact raid/party frames (e.g. 3.3.5).
+    local duf = {
+        PlayerFrame, PetFrame,
+        PartyMemberFrame1, PartyMemberFrame2, PartyMemberFrame3, PartyMemberFrame4,
+        PartyMemberFrame1PetFrame, PartyMemberFrame2PetFrame, PartyMemberFrame3PetFrame, PartyMemberFrame4PetFrame,
+        TargetFrame, TargetofTargetFrame, FocusFrame,
+    }
+    for i = 1, #duf do
+        if IsSecureUnitFrame(duf[i]) then
+            SetFocusHotkey(duf[i])
+        end
+    end
+
+    local bossIdx
+    for bossIdx = 1, 5 do
+        local boss = _G["Boss" .. bossIdx .. "TargetFrame"]
+        if IsSecureUnitFrame(boss) then
+            SetFocusHotkey(boss)
+        end
+    end
+
     if not _G.CompactPartyFrameMember1 and not _G.CompactRaidFrame1 then
         return
     end
@@ -662,7 +1096,7 @@ end
 S.arenaRightClickFocusInitialized, S.arenaRightClickFocusEventFrame = false, nil
 
 local function SetArenaRightClickFocus(frame)
-    if not frame or not frame.SetAttribute then return end
+    if not frame or not frame.SetAttribute or IsBlizzardArenaEnemyFrame(frame) then return end
     if InCombatLockdown() then return end
 
     frame:SetAttribute("type2", "focus")
@@ -674,7 +1108,7 @@ local function SetArenaRightClickFocus(frame)
 end
 
 local function ClearArenaRightClickFocus(frame)
-    if not frame or not frame.SetAttribute then return end
+    if not frame or not frame.SetAttribute or IsBlizzardArenaEnemyFrame(frame) then return end
     if InCombatLockdown() then return end
 
     frame:SetAttribute("type2", nil)
@@ -697,37 +1131,28 @@ function module:EnableFocuser()
     local db = DB()
     if not db then return end
     
-    -- Hook CreateFrame for new unit frames
-    if not S.createFrameHook then
-        S.createFrameHook = hooksecurefunc("CreateFrame", function(ftype, name, parent, template)
-            -- ПРОВЕРЯЕМ, ВКЛЮЧЕН ЛИ МОДУЛЬ
-            local checkDb = SarychUI and SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.modules and SarychUI.db.profile.modules[moduleName]
-            if not checkDb or not checkDb.enabled then return end
-            
-            local tmpl = _G.type(template) == "string" and template or ""
-            if tmpl:find("SecureUnitButtonTemplate", 1, true) or tmpl:find("CompactUnitFrameTemplate", 1, true) then
-                if name and _G[name] then
-                    SetFocusHotkey(_G[name])
-                end
-            end
-        end)
-    end
+    -- Do not hooksecurefunc("CreateFrame"). ArenaEnemyFrame_OnLoad builds its
+    -- right-click handler (Blizzard_ArenaUI.lua:128 FocusUnit) immediately after
+    -- the frame is created. On this client that post-hook taints the rest of
+    -- OnLoad, so the handler is born tainted and combat FocusUnit is blocked.
+    -- New party/raid/boss frames are picked up by UpdateCompactParty.
     
     -- Create override button for /focus mouseover
     if not S.focuserButton then
         S.focuserButton = CreateFrame("CheckButton", "SarychUIFocuserButton", UIParent, "SecureActionButtonTemplate")
-        S.focuserButton:SetAttribute("type1","macro")
-        S.focuserButton:SetAttribute("macrotext","/focus mouseover")
+        S.focuserButton:SetAttribute("type1", "macro")
+        S.focuserButton:SetAttribute("macrotext", FOCUSER_MACROTEXT)
+    else
+        S.focuserButton:SetAttribute("type1", "macro")
+        S.focuserButton:SetAttribute("macrotext", FOCUSER_MACROTEXT)
     end
-    InstallFocuserPlayerMouseoverGuard(S.focuserButton)
+    InstallFocuserAnnounceBarGuard(S.focuserButton)
+    InstallPlayerBarFrameXMLClickGuard()
+    InstallFocuserBothButtonMove(S.focuserButton)
     
     if S.focuserButton then
-        -- Сначала очищаем все возможные биндинги
-        ClearOverrideBindings(S.focuserButton)
-        
-        -- Затем устанавливаем только выбранный модификатор
-        local modifier = GetFocuserModifier()
-        SetOverrideBindingClick(S.focuserButton, true, modifier.."-BUTTON"..mouseButton, "SarychUIFocuserButton")
+        -- Focus via SetOverrideBindingClick; RMB+mod remaps to CAMERAORSELECTORMOVE.
+        SetFocuserOverrideMode("focus")
     end
     
     -- Set focus hotkey on existing unit frames
@@ -736,8 +1161,6 @@ function module:EnableFocuser()
         PartyMemberFrame1, PartyMemberFrame2, PartyMemberFrame3, PartyMemberFrame4,
         PartyMemberFrame1PetFrame, PartyMemberFrame2PetFrame, PartyMemberFrame3PetFrame, PartyMemberFrame4PetFrame,
         TargetFrame, TargetofTargetFrame,
-        ArenaEnemyFrame1, ArenaEnemyFrame2, ArenaEnemyFrame3, ArenaEnemyFrame4, ArenaEnemyFrame5,
-        ArenaEnemyFrame1PetFrame, ArenaEnemyFrame2PetFrame, ArenaEnemyFrame3PetFrame, ArenaEnemyFrame4PetFrame, ArenaEnemyFrame5PetFrame,
     }
     for _,frame in pairs(duf) do
         SetFocusHotkey(frame)
@@ -748,8 +1171,6 @@ function module:EnableFocuser()
         for i = 1, 5 do
             local frame = _G["ArenaEnemyFrame"..i]
             if frame then SetArenaRightClickFocus(frame) end
-            local pet = _G["ArenaEnemyFrame"..i.."PetFrame"]
-            if pet then SetArenaRightClickFocus(pet) end
         end
     end
     
@@ -759,60 +1180,26 @@ end
 
 -- Disable focuser
 function module:DisableFocuser()
+    S.focuserSteerActive = false
+    S.focuserUsedMoveForward = false
+    S.focuserKeyMode = "focus"
+    if S.focuserSteerFrame then
+        S.focuserSteerFrame:Hide()
+    end
+
     -- Clear override binding
     if S.focuserButton then
         ClearOverrideBindings(S.focuserButton)
     end
-    
-    -- Remove focus hotkey from existing unit frames
-    local duf = {
-        PlayerFrame, PetFrame,
-        PartyMemberFrame1, PartyMemberFrame2, PartyMemberFrame3, PartyMemberFrame4,
-        PartyMemberFrame1PetFrame, PartyMemberFrame2PetFrame, PartyMemberFrame3PetFrame, PartyMemberFrame4PetFrame,
-        TargetFrame, TargetofTargetFrame,
-        ArenaEnemyFrame1, ArenaEnemyFrame2, ArenaEnemyFrame3, ArenaEnemyFrame4, ArenaEnemyFrame5,
-        ArenaEnemyFrame1PetFrame, ArenaEnemyFrame2PetFrame, ArenaEnemyFrame3PetFrame, ArenaEnemyFrame4PetFrame, ArenaEnemyFrame5PetFrame,
-    }
-    for _,frame in pairs(duf) do
-        if frame and frame.SetAttribute then
-            -- Clear all possible modifiers
-            frame:SetAttribute("SHIFT-type"..mouseButton, nil)
-            frame:SetAttribute("ALT-type"..mouseButton, nil)
-            frame:SetAttribute("CTRL-type"..mouseButton, nil)
+
+    if not (InCombatLockdown and InCombatLockdown()) and S.focusAttrByFrame then
+        for frame, attr in pairs(S.focusAttrByFrame) do
+            if frame and frame.SetAttribute and attr then
+                frame:SetAttribute(attr, nil)
+            end
+            S.focusAttrByFrame[frame] = nil
         end
     end
-    
-    -- Clear compact frames (scan and remove)
-    local partyLimit = tonumber(COMPACT_PARTY_SLOTS) or 4
-    for partyIdx = 1, partyLimit do
-        local pf = _G["CompactPartyFrameMember" .. partyIdx]
-        if IsSecureUnitFrame(pf) then
-            -- Clear all possible modifiers
-            pf:SetAttribute("SHIFT-type"..mouseButton, nil)
-            pf:SetAttribute("ALT-type"..mouseButton, nil)
-            pf:SetAttribute("CTRL-type"..mouseButton, nil)
-        end
-        local pet = _G["CompactPartyFrameMember" .. partyIdx .. "PetFrame"]
-        if IsSecureUnitFrame(pet) then
-            -- Clear all possible modifiers
-            pet:SetAttribute("SHIFT-type"..mouseButton, nil)
-            pet:SetAttribute("ALT-type"..mouseButton, nil)
-            pet:SetAttribute("CTRL-type"..mouseButton, nil)
-        end
-    end
-    
-    -- Clear CompactRaidFrame1-5
-    local raidLimit = tonumber(COMPACT_RAID_FRAMES) or 5
-    for raidIdx = 1, raidLimit do
-        local rf = _G["CompactRaidFrame" .. raidIdx]
-        if IsSecureUnitFrame(rf) then
-            -- Clear all possible modifiers
-            rf:SetAttribute("SHIFT-type"..mouseButton, nil)
-            rf:SetAttribute("ALT-type"..mouseButton, nil)
-            rf:SetAttribute("CTRL-type"..mouseButton, nil)
-        end
-    end
-    
 end
 
 -- ============================================
@@ -842,15 +1229,13 @@ function module:EnableArenaRightClickFocus()
         return
     end
     
-    -- Ensure Blizzard_ArenaUI is loaded
-    if not IsAddOnLoaded("Blizzard_ArenaUI") then
-        pcall(LoadAddOn, "Blizzard_ArenaUI")
-    end
+    -- Do not LoadAddOn("Blizzard_ArenaUI").  Loading it from addon code runs
+    -- ArenaEnemyFrame OnLoad tainted, and combat Show/Hide is then blocked.
+    -- Frames are wired when the client has already loaded them.
     
     -- Set up right-click focus on arena enemy frames
     local arenaFrames = {
         "ArenaEnemyFrame1", "ArenaEnemyFrame2", "ArenaEnemyFrame3", "ArenaEnemyFrame4", "ArenaEnemyFrame5",
-        "ArenaEnemyFrame1PetFrame", "ArenaEnemyFrame2PetFrame", "ArenaEnemyFrame3PetFrame", "ArenaEnemyFrame4PetFrame", "ArenaEnemyFrame5PetFrame",
     }
     
     for _, frameName in ipairs(arenaFrames) do
@@ -880,8 +1265,6 @@ function module:EnableArenaRightClickFocus()
                 for i = 1, 5 do
                     local frame = _G["ArenaEnemyFrame"..i]
                     if frame then SetArenaRightClickFocus(frame) end
-                    local pet = _G["ArenaEnemyFrame"..i.."PetFrame"]
-                    if pet then SetArenaRightClickFocus(pet) end
                 end
             end
             
@@ -890,8 +1273,6 @@ function module:EnableArenaRightClickFocus()
                 for i = 1, 5 do
                     local frame = _G["ArenaEnemyFrame"..i]
                     if frame then SetFocusHotkey(frame) end
-                    local pet = _G["ArenaEnemyFrame"..i.."PetFrame"]
-                    if pet then SetFocusHotkey(pet) end
                 end
             end
         end)
@@ -911,8 +1292,6 @@ function module:DisableArenaRightClickFocus()
     for i = 1, 5 do
         local frame = _G["ArenaEnemyFrame"..i]
         if frame then ClearArenaRightClickFocus(frame) end
-        local pet = _G["ArenaEnemyFrame"..i.."PetFrame"]
-        if pet then ClearArenaRightClickFocus(pet) end
     end
     
     -- Unregister events
@@ -942,8 +1321,7 @@ function module:EnableEscToOk()
     local db = DB()
     if not db then return end
     
-    -- ПРОВЕРЯЕМ, ВКЛЮЧЕН ЛИ МОДУЛЬ
-    if not db.enabled then return end
+    if not db.enabled or db.enableEscToOk ~= 1 then return end
     
     -- Wait for InterfaceOptionsFrame to be created
     if not InterfaceOptionsFrame then
@@ -958,8 +1336,9 @@ function module:EnableEscToOk()
         return
     end
 
-    -- SetScript replaces the handler. A second Enable captured our own OnKeyDown
-    -- (original was nil, so origOnKeyDown stayed nil) and recursed until overflow.
+    -- UIParent.lua:ToggleGameMenu already clicks InterfaceOptionsFrameCancel
+    -- on Escape. Only redirect that button; EnableKeyboard(true) on the whole
+    -- options frame consumes movement keys while the window is open.
     if S.escToOkHooked then
         return
     end
@@ -970,34 +1349,7 @@ function module:EnableEscToOk()
         end
     end
 
-    -- false = captured "no original script"; nil = not captured yet
-    if S.origOnKeyDown == nil then
-        S.origOnKeyDown = InterfaceOptionsFrame:GetScript("OnKeyDown") or false
-    end
-    
-    -- Enable keyboard for InterfaceOptionsFrame
-    InterfaceOptionsFrame:EnableKeyboard(true)
-    
-    -- Hook OnKeyDown
-    InterfaceOptionsFrame:SetScript("OnKeyDown", function(self, key)
-        -- ПРОВЕРЯЕМ, ВКЛЮЧЕН ЛИ МОДУЛЬ
-        local checkDb = SarychUI and SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.modules and SarychUI.db.profile.modules[moduleName]
-        if not checkDb or not checkDb.enabled or checkDb.enableEscToOk ~= 1 then
-            return CallOrig(S.origOnKeyDown, self, key)
-        end
-        
-        if key == "ESCAPE" then
-            if InterfaceOptionsFrameOkay then
-                InterfaceOptionsFrameOkay:Click()
-            else
-                self:Hide()
-            end
-        else
-            CallOrig(S.origOnKeyDown, self, key)
-        end
-    end)
-    
-    -- Hook Cancel button
+    -- The stock Escape handler and a direct click both use this button.
     if InterfaceOptionsFrameCancel then
         -- Save original Cancel OnClick script before hooking (only once)
         if S.origCancelOnClick == nil then
@@ -1031,12 +1383,11 @@ function module:DisableEscToOk()
         frame:SetScript(handler, type(orig) == "function" and orig or nil)
     end
     
-    RestoreScript(InterfaceOptionsFrame, "OnKeyDown", S.origOnKeyDown)
     RestoreScript(InterfaceOptionsFrameCancel, "OnClick", S.origCancelOnClick)
     
     -- Reset flag
     S.escToOkHooked = false
-    -- Don't reset S.origOnKeyDown and S.origCancelOnClick - they may be needed if re-enabled
+    -- Keep the original click handler for a later re-enable.
 end
 
 -- Reanchor GroupLoot frames
@@ -1460,26 +1811,6 @@ function AltCD.IsAuraActive()
     return db and db.enabled and db.enableAltAuras == 1
 end
 
-function AltCD.IsOmniCDAddonEnabled()
-    local wrapper = SarychUI and SarychUI.GetAddOn and SarychUI:GetAddOn("OmniCD")
-    if wrapper and wrapper.IsRuntimeEnabled then
-        return wrapper:IsRuntimeEnabled() and true or false
-    end
-    if SarychUI and SarychUI.IsAddOnEnabled then
-        return SarychUI:IsAddOnEnabled("OmniCD") and true or false
-    end
-    return OmniCDEnabled == true
-end
-
-function AltCD.IsOmniCDActive()
-    local db = DB()
-    return db and db.enabled and db.enableAltOmniCD == 1 and AltCD.IsOmniCDAddonEnabled()
-end
-
-function AltCD.GetOmniCDParty()
-    local E = OmniCD and OmniCD[1]
-    return E and E.Party
-end
 
 AltCD.PREFIX = "> "
 
@@ -2293,12 +2624,28 @@ function AltCD.CreateActionOverlay(button)
     end
 
     local buttonName = button:GetName()
-    local overlay = CreateFrame("Button", "SarychUIAltCDOverlay_" .. buttonName, button, "SecureActionButtonTemplate")
+    -- Parent to UIParent. A child created here taints the action button, and
+    -- CastSpellByName from its macro is then forbidden.
+    local overlay = CreateFrame("Button", "SarychUIAltCDOverlay_" .. buttonName, UIParent, "SecureActionButtonTemplate")
     overlay:SetAllPoints(button)
     overlay:SetFrameStrata(button:GetFrameStrata())
     overlay:SetFrameLevel((button:GetFrameLevel() or 0) + 20)
     overlay:RegisterForClicks("LeftButtonUp")
     overlay:EnableMouse(true)
+    overlay:SetScript("OnEnter", function()
+        local onEnter = button.GetScript and button:GetScript("OnEnter")
+        if onEnter then
+            onEnter(button)
+        end
+    end)
+    overlay:SetScript("OnLeave", function()
+        local onLeave = button.GetScript and button:GetScript("OnLeave")
+        if onLeave then
+            onLeave(button)
+        elseif GameTooltip then
+            GameTooltip:Hide()
+        end
+    end)
     overlay:HookScript("PostClick", function(_, mouseButton)
         AltCD.OnOverlayPostClick(button, mouseButton)
     end)
@@ -2355,7 +2702,125 @@ AltCD.UNIT_BAR_HOOKS = {
     { frameName = "TargetFrameManaBar", unit = "target", resourceType = "mana", fallbackName = "цели" },
     { frameName = "FocusFrameHealthBar", unit = "focus", resourceType = "health", fallbackName = "фокуса" },
     { frameName = "FocusFrameManaBar", unit = "focus", resourceType = "mana", fallbackName = "фокуса" },
+    { frameName = "PartyMemberFrame1HealthBar", unit = "party1", resourceType = "health" },
+    { frameName = "PartyMemberFrame1ManaBar", unit = "party1", resourceType = "mana" },
+    { frameName = "PartyMemberFrame2HealthBar", unit = "party2", resourceType = "health" },
+    { frameName = "PartyMemberFrame2ManaBar", unit = "party2", resourceType = "mana" },
+    { frameName = "PartyMemberFrame3HealthBar", unit = "party3", resourceType = "health" },
+    { frameName = "PartyMemberFrame3ManaBar", unit = "party3", resourceType = "mana" },
+    { frameName = "PartyMemberFrame4HealthBar", unit = "party4", resourceType = "health" },
+    { frameName = "PartyMemberFrame4ManaBar", unit = "party4", resourceType = "mana" },
 }
+
+local function ResourceTextForBar(frame)
+    if frame and frame.TextString then
+        return frame.TextString
+    end
+    local name = frame and frame.GetName and frame:GetName()
+    if type(name) ~= "string" then
+        return nil
+    end
+    if name:find("^TargetFrame", 1) then
+        return _G["TargetFrameTextureFrame" .. name:sub(#"TargetFrame" + 1) .. "Text"]
+    end
+    return _G[name .. "Text"]
+end
+
+local function SyncResourceHits()
+    local show = AltCD.IsUnitBarActive() and IsAltKeyDown and IsAltKeyDown()
+    local hits = S.resourceHits
+    if not hits then
+        return
+    end
+    for i = 1, #hits do
+        local hit = hits[i]
+        local text = hit and hit.text
+        local owner = hit and hit.owner
+        local ownerShown = owner and owner.IsVisible and owner:IsVisible()
+        if not show or not ownerShown or not text then
+            if hit then
+                hit:Hide()
+            end
+        else
+            local width = text.GetStringWidth and text:GetStringWidth() or 0
+            local height = text.GetStringHeight and text:GetStringHeight() or 0
+            if not width or width < 8 then
+                width = 40
+            end
+            if not height or height < 8 then
+                height = 14
+            end
+            hit:SetSize(width + 18, height + 12)
+            hit:Show()
+        end
+    end
+end
+
+local function EnsureResourceHitWatcher()
+    if S.resourceHitWatcher then
+        return
+    end
+    local watcher = CreateFrame("Frame")
+    watcher:SetScript("OnUpdate", SyncResourceHits)
+    S.resourceHitWatcher = watcher
+end
+
+local function CreateResourceHit(owner, text, unit, resourceType, fallbackName, unitFrame)
+    if not owner or not text then
+        return nil
+    end
+    S.resourceHits = S.resourceHits or {}
+    S.resourceHitByButton = S.resourceHitByButton or setmetatable({}, { __mode = "k" })
+    if S.resourceHitByOwner then
+        local existing = S.resourceHitByOwner[owner]
+        if existing then
+            return existing
+        end
+    else
+        S.resourceHitByOwner = setmetatable({}, { __mode = "k" })
+    end
+
+    local hit = CreateFrame("Button", nil, UIParent)
+    hit:SetFrameStrata("HIGH")
+    hit:SetFrameLevel(100)
+    hit:EnableMouse(true)
+    hit:RegisterForClicks("LeftButtonUp")
+    local plate = hit:CreateTexture(nil, "BACKGROUND")
+    plate:SetAllPoints()
+    plate:SetTexture("Interface\\Buttons\\WHITE8X8")
+    plate:SetAlpha(0)
+    hit.text = text
+    hit.owner = owner
+    hit.unit = unit
+    hit.resourceType = resourceType or "health"
+    hit.fallbackName = fallbackName
+    hit.unitFrame = unitFrame
+    hit:SetPoint("CENTER", text, "CENTER", 0, 0)
+    hit:SetSize(48, 16)
+    hit:Hide()
+    hit:SetScript("OnMouseDown", function(_, button)
+        if AltCD.IsAltLeftMouseClick(button) then
+            S.suppressFocuserForAnnounceBar = true
+        end
+    end)
+    hit:SetScript("OnMouseUp", function(self, button)
+        S.suppressFocuserForAnnounceBar = nil
+        if not AltCD.IsUnitBarActive() or not AltCD.IsAltLeftMouseClick(button) then
+            return
+        end
+        local pingUnit = self.unit
+        local source = self.unitFrame
+        if source then
+            pingUnit = source.unit or (source.GetAttribute and source:GetAttribute("unit")) or pingUnit
+        end
+        AltCD.SendUnitResourcePing(pingUnit, self.resourceType, self.fallbackName)
+    end)
+    S.resourceHitByOwner[owner] = hit
+    S.resourceHitByButton[hit] = true
+    S.resourceHits[#S.resourceHits + 1] = hit
+    EnsureResourceHitWatcher()
+    return hit
+end
 
 function AltCD.IsAltLeftMouseClick(button)
     return button == "LeftButton" and IsAltKeyDown()
@@ -2448,24 +2913,130 @@ function AltCD.OnUnitBarMouseUp(frame, unit, resourceType, fallbackName, button)
     if not AltCD.IsAltLeftMouseClick(button) then
         return
     end
+    local text = ResourceTextForBar(frame)
+    if not text or not IsCursorOverFrame(text) then
+        return
+    end
     AltCD.SendUnitResourcePing(unit, resourceType, fallbackName)
 end
 
 function AltCD.HookUnitBarPing(frameName, unit, resourceType, fallbackName)
     local frame = frameName and _G[frameName]
-    if not frame or frame.__SarychUIAltCDUnitBarHooked then
+    S.unitBarHooked = S.unitBarHooked or setmetatable({}, { __mode = "k" })
+    if not frame or S.unitBarHooked[frame] then
         return false
     end
 
-    if frame.EnableMouse then
-        frame:EnableMouse(true)
+    -- Announce only when the cursor is on the resource number. The bar click itself focuses.
+    frame:HookScript("OnMouseDown", function(self, button)
+        if not AltCD.IsAltLeftMouseClick(button) then
+            return
+        end
+        local text = ResourceTextForBar(self)
+        if text and IsCursorOverFrame(text) then
+            S.suppressFocuserForAnnounceBar = true
+        end
+    end)
+
+    frame:HookScript("OnMouseUp", function(self, button)
+        S.suppressFocuserForAnnounceBar = nil
+        local text = ResourceTextForBar(self)
+        local overText = text and IsCursorOverFrame(text)
+        if overText then
+            AltCD.OnUnitBarMouseUp(frame, unit, resourceType, fallbackName, button)
+        end
+        if overText and AltCD.IsUnitBarActive() and AltCD.IsAltLeftMouseClick(button) then
+            return
+        end
+    end)
+    S.unitBarHooked[frame] = true
+    CreateResourceHit(frame, ResourceTextForBar(frame), unit, resourceType, fallbackName)
+    return true
+end
+
+local function QueueCompactAttrRestore(frame, attr, value)
+    S.compactRestore = S.compactRestore or setmetatable({}, { __mode = "k" })
+    S.compactRestore[frame] = { attr, value }
+    if not S.compactRestoreFrame then
+        local watcher = CreateFrame("Frame")
+        watcher:Hide()
+        watcher:SetScript("OnUpdate", function(self)
+            if IsMouseButtonDown and IsMouseButtonDown("LeftButton") then
+                return
+            end
+            if InCombatLockdown and InCombatLockdown() then
+                return
+            end
+            for unitFrame, saved in pairs(S.compactRestore) do
+                if unitFrame and unitFrame.SetAttribute then
+                    unitFrame:SetAttribute(saved[1], saved[2])
+                end
+                S.compactRestore[unitFrame] = nil
+            end
+            self:Hide()
+        end)
+        S.compactRestoreFrame = watcher
+    end
+    S.compactRestoreFrame:Show()
+end
+
+InstallCompactResourceAnnounce = function(frame)
+    local name = frame and frame.GetName and frame:GetName()
+    if type(name) ~= "string" then
+        return
+    end
+    if name:match("^CompactRaidFrame%d+$") then
+        return
+    end
+    if not name:match("^CompactPartyFrameMember%d+$") then
+        return
+    end
+    S.compactAnnounce = S.compactAnnounce or setmetatable({}, { __mode = "k" })
+    if S.compactAnnounce[frame] or not frame.HookScript then
+        return
+    end
+    S.compactAnnounce[frame] = true
+    local text = frame.statusText or (frame.overlay and frame.overlay.statusText)
+    if text then
+        CreateResourceHit(frame, text, frame.unit or (frame.GetAttribute and frame:GetAttribute("unit")), "health", nil, frame)
     end
 
-    frame:HookScript("OnMouseUp", function(_, button)
-        AltCD.OnUnitBarMouseUp(frame, unit, resourceType, fallbackName, button)
+    local function statusText(self)
+        return self.statusText or (self.overlay and self.overlay.statusText)
+    end
+
+    frame:HookScript("OnMouseDown", function(self, button)
+        if not AltCD.IsAltLeftMouseClick(button) then
+            return
+        end
+        local text = statusText(self)
+        if not text or not IsCursorOverFrame(text) then
+            return
+        end
+        S.suppressFocuserForAnnounceBar = true
+        if not ShouldSuppressFocusOnAnnounceBars() then
+            return
+        end
+        if InCombatLockdown and InCombatLockdown() then
+            return
+        end
+        local attr = GetFocuserModifier() .. "-type" .. mouseButton
+        QueueCompactAttrRestore(self, attr, self:GetAttribute(attr))
+        self:SetAttribute(attr, nil)
     end)
-    frame.__SarychUIAltCDUnitBarHooked = true
-    return true
+
+    frame:HookScript("OnMouseUp", function(self, button)
+        S.suppressFocuserForAnnounceBar = nil
+        if not AltCD.IsUnitBarActive() or not AltCD.IsAltLeftMouseClick(button) then
+            return
+        end
+        local text = statusText(self)
+        if not text or not IsCursorOverFrame(text) then
+            return
+        end
+        local unit = self.unit or (self.GetAttribute and self:GetAttribute("unit"))
+        AltCD.SendUnitResourcePing(unit, "health", nil)
+    end)
 end
 
 function AltCD.InitUnitBarPings()
@@ -2729,258 +3300,6 @@ function AltCD.InstallAuraHooks()
     AltCD.InitAuraPings()
 end
 
-function AltCD.GetOmniCDOwnerName(icon)
-    if not icon then
-        return nil
-    end
-
-    local P = AltCD.GetOmniCDParty()
-    local info = P and icon.guid and P.groupInfo and P.groupInfo[icon.guid]
-    local name = info and info.nameWithoutRealm
-    if (not name or name == "") and type(icon.unitName) == "string" then
-        name = icon.unitName
-    end
-    if type(name) == "string" and name ~= "" then
-        return name:match("^([^-]+)") or name
-    end
-    if icon.unit and UnitName then
-        local unitName = UnitName(icon.unit)
-        if unitName and unitName ~= "" then
-            return unitName
-        end
-    end
-    return nil
-end
-
-function AltCD.GetOmniCDRemaining(icon)
-    if not icon then
-        return 0
-    end
-
-    local P = AltCD.GetOmniCDParty()
-    local info = P and icon.guid and P.groupInfo and P.groupInfo[icon.guid]
-    local active = info and info.active and info.active[icon.spellID]
-    local startTime, duration
-    if active then
-        startTime = active.startTime
-        duration = active.duration
-    end
-
-    if (not startTime or not duration) and icon.cooldown and icon.cooldown.GetCooldownTimes then
-        local cooldownStart, cooldownDuration = icon.cooldown:GetCooldownTimes()
-        if cooldownStart and cooldownDuration and cooldownDuration > 0 then
-            if cooldownStart > 10000 then
-                cooldownStart = cooldownStart / 1000
-                cooldownDuration = cooldownDuration / 1000
-            end
-            startTime = cooldownStart
-            duration = cooldownDuration
-        end
-    end
-
-    if not startTime or not duration or duration <= 0 then
-        return 0
-    end
-
-    local remaining = ceil(startTime + duration - GetTime())
-    if remaining < 0 then
-        return 0
-    end
-    return remaining
-end
-
-function AltCD.GetOmniCDSpellLink(icon)
-    local spellID = icon and (icon.spellID or icon.tooltipID)
-    if type(spellID) ~= "number" or spellID <= 0 then
-        return nil
-    end
-
-    local link = AltCD.GetSpellLink(spellID)
-    if link and link ~= "" then
-        return link
-    end
-
-    local name = GetSpellInfo and GetSpellInfo(spellID)
-    if name and name ~= "" then
-        return name
-    end
-    return nil
-end
-
-function AltCD.FormatOmniCDTime(seconds)
-    seconds = tonumber(seconds) or 0
-    if seconds < 0 then
-        seconds = 0
-    end
-    seconds = math.floor(seconds + 0.5)
-    if seconds < 60 then
-        return seconds .. " сек."
-    end
-    return format("%d:%02d", math.floor(seconds / 60), seconds % 60)
-end
-
-function AltCD.BuildOmniCDMessage(spellLink, remaining, ownerName)
-    local status
-    if remaining and remaining > 0 then
-        status = "перезаряжается: " .. AltCD.FormatOmniCDTime(remaining)
-    else
-        status = "готова"
-    end
-
-    if ownerName and ownerName ~= "" then
-        return AltCD.PREFIX .. spellLink .. " у " .. ownerName .. " " .. status
-    end
-    return AltCD.PREFIX .. spellLink .. " " .. status
-end
-
-function AltCD.AnnounceOmniCDIcon(icon)
-    local spellLink = AltCD.GetOmniCDSpellLink(icon)
-    if not spellLink then
-        return
-    end
-
-    local message = AltCD.BuildOmniCDMessage(
-        spellLink,
-        AltCD.GetOmniCDRemaining(icon),
-        AltCD.GetOmniCDOwnerName(icon)
-    )
-    if not message or message == "" then
-        return
-    end
-
-    SendChatMessage(message, AltCD.GetChatChannel())
-end
-
-function AltCD.OnOmniCDIconMouseUp(icon, button)
-    if not AltCD.IsOmniCDActive() then
-        return
-    end
-    if not AltCD.IsAltLeftMouseClick(button) then
-        return
-    end
-    AltCD.AnnounceOmniCDIcon(icon)
-end
-
-function AltCD.RefreshOmniCDIconMouse(icon)
-    if not icon or not icon.EnableMouse then
-        return
-    end
-    if AltCD.IsOmniCDActive() then
-        icon:EnableMouse(true)
-        return
-    end
-    if icon.SetTooltip then
-        icon:SetTooltip()
-    end
-end
-
-function AltCD.HookOmniCDIcon(icon)
-    if not icon or icon.__SarychUIAltCDOmniHooked then
-        return
-    end
-
-    if icon.GetScript and icon:GetScript("OnMouseUp") then
-        icon:HookScript("OnMouseUp", AltCD.OnOmniCDIconMouseUp)
-    elseif icon.SetScript then
-        icon:SetScript("OnMouseUp", AltCD.OnOmniCDIconMouseUp)
-    end
-
-    icon.__SarychUIAltCDOmniHooked = true
-    AltCD.RefreshOmniCDIconMouse(icon)
-end
-
-function AltCD.EnumerateOmniCDIcons(callback)
-    local P = AltCD.GetOmniCDParty()
-    local pool = P and P.IconPool
-    if not pool or not callback then
-        return
-    end
-
-    if pool.EnumerateAll then
-        for icon in pool:EnumerateAll() do
-            callback(icon)
-        end
-        return
-    end
-
-    if pool.allObjects then
-        for icon in pairs(pool.allObjects) do
-            callback(icon)
-        end
-    end
-end
-
-function AltCD.WrapOmniCDIconPool()
-    local P = AltCD.GetOmniCDParty()
-    local pool = P and P.IconPool
-    if not pool then
-        return false
-    end
-
-    if not pool.__SarychUIAltCDInitWrapped then
-        local origInit = pool.initializeFunc
-        pool.initializeFunc = function(framePool, icon)
-            if origInit then
-                origInit(framePool, icon)
-            end
-            AltCD.HookOmniCDIcon(icon)
-        end
-        pool.__SarychUIAltCDInitWrapped = true
-    end
-
-    AltCD.EnumerateOmniCDIcons(AltCD.HookOmniCDIcon)
-    return true
-end
-
-function AltCD.HookOmniCDSetTooltipMixin()
-    if S.altCdOmniSetTooltipHooked then
-        return true
-    end
-
-    local P = AltCD.GetOmniCDParty()
-    local mixin = P and P.BarFrameIconMixin
-    if not mixin or not mixin.SetTooltip or not hooksecurefunc then
-        return false
-    end
-
-    hooksecurefunc(mixin, "SetTooltip", function(icon)
-        if AltCD.IsOmniCDActive() then
-            icon:EnableMouse(true)
-        end
-    end)
-    S.altCdOmniSetTooltipHooked = true
-    return true
-end
-
-function AltCD.EnsureOmniCDRetryFrame()
-    if S.altCdOmniRetryFrame then
-        return
-    end
-
-    local frame = CreateFrame("Frame")
-    frame:RegisterEvent("PLAYER_ENTERING_WORLD")
-    frame:SetScript("OnEvent", function()
-        AltCD.InstallOmniCDHooks()
-    end)
-    S.altCdOmniRetryFrame = frame
-end
-
-function AltCD.InstallOmniCDHooks()
-    local P = AltCD.GetOmniCDParty()
-    if P and P.CreateIconFramePool and hooksecurefunc and not S.altCdOmniCreateHooked then
-        hooksecurefunc(P, "CreateIconFramePool", function()
-            AltCD.WrapOmniCDIconPool()
-            AltCD.HookOmniCDSetTooltipMixin()
-        end)
-        S.altCdOmniCreateHooked = true
-    end
-
-    AltCD.HookOmniCDSetTooltipMixin()
-    AltCD.WrapOmniCDIconPool()
-    AltCD.EnumerateOmniCDIcons(AltCD.RefreshOmniCDIconMouse)
-    AltCD.EnsureOmniCDRetryFrame()
-end
-
 function AltCD.InstallUnitBarHooks()
     AltCD.EnsureUnitBarPingEventFrame()
     AltCD.InitUnitBarPings()
@@ -3052,6 +3371,8 @@ function module:ApplyAltUnitBars()
         return
     end
 
+    -- FrameXML Click guard before announce hooks (SetScript, then HookScript).
+    InstallPlayerBarFrameXMLClickGuard()
     AltCD.InstallUnitBarHooks()
     if db.enableFocuser == 1 then
         self:ApplyFocuser()
@@ -3070,15 +3391,6 @@ function module:ApplyAltAuras()
     AltCD.InstallAuraHooks()
 end
 
-function module:ApplyAltOmniCD()
-    local db = DB()
-    if not db or not db.enabled or db.enableAltOmniCD ~= 1 or not AltCD.IsOmniCDAddonEnabled() then
-        AltCD.EnumerateOmniCDIcons(AltCD.RefreshOmniCDIconMouse)
-        return
-    end
-
-    AltCD.InstallOmniCDHooks()
-end
 
 -- ============================================================================
 -- Alt FPS Functionality
@@ -4238,31 +4550,69 @@ local function CreateCastingBarTimer(parentFrame, offsetX, offsetY, fontSize)
     return timer
 end
 
+function S.GetCastbarModule()
+    return SarychUI and SarychUI.modules and SarychUI.modules.castbar
+end
+
+function S.GetCastbarStyleFrame(unitType)
+    local castbarMod = S.GetCastbarModule()
+    if castbarMod and castbarMod.GetStyleFrame then
+        return castbarMod:GetStyleFrame(unitType)
+    end
+    if unitType == "player" then
+        return CastingBarFrame
+    elseif unitType == "target" then
+        return TargetFrameSpellBar
+    elseif unitType == "focus" then
+        return FocusFrameSpellBar
+    end
+    return nil
+end
+
+function S.ResolveCastbarUnit(bar)
+    if not bar then return nil end
+    if bar == CastingBarFrame or bar == S.GetCastbarStyleFrame("player") then
+        return "player"
+    elseif bar == TargetFrameSpellBar or bar == S.GetCastbarStyleFrame("target") then
+        return "target"
+    elseif bar == FocusFrameSpellBar or bar == S.GetCastbarStyleFrame("focus") then
+        return "focus"
+    end
+    return nil
+end
+
+function S.HideCastbarTimer(bar)
+    if bar and bar.timer then
+        bar.timer:SetText("")
+        bar.timer:Hide()
+    end
+end
+
 -- Update casting bar timer
 local function UpdateCastingBar(self, elapsed)
     if not self.timer then return end
     
-    -- Settings live under «Текст перезарядки» (cc).
-    local db = TimersDB()
+    -- Settings live under «Кастбар».
+    local db = S.CastbarTimersDB()
     if not db or not db.enabled then
         self.timer:SetText("")
         return
     end
     
-    -- Check if castbar timer is enabled for this bar
-    local function IsCastbarEnabled(bar)
+    local unitType = S.ResolveCastbarUnit(self)
+    local function IsCastbarEnabled()
         if db.enableCastbarTimers ~= 1 then return false end
-        if bar == CastingBarFrame then
+        if unitType == "player" then
             return db.enableCastbarPlayer == 1
-        elseif bar == TargetFrameSpellBar then
+        elseif unitType == "target" then
             return db.enableCastbarTarget == 1
-        elseif bar == FocusFrameSpellBar then
+        elseif unitType == "focus" then
             return db.enableCastbarFocus == 1
         end
         return true
     end
     
-    if not IsCastbarEnabled(self) then
+    if not IsCastbarEnabled() then
         self.timer:SetText("")
         return
     end
@@ -4275,16 +4625,40 @@ local function UpdateCastingBar(self, elapsed)
     if self.updateInterval > 0 then return end
     self.updateInterval = 0.1
 
-    -- Update timer text
-    if self.casting then
-        local timeLeft = max(self.maxValue - self.value, 0)
-        if self == CastingBarFrame then
-            self.timer:SetText(format(" %2.1f / %1.1f ", timeLeft, self.maxValue))
+    local timeLeft, maxValue, casting, channeling
+    if self.castingEx or self.channelingEx then
+        maxValue = (self.endTime or 0) - (self.startTime or 0)
+        if maxValue <= 0 then
+            self.timer:SetText("")
+            return
+        end
+        if self.channelingEx then
+            timeLeft = max((self.endTime or 0) - GetTime(), 0)
+            channeling = true
+        else
+            timeLeft = max((self.endTime or 0) - GetTime(), 0)
+            casting = true
+        end
+    elseif self.casting then
+        timeLeft = max((self.maxValue or 0) - (self.value or 0), 0)
+        maxValue = self.maxValue or 0
+        casting = true
+    elseif self.channeling then
+        timeLeft = max(self.value or 0, 0)
+        maxValue = self.maxValue or 0
+        channeling = true
+    else
+        self.timer:SetText("")
+        return
+    end
+
+    if casting then
+        if unitType == "player" then
+            self.timer:SetText(format(" %2.1f / %1.1f ", timeLeft, maxValue))
         else
             self.timer:SetText(format(" %.1f ", timeLeft))
         end
-    elseif self.channeling then
-        local timeLeft = max(self.value, 0)
+    elseif channeling then
         self.timer:SetText(format(" %.1f ", timeLeft))
     else
         self.timer:SetText("")
@@ -4293,7 +4667,7 @@ end
 
 -- Apply castbar timer settings
 function module:ApplyCastbarTimers()
-    local db = TimersDB()
+    local db = S.CastbarTimersDB()
     if not db or not db.enabled then
         -- Disable if module is disabled
         if S.castbarTimersHooked then
@@ -4303,93 +4677,104 @@ function module:ApplyCastbarTimers()
     end
     
     if db.enableCastbarTimers == 1 then
-        -- Enable if not already enabled
-        if not S.castbarTimersHooked then
-            self:EnableCastbarTimers()
-        end
+        self:EnableCastbarTimers()
     else
-        -- Disable if enabled
         if S.castbarTimersHooked then
             self:DisableCastbarTimers()
         end
     end
 end
 
+function S.GetPlayerCastbarTimerOffset()
+    local ox, oy = 0, -20
+    local castbarMod = S.GetCastbarModule()
+    if castbarMod and castbarMod.IsDragonflight and castbarMod:IsDragonflight() then
+        local db = S.CastbarTimersDB()
+        ox = ox + (db and tonumber(db.playerTimerOffsetX) or 0)
+        oy = oy + (db and tonumber(db.playerTimerOffsetY) or 0)
+    end
+    return ox, oy
+end
+
+function S.ApplyPlayerCastbarTimerOffset()
+    local bar = S.GetCastbarStyleFrame("player")
+    if not bar or not bar.timer then
+        return
+    end
+    local ox, oy = S.GetPlayerCastbarTimerOffset()
+    bar.timer:ClearAllPoints()
+    bar.timer:SetPoint("CENTER", bar, "CENTER", ox, oy)
+end
+
+function S.EnsureCastbarTimer(bar, offsetX, offsetY, fontSize)
+    if not bar then return end
+    if not bar.timer then
+        bar.timer = CreateCastingBarTimer(bar, offsetX, offsetY, fontSize)
+    else
+        bar.timer:ClearAllPoints()
+        bar.timer:SetPoint("CENTER", bar, "CENTER", offsetX, offsetY)
+        bar.timer:Show()
+    end
+    if not bar.updateInterval then
+        bar.updateInterval = 0.1
+    end
+    if not bar._suiCastTimerHooked then
+        bar:HookScript("OnUpdate", UpdateCastingBar)
+        bar._suiCastTimerHooked = true
+    end
+end
+
+function module:ApplyPlayerCastbarTimerOffset()
+    S.ApplyPlayerCastbarTimerOffset()
+end
+
 -- Enable castbar timers
 function module:EnableCastbarTimers()
-    local db = TimersDB()
+    local db = S.CastbarTimersDB()
     if not db or not db.enabled then return end
-    
-    -- Create timers for castbars if they don't exist
-    if CastingBarFrame then
-        if not CastingBarFrame.timer then
-            CastingBarFrame.timer = CreateCastingBarTimer(CastingBarFrame, 0, -20, 13)
-        else
-            -- Show timer if it exists but is hidden
-            CastingBarFrame.timer:Show()
-        end
-        if not CastingBarFrame.updateInterval then
-            CastingBarFrame.updateInterval = 0.1
-        end
-        -- Hook OnUpdate if not already hooked
-        if not S.castbarTimersHooked then
-            CastingBarFrame:HookScript("OnUpdate", UpdateCastingBar)
-        end
+
+    local playerBar = S.GetCastbarStyleFrame("player") or CastingBarFrame
+    local targetBar = S.GetCastbarStyleFrame("target") or TargetFrameSpellBar
+    local focusBar = S.GetCastbarStyleFrame("focus") or FocusFrameSpellBar
+
+    -- Hide leftover timers on the unused artwork set.
+    if playerBar ~= CastingBarFrame then S.HideCastbarTimer(CastingBarFrame) end
+    if targetBar ~= TargetFrameSpellBar then S.HideCastbarTimer(TargetFrameSpellBar) end
+    if focusBar ~= FocusFrameSpellBar then S.HideCastbarTimer(FocusFrameSpellBar) end
+    local castbarMod = S.GetCastbarModule()
+    if castbarMod and castbarMod.DF and castbarMod.DF.GetFrame then
+        local dfPlayer = castbarMod.DF:GetFrame("player")
+        local dfTarget = castbarMod.DF:GetFrame("target")
+        local dfFocus = castbarMod.DF:GetFrame("focus")
+        if playerBar ~= dfPlayer then S.HideCastbarTimer(dfPlayer) end
+        if targetBar ~= dfTarget then S.HideCastbarTimer(dfTarget) end
+        if focusBar ~= dfFocus then S.HideCastbarTimer(dfFocus) end
     end
-    
-    if TargetFrameSpellBar then
-        if not TargetFrameSpellBar.timer then
-            TargetFrameSpellBar.timer = CreateCastingBarTimer(TargetFrameSpellBar, 92, 0, 12)
-        else
-            -- Show timer if it exists but is hidden
-            TargetFrameSpellBar.timer:Show()
-        end
-        if not TargetFrameSpellBar.updateInterval then
-            TargetFrameSpellBar.updateInterval = 0.1
-        end
-        -- Hook OnUpdate if not already hooked
-        if not S.castbarTimersHooked then
-            TargetFrameSpellBar:HookScript("OnUpdate", UpdateCastingBar)
-        end
-    end
-    
-    if FocusFrameSpellBar then
-        if not FocusFrameSpellBar.timer then
-            FocusFrameSpellBar.timer = CreateCastingBarTimer(FocusFrameSpellBar, 92, 0, 12)
-        else
-            -- Show timer if it exists but is hidden
-            FocusFrameSpellBar.timer:Show()
-        end
-        if not FocusFrameSpellBar.updateInterval then
-            FocusFrameSpellBar.updateInterval = 0.1
-        end
-        -- Hook OnUpdate if not already hooked
-        if not S.castbarTimersHooked then
-            FocusFrameSpellBar:HookScript("OnUpdate", UpdateCastingBar)
-        end
-    end
+
+    local playerTimerX, playerTimerY = S.GetPlayerCastbarTimerOffset()
+    S.EnsureCastbarTimer(playerBar, playerTimerX, playerTimerY, 13)
+    S.EnsureCastbarTimer(targetBar, 92, 0, 12)
+    S.EnsureCastbarTimer(focusBar, 92, 0, 12)
     
     S.castbarTimersHooked = true
 end
 
 -- Disable castbar timers
 function module:DisableCastbarTimers()
-    if not S.castbarTimersHooked then return end
-    
-    -- We can't unhook HookScript, but we can hide timers and clear text
-    if CastingBarFrame and CastingBarFrame.timer then
-        CastingBarFrame.timer:SetText("")
-        CastingBarFrame.timer:Hide()
+    S.HideCastbarTimer(CastingBarFrame)
+    S.HideCastbarTimer(TargetFrameSpellBar)
+    S.HideCastbarTimer(FocusFrameSpellBar)
+    local castbarMod = S.GetCastbarModule()
+    if castbarMod and castbarMod.GetStyleFrame then
+        S.HideCastbarTimer(castbarMod:GetStyleFrame("player"))
+        S.HideCastbarTimer(castbarMod:GetStyleFrame("target"))
+        S.HideCastbarTimer(castbarMod:GetStyleFrame("focus"))
     end
-    if TargetFrameSpellBar and TargetFrameSpellBar.timer then
-        TargetFrameSpellBar.timer:SetText("")
-        TargetFrameSpellBar.timer:Hide()
+    if castbarMod and castbarMod.DF and castbarMod.DF.GetFrame then
+        S.HideCastbarTimer(castbarMod.DF:GetFrame("player"))
+        S.HideCastbarTimer(castbarMod.DF:GetFrame("target"))
+        S.HideCastbarTimer(castbarMod.DF:GetFrame("focus"))
     end
-    if FocusFrameSpellBar and FocusFrameSpellBar.timer then
-        FocusFrameSpellBar.timer:SetText("")
-        FocusFrameSpellBar.timer:Hide()
-    end
-    
     S.castbarTimersHooked = false
 end
 
@@ -4399,6 +4784,8 @@ end
 
 -- Constants
 S.INVITE_TICK, S.INVITE_FONT_SIZE = 0.02, 14
+-- Chat "N seconds" fires slightly before gates open; subtract so 0 aligns with doors.
+S.ARENA_DOOR_OFFSET = 0.8
 S.INVITE_DEFAULTS = {
     PVP   = 59.5,   -- БГ/Арена
     LFG   = 46.2,   -- ПП
@@ -4911,12 +5298,17 @@ function module:EnableArenaCountdown()
     -- Set text function
     S.setArenaSmartTextFunc = function(sec)
         GetInviteFontSize(S.arenaCountdownFrame.text, 18)
-        if sec < 1 then
+        if sec <= 0 then
             S.arenaCountdownFrame:Hide()
             return
         end
         S.arenaCountdownFrame.text:SetTextColor(1, 1, 1)
-        S.arenaCountdownFrame.text:SetText(format(" %d ", floor(sec + 0.5)))
+        -- Spaces around the value keep the outline from jittering as digits change.
+        if sec < 1 then
+            S.arenaCountdownFrame.text:SetText(format(" %.1f ", floor(sec * 10) / 10))
+        else
+            S.arenaCountdownFrame.text:SetText(format(" %d ", floor(sec + 0.5)))
+        end
     end
     
     -- Stop arena countdown
@@ -4931,8 +5323,8 @@ function module:EnableArenaCountdown()
         if not IsArenaCountdownEnabled() then return end
         if S.arenaTracker.active then S.stopArenaCountdownFunc() end
         S.arenaTracker.active = true
-        -- Если duration не указан, используем 15 секунд (для арены)
-        duration = duration or 14.9
+        -- Default: 15s arena warning minus door-open lead.
+        duration = duration or (15 - S.ARENA_DOOR_OFFSET)
         S.arenaTracker.deadline = GetTime() + duration
         S.arenaCountdownFrame:Show()
     end
@@ -4995,8 +5387,10 @@ function module:EnableArenaCountdown()
 
         local p = GetCountdownPatterns()
 
+        local doorLead = S.ARENA_DOOR_OFFSET or 0.8
+
         if message:find(p.arena15, 1, true) then
-            S.startArenaCountdownFunc(14.9)
+            S.startArenaCountdownFunc(15 - doorLead)
             return
         end
 
@@ -5005,12 +5399,12 @@ function module:EnableArenaCountdown()
             local seconds = message:match(p.seconds)
             if minutes then
                 local min = tonumber(minutes) or 1
-                S.startArenaCountdownFunc(min * 60 - 0.1)
+                S.startArenaCountdownFunc(min * 60 - doorLead)
             elseif seconds then
                 local sec = tonumber(seconds) or 30
-                S.startArenaCountdownFunc(sec - 0.1)
+                S.startArenaCountdownFunc(sec - doorLead)
             elseif message:find(p.oneMinute, 1, true) then
-                S.startArenaCountdownFunc(59.9)
+                S.startArenaCountdownFunc(60 - doorLead)
             end
             return
         end
@@ -6771,6 +7165,12 @@ local function ColorScoreBoard()
 	end
 end
 
+function module:ApplyEasyGlyph()
+	if SarychUI_EasyGlyph and SarychUI_EasyGlyph.Apply then
+		SarychUI_EasyGlyph.Apply()
+	end
+end
+
 function module:ApplyPvpScoreboardClassNames()
 	if not scoreboardHooked and WorldStateScoreFrame_Update then
 		scoreboardHooked = true
@@ -6801,7 +7201,6 @@ function module:ApplyAllSettings()
     self:ApplyAltCD()
     self:ApplyAltUnitBars()
     self:ApplyAltAuras()
-    self:ApplyAltOmniCD()
     self:ApplyAltFPS()
     self:ApplySpeedyLoad()
     self:ApplyTooltipCursor()
@@ -6823,10 +7222,8 @@ function module:ApplyAllSettings()
     end
     self:ApplyBlizzMove()
     self:ApplyDarkMode()
-	if self.ApplyKeyEcho then
-        self:ApplyKeyEcho()
-    end
     self:ApplyPvpScoreboardClassNames()
+    self:ApplyEasyGlyph()
     self:ApplyTranslitAliases()
     self:ApplyClearChatSlash()
     self:ApplyVipCommands()
@@ -7070,8 +7467,8 @@ function module:Disable()
     -- Disable DarkMode
     self:DisableDarkMode()
 
-	if self.DisableKeyEcho then
-        self:DisableKeyEcho()
+    if self.ApplyEasyGlyph then
+        self:ApplyEasyGlyph()
     end
 
     -- Chat extras / WoWCircle owned by tools

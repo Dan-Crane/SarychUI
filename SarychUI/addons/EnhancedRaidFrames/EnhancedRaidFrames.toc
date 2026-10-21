@@ -2,7 +2,7 @@
 ## Title: Enhanced Raid Frames
 ## Notes: Enhances the Blizzard raid frames with configurable Buff/Debuff indicators
 ## Author: Britt W. Yazel, Tsoukie
-## Version: 1.8
+## Version: 1.9
 ## DefaultState: enabled
 ## SavedVariables: EnhancedRaidFramesDB
 ## RequiredDeps: !!!ClassicAPI, CompactRaidFrame

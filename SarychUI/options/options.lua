@@ -20,7 +20,6 @@ local LibStub = LibStub
 
 local ADDON_NAME = "SarychUI"
 local ENP_CONFIG_APP = "SarychUI_ElvUI_NamePlates"
-local GLADIUS_CONFIG_APP = "GladiusEx"
 local MAPSTER_CONFIG_APP = "Mapster"
 local L = SarychUI.L
 
@@ -261,7 +260,6 @@ local function RunAfterFrames(callback, frameCount)
 end
 
 local NAMEPLATES_FADE_OUT = 0.09
-local NAMEPLATES_FADE_IN = 0.11
 
 local function FadeNativeFrame(frame, fromAlpha, toAlpha, duration, onFinished)
 	if not frame or not frame.SetAlpha then
@@ -407,14 +405,6 @@ function SarychUI:CloseNamePlatesConfig()
 	end
 end
 
-function SarychUI:CloseGladiusExConfig()
-	local ACD = LibStub and LibStub("AceConfigDialog-3.0", true)
-	if not ACD or not ACD.OpenFrames then return end
-	if not ACD.OpenFrames[GLADIUS_CONFIG_APP] then return end
-
-	ACD:Close(GLADIUS_CONFIG_APP)
-end
-
 function SarychUI:CloseMapsterConfig()
 	local ACD = LibStub and LibStub("AceConfigDialog-3.0", true)
 	if ACD and ACD.OpenFrames and ACD.OpenFrames[MAPSTER_CONFIG_APP] then
@@ -471,79 +461,10 @@ function SarychUI:CloseConfigWindows(exceptApp)
 	if except ~= ENP_CONFIG_APP then
 		self:CloseNamePlatesConfig()
 	end
-	if except ~= GLADIUS_CONFIG_APP then
-		self:CloseGladiusExConfig()
-	end
 	if except ~= MAPSTER_CONFIG_APP then
 		self:CloseMapsterConfig()
 	end
 	self:CloseCarboniteConfig()
-end
-
-local function GetGladiusExConfigNativeFrame()
-	local ACD = LibStub and LibStub("AceConfigDialog-3.0", true)
-	if not ACD or not ACD.OpenFrames then return end
-
-	local open = ACD.OpenFrames[GLADIUS_CONFIG_APP]
-	return open and open.frame
-end
-
-local function OpenGladiusExConfigWindow()
-	local opened
-	if GladiusEx and GladiusEx.ShowOptionsDialog then
-		GladiusEx:ShowOptionsDialog()
-		opened = true
-	else
-		local ACD = LibStub and LibStub("AceConfigDialog-3.0", true)
-		if ACD then
-			ACD:Open(GLADIUS_CONFIG_APP)
-			opened = true
-		end
-	end
-
-	if opened then
-		local nativeFrame = GetGladiusExConfigNativeFrame()
-		if nativeFrame then
-			nativeFrame:SetAlpha(0)
-			FadeNativeFrame(nativeFrame, 0, 1, NAMEPLATES_FADE_IN)
-		end
-	end
-	return opened
-end
-
-function SarychUI:OpenGladiusExConfig()
-	RunAfterFrames(function()
-		if UnitAffectingCombat and UnitAffectingCombat("player") then
-			SarychUI:Print("Options are unavailable in combat.")
-			return
-		end
-
-		if not GladiusEx and not (LibStub and LibStub("AceConfig-3.0", true)) then
-			print("|cffffd200SarychUI:|r GladiusEx not loaded. Try /reload.")
-			return
-		end
-
-		local nativeFrame = GetSarychUIConfigNativeFrame()
-		local function openGladiusExConfig()
-			SarychUI:CloseOptions()
-			RunAfterFrames(function()
-				if not OpenGladiusExConfigWindow() then
-					print("|cffffd200SarychUI:|r Failed to open GladiusEx settings.")
-				end
-			end, 1)
-		end
-
-		if nativeFrame and nativeFrame.IsShown and nativeFrame:IsShown() then
-			if SarychUI.CleanupOptionsUI then
-				SarychUI:CleanupOptionsUI()
-			end
-			local startAlpha = nativeFrame:GetAlpha()
-			if startAlpha <= 0 then startAlpha = 1 end
-			FadeNativeFrame(nativeFrame, startAlpha, 0, NAMEPLATES_FADE_OUT, openGladiusExConfig)
-		else
-			openGladiusExConfig()
-		end
-	end, 1)
 end
 
 local function EnsureENPReady()
@@ -850,6 +771,14 @@ local function CloseAllEditModes()
 			end
 			if db.showBuffGrid == 1 then
 				db.showBuffGrid = 0
+				aurasClose = true
+			end
+			if db.showDebuffDragFrame == 1 then
+				db.showDebuffDragFrame = 0
+				aurasClose = true
+			end
+			if db.showDebuffGrid == 1 then
+				db.showDebuffGrid = 0
 				aurasClose = true
 			end
 			if aurasClose then
@@ -1196,7 +1125,7 @@ local options = {
 				},
 				profiles = {
 					type = "group",
-					name = "Профили",
+					name = "Профили и перенос",
 					order = 3,
 					args = {},
 				},
@@ -1213,6 +1142,13 @@ local options = {
 			},
 		},
 		
+		extensions = {
+			type = "group",
+			name = function() return SarychUI.L["Extensions_Title"] end,
+			order = 2.5,
+			args = { registered = { type = "group", name = "", order = 1, args = {} } },
+		},
+
 		addons = {
 			type = "group",
 			name = "Аддоны",
@@ -1290,6 +1226,38 @@ local options = {
 											SarychUI.db.profile.system.lockdownErrorSearch = value and true or false
 										end
 									end,
+								},
+							},
+						},
+						combatOpenBox = {
+							type = "group",
+							name = L["Options_InCombat_Group"] or "Открытие в бою",
+							order = 4,
+							inline = true,
+							args = {
+								allowOptionsInCombat = {
+									type = "toggle",
+									name = L["Options_InCombat_Enable"] or "Разрешить открывать /sui в бою",
+									desc = L["Options_InCombat_Desc"] or "По умолчанию /sui нельзя открыть в бою. Включение снимает этот запрет.\n\n|cffff8800Внимание:|r возможны конфликты с защищёнными фреймами, ошибки ADDON_ACTION_BLOCKED/FORBIDDEN, лаги и нестабильность интерфейса в бою. Используйте на свой риск.",
+									order = 1,
+									width = "full",
+									get = function()
+										if SarychUI.AllowOptionsInCombat then
+											return SarychUI:AllowOptionsInCombat()
+										end
+										local system = SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.system
+										return system and (system.allowOptionsInCombat == true or system.allowOptionsInCombat == 1) or false
+									end,
+									set = function(_, value)
+										SarychUI.db.profile.system = SarychUI.db.profile.system or {}
+										SarychUI.db.profile.system.allowOptionsInCombat = value and true or false
+									end,
+								},
+								allowOptionsInCombatNote = {
+									type = "description",
+									name = L["Options_InCombat_Note"] or "|cFFFFD700Примечание:|r окно настроек может обращаться к защищённым элементам UI. В бою это иногда приводит к блокировкам действий, конфликтам с другими аддонами и потере фокуса на персонаже. Для обычной игры лучше оставлять выключенным.",
+									order = 2,
+									width = "full",
 								},
 							},
 						},
@@ -1750,7 +1718,7 @@ function SarychUI:InitializeOptions()
 	if AceConfigDialog then
 		local originalOpen = AceConfigDialog.Open
 		AceConfigDialog.Open = function(self, appName, ...)
-			if appName == ADDON_NAME and SarychUI.IsPlayerInCombat and SarychUI:IsPlayerInCombat() then
+			if appName == ADDON_NAME and SarychUI.IsOptionsBlockedByCombat and SarychUI:IsOptionsBlockedByCombat() then
 				if SarychUI._userOpeningOptions then
 					SarychUI._userOpeningOptions = nil
 					SarychUI:PrintOptionsUnavailableInCombat()
@@ -1764,28 +1732,16 @@ function SarychUI:InitializeOptions()
 			if appName == ADDON_NAME and SarychUI.CloseNamePlatesConfig then
 				SarychUI:CloseNamePlatesConfig()
 			end
-			if appName == ADDON_NAME and SarychUI.CloseGladiusExConfig then
-				SarychUI:CloseGladiusExConfig()
-			end
 			if appName == ADDON_NAME and SarychUI.CloseMapsterConfig then
 				SarychUI:CloseMapsterConfig()
 			end
 			if appName == ADDON_NAME and SarychUI.CloseCarboniteConfig then
 				SarychUI:CloseCarboniteConfig()
 			end
-			if appName == GLADIUS_CONFIG_APP and SarychUI.CloseSarychUIConfig then
-				SarychUI:CloseSarychUIConfig()
-				if SarychUI.CloseNamePlatesConfig then
-					SarychUI:CloseNamePlatesConfig()
-				end
-			end
 			if appName == MAPSTER_CONFIG_APP and SarychUI.CloseSarychUIConfig then
 				SarychUI:CloseSarychUIConfig()
 				if SarychUI.CloseNamePlatesConfig then
 					SarychUI:CloseNamePlatesConfig()
-				end
-				if SarychUI.CloseGladiusExConfig then
-					SarychUI:CloseGladiusExConfig()
 				end
 			end
 			
@@ -2006,6 +1962,7 @@ function SarychUI:BuildOptionsTable()
 	-- Nothing can be listening yet on the first build, so skip the refresh notify.
 	self._optionsTableBuilding = true
 	profile("BuildOptionsTable.AddModuleOptions", self.AddModuleOptions, self)
+	profile("BuildOptionsTable.AddExtensionOptions", self.AddExtensionOptions, self)
 	profile("BuildOptionsTable.AddAddOnOptions", self.AddAddOnOptions, self)
 	self._optionsTableBuilding = nil
 
@@ -2014,7 +1971,7 @@ function SarychUI:BuildOptionsTable()
 		if self.CustomizeProfileOptions then
 			self:CustomizeProfileOptions(profileOpts)
 		end
-		profileOpts.name = self:T("Профили")
+		profileOpts.name = self:T("Профили и перенос")
 		profileOpts.order = 3
 		if options.args.general and options.args.general.args then
 			options.args.general.args.profiles = profileOpts
@@ -2025,6 +1982,9 @@ function SarychUI:BuildOptionsTable()
 
 	-- Expose root table for custom OptionsCore renderer (data source only).
 	self._customOptionsRoot = options
+	if self.RefreshQuickStartCatalogOptions then
+		self:RefreshQuickStartCatalogOptions()
+	end
 	return options
 end
 
@@ -2096,6 +2056,7 @@ function SarychUI:_AddModuleOptionsImpl()
 		minimap = 20,
 		map = 22,
 		mainmenubar = 30,
+		castbar = 30.25,
 		player_resources = 30.5,
 		cc = 31,
 		floating_text = 32,
@@ -2109,7 +2070,7 @@ function SarychUI:_AddModuleOptionsImpl()
 	}
 	
 	for name, module in pairs(self.modules) do
-		if module.GetOptions then
+		if module.GetOptions and not module.isExtension then
 			local stage = "module.GetOptions:" .. name
 			local moduleOpts
 			if SarychUI_ProfileOptionsStage then
@@ -2127,6 +2088,32 @@ function SarychUI:_AddModuleOptionsImpl()
 end
 
 -- Addon options cache: structure is built once and reused until marked dirty.
+function SarychUI:AddExtensionOptions()
+	local target = options.args.extensions and options.args.extensions.args.registered.args
+	if not target then return end
+	for key in pairs(target) do target[key] = nil end
+	local entries = {}
+	for key, extension in pairs(self.extensions or {}) do
+		if extension.GetOptions then
+			local group = extension:GetOptions()
+			local label = group.name
+			if type(label) == "function" then label = label() end
+			entries[#entries + 1] = { key = key, group = group, label = label or key }
+		end
+	end
+	table.sort(entries, function(a, b) return a.label < b.label end)
+	for index, entry in ipairs(entries) do
+		entry.group.order = index * 10
+		target[entry.key] = entry.group
+	end
+end
+
+function SarychUI:RefreshExtensionOptions()
+	self:AddExtensionOptions()
+	if self.OptionsCore and self.OptionsCore.InvalidateStructure then self.OptionsCore:InvalidateStructure() end
+	self:NotifySarychUIOptionsChange()
+end
+
 SarychUI._addonOptionsBuilt = false
 SarychUI._addonOptionsDirty = true
 SarychUI._optionsTableRegistered = false
@@ -2270,11 +2257,9 @@ function SarychUI:_AddAddOnOptionsImpl()
 	local addonEntries = {}
 	local ADDON_LIST_HIDDEN = {
 		BaudBag = true,
-		GladiusEx = true,
 		SarychUI_Bags = true,
 	}
 	local ADDON_LIST_GROUPS = {
-		["!!!ClassicAPI"] = { group = "Системные", rank = 2, order = 1 },
 		AddonList = { group = "Системные", rank = 2, order = 2 },
 		autolos = { group = "Системные", rank = 2, order = 3 },
 		CL_Fix = { group = "Системные", rank = 2, order = 4 },
@@ -2282,7 +2267,7 @@ function SarychUI:_AddAddOnOptionsImpl()
 		CompactRaidFrame = { group = "Рейдовые фреймы", rank = 3, order = 1 },
 		CompactRaidFrame_HealEx = { group = "Рейдовые фреймы", rank = 3, order = 2 },
 		EnhancedRaidFrames = { group = "Рейдовые фреймы", rank = 3, order = 3 },
-		OmniCD = { group = "Рейдовые фреймы", rank = 3, order = 4 },
+		RaidFrameSorter = { group = "Рейдовые фреймы", rank = 3, order = 4 },
 	}
 
 	local function GetAddOnDisplayName(optionGroup, key)

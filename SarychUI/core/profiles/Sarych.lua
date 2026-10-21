@@ -9,12 +9,15 @@ SarychUI.BuiltinProfiles = SarychUI.BuiltinProfiles or {}
 SarychUI.BuiltinProfileMeta = SarychUI.BuiltinProfileMeta or {}
 
 SarychUI.BuiltinProfileMeta["Sarych"] = {
-	revision = 12,
+	revision = 15,
 	displayName = "Sarych (2K)",
 }
 
 SarychUI.BuiltinProfiles["Sarych"] = {
 			["modules"] = {
+				["automation"] = {
+					["enableAutoScreenshot"] = 0,
+				},
 				["map"] = {
 					["mapType"] = "sarychui",
 					["panButton"] = "middle",
@@ -1390,12 +1393,17 @@ SarychUI.BuiltinProfiles["Sarych"] = {
 						},
 					},
 				},
+				["player_resources"] = {
+					["enabled"] = false,
+				},
 				["chat"] = {
 					["lfgAbbrev"] = "[Поиск]",
 					["emotionPickerEnabled"] = 1,
 					["classColorMentionsEnabled"] = 1,
 					["classColorMentionsChat"] = 1,
 					["classColorMentionsSpeech"] = 1,
+					["lagBarEnabled"] = 1,
+					["lagBarLabelsEnabled"] = 1,
 					["chatWheel"] = {
 						["selectedPhraseFontSize"] = 50,
 						["phrase5Y"] = -15,
@@ -1546,6 +1554,8 @@ SarychUI.BuiltinProfiles["Sarych"] = {
 					},
 					["tooltipCursorAltOnly"] = 1,
 					["enableTooltipCursor"] = 1,
+					["enableEasyGlyph"] = 1,
+					["easyGlyphSkipItems"] = 1,
 					["fpsExtraOffsetY"] = -20,
 					["fpsExtraOffsetX"] = -12,
 					["fpsScale"] = 0.9,

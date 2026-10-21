@@ -60,16 +60,24 @@ local function HideAceGUIPopupFrames()
 end
 
 local function ClearKeyboardFocus()
-	if GetCurrentKeyBoardFocus then
-		local focus = GetCurrentKeyBoardFocus()
-		if focus and focus.ClearFocus then
-			-- Only clear focus belonging to SarychUI options.
-			if SarychUI.IsSarychUIOwned and SarychUI:IsSarychUIOwned(focus) then
-				focus:ClearFocus()
-			elseif not (SarychUI.IsSarychUIOwned) then
-				focus:ClearFocus()
-			end
-		end
+	local getFocus = GetCurrentKeyBoardFocus
+	if type(getFocus) ~= "function" then
+		return
+	end
+
+	-- This is a shared global API and can be replaced by compatibility layers or
+	-- other addons. Never let a foreign implementation (including one that walks
+	-- every UIParent child) break SarychUI's close path.
+	local ok, focus = pcall(getFocus)
+	if not ok or not focus or not focus.ClearFocus then
+		return
+	end
+
+	-- Only clear focus belonging to SarychUI options.
+	if SarychUI.IsSarychUIOwned and SarychUI:IsSarychUIOwned(focus) then
+		pcall(focus.ClearFocus, focus)
+	elseif not SarychUI.IsSarychUIOwned then
+		pcall(focus.ClearFocus, focus)
 	end
 end
 
@@ -189,87 +197,6 @@ function SarychUI:CancelAceConfigDialogPendingRefresh(appName)
 	end
 end
 
-local STATIC_POPUP_FRAMES = {
-	StaticPopup1 = true,
-	StaticPopup2 = true,
-	StaticPopup3 = true,
-	StaticPopup4 = true,
-}
-
-local function IsProtectedGlobalFrame(frame)
-	if not frame then
-		return true
-	end
-	local name = frame.GetName and frame:GetName()
-	if name and STATIC_POPUP_FRAMES[name] then
-		return true
-	end
-	if GameTooltip and frame == GameTooltip then
-		return true
-	end
-	if ColorPickerFrame and frame == ColorPickerFrame then
-		return true
-	end
-	if DropDownList1 and (frame == DropDownList1 or frame == DropDownList2) then
-		return true
-	end
-	return false
-end
-
-local function IsAceGUIOrphanFrame(child)
-	if child.obj and child.obj.type then
-		return true
-	end
-	local frameName = child.GetName and child:GetName()
-	if type(frameName) == "string" then
-		if frameName:find("^AceGUI30") or frameName:find("^AceGUI%-3%.0") then
-			return true
-		end
-	end
-	return false
-end
-
--- Reused buffer so the UIParent walk calls GetChildren() once instead of once per
--- index (UIParent has hundreds of children).
-local uiParentChildren = {}
-
-local function FillUIParentChildren(...)
-	local n = select("#", ...)
-	for i = 1, n do
-		uiParentChildren[i] = select(i, ...)
-	end
-	for i = n + 1, #uiParentChildren do
-		uiParentChildren[i] = nil
-	end
-	return n
-end
-
-local function HideOrphanAceGUIFramesOnUIParent()
-	local openWidget = GetSarychUIOpenWidget()
-	local openNative = openWidget and openWidget.frame
-	local numChildren = FillUIParentChildren(UIParent:GetChildren())
-	for childIndex = 1, numChildren do
-		local child = uiParentChildren[childIndex]
-		if not child then
-			break
-		end
-		if child.IsShown and child:IsShown() and child ~= openNative and not IsProtectedGlobalFrame(child) then
-			local parent = child.GetParent and child:GetParent()
-			if parent == UIParent and IsAceGUIOrphanFrame(child) then
-				-- Only hide AceGUI frames that belong to SarychUI options.
-				local owned = (SarychUI.IsSarychUIOwned and SarychUI:IsSarychUIOwned(child))
-					or (child.obj and child.obj.frame and SarychUI.IsSarychUIOwned and SarychUI:IsSarychUIOwned(child.obj.frame))
-				if owned then
-					child:Hide()
-					if child.SetAlpha then
-						child:SetAlpha(1)
-					end
-				end
-			end
-		end
-	end
-end
-
 function SarychUI:ScheduleDeferredOptionsCleanup()
 	if not C_Timer or not C_Timer.After then
 		return
@@ -325,7 +252,9 @@ function SarychUI:CleanupOptionsUI(opts)
 	local AceGUI = LibStub and LibStub("AceGUI-3.0", true)
 	-- Only clear AceGUI focus when our options were open; never steal focus from foreign dialogs.
 	if openWidget and AceGUI and AceGUI.ClearFocus then
-		AceGUI:ClearFocus()
+		-- AceGUI is shared by multiple addons. A foreign focused widget may have a
+		-- custom ClearFocus implementation, so isolate it from our cleanup path.
+		pcall(AceGUI.ClearFocus, AceGUI)
 	end
 
 	ClearKeyboardFocus()
@@ -360,7 +289,6 @@ function SarychUI:CleanupOptionsUI(opts)
 	end
 
 	HideDragModeElements()
-	HideOrphanAceGUIFramesOnUIParent()
 
 	self._optionsCleaningUp = nil
 end

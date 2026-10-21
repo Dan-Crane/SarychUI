@@ -59,7 +59,6 @@ function UpdateHealthBarColor(frame)
     -- Если настройка выключена, снимаем блокировку и сразу возвращаем зелёный
     -- (иначе цвет «залипает» до reload)
     if not classColorHPEnabled then
-        frame.healthbar.lockColor = nil
         if UnitIsPlayer(frame.unit) then
             frame.healthbar:SetStatusBarColor(0.0, 1.0, 0.0)
         end
@@ -68,8 +67,6 @@ function UpdateHealthBarColor(frame)
 
     -- Проверяем, подключен ли игрок (для всех юнитов, но только игроки могут быть отключены)
     if not UnitIsConnected(frame.unit) then
-        -- Для отключенных игроков устанавливаем серый цвет
-        frame.healthbar.lockColor = true
         frame.healthbar:SetStatusBarColor(0.5, 0.5, 0.5)
         return
     end
@@ -86,9 +83,6 @@ function UpdateHealthBarColor(frame)
                 playerClassColorEnabled = SarychUI.db.profile.addons.UnitFrameLayers.playerClassColorHP == true
             end
         end
-        
-        -- Блокируем цвет, чтобы Blizzard не перезаписывал его
-        frame.healthbar.lockColor = true
         
         if isPlayerFrame and playerClassColorEnabled then
             -- Цвет класса для PlayerFrame если включено
@@ -111,16 +105,19 @@ function UpdateHealthBarColor(frame)
                 frame.healthbar:SetStatusBarColor(color.r, color.g, color.b)
             end
         end
-    else
-        -- НЕ игрок: снимаем блокировку и не трогаем цвет
-        -- Пусть Blizzard сам управляет цветом для NPC/мобов
-        frame.healthbar.lockColor = nil
     end
 end
 
-PowerBarColor = PowerBarColor or {};
-PowerBarColor["RAGE"].fullPowerAnim = true;
-PowerBarColor["ENERGY"].fullPowerAnim = true;
+-- Do not replace the PowerBarColor global. PartyMemberFrame_OnEvent reads it
+-- while the handler is still secure.
+if PowerBarColor then
+	if PowerBarColor["RAGE"] then
+		PowerBarColor["RAGE"].fullPowerAnim = true
+	end
+	if PowerBarColor["ENERGY"] then
+		PowerBarColor["ENERGY"].fullPowerAnim = true
+	end
+end
 
 function GetPowerBarColor(powerType)
 	return PowerBarColor[powerType];
@@ -597,7 +594,9 @@ function UnitFrameLayers_SetHealPredictionEnabled(frame, enabled)
 	end
 end
 
-function UnitFrameHealthBar_OnUpdate(self)
+-- Never replace FrameXML's global handler: Blizzard_ArenaUI reads it while
+-- constructing secure arena buttons, and an addon-owned value taints OnLoad.
+local function UnitFrameLayers_HealthBar_OnUpdate(self)
 	if not IsEnabled() then
 		return;
 	end
@@ -621,7 +620,7 @@ function UnitFrameHealthBar_OnUpdate(self)
 	end
 end
 
-function UnitFrameManaBar_OnUpdate(self)
+local function UnitFrameLayers_ManaBar_OnUpdate(self)
 	if not IsEnabled() then
 		return;
 	end
@@ -652,7 +651,10 @@ function UnitFrameManaBar_OnUpdate(self)
 	end
 end
 
-function UnitFrameManaBar_Update(statusbar, unit)
+local UnitFrameManaBar_Update
+local UnitFrameManaBar_UpdateType
+
+UnitFrameManaBar_Update = function(statusbar, unit)
 	if not IsEnabled() then
 		return;
 	end
@@ -721,7 +723,7 @@ local function UnitFrameManaCostPredictionBars_Update(frame, isStarting, startTi
 	UnitFrameUtil_UpdateManaFillBar(frame, manaBarTexture, frame.myManaCostPredictionBar, cost);
 end
 
-function UnitFrameManaBar_UpdateType(manaBar)
+UnitFrameManaBar_UpdateType = function(manaBar)
 	if not IsEnabled() then
 		return;
 	end
@@ -808,57 +810,46 @@ local function UnitFrameHealPredictionBars_UpdateMax(self)
 	UnitFrameHealPredictionBars_Update(self);
 end
 
-hooksecurefunc("UnitFrameHealthBar_Update", function(statusbar, unit)
-	if not IsEnabled() then
-		return;
-	end
-	if statusbar.AnimatedLossBar then
-		statusbar.AnimatedLossBar:UpdateHealthMinMax();
-	end
-	local parent = statusbar:GetParent();
-	UnitFrameHealPredictionBars_Update(parent);
-	-- После стандартной перекраски Blizzard снова ставим цвет класса (live toggle).
-	if parent then
-		UpdateHealthBarColor(parent);
-	end
-end);
+-- Own event frame only. A hooksecurefunc on UnitFrame_OnEvent / UnitFrame_Update
+-- runs inside PartyMemberFrame_OnEvent and taints the later Show/SetPoint/SetAttribute.
+-- Party frames are protected. Parenting a prediction frame to them, or storing
+-- bars on the frame, taints PartyMemberFrame_OnEvent for the rest of the session.
+local function IsBlizzardPartyFrame(frame)
+	local name = frame and frame.GetName and frame:GetName()
+	return type(name) == "string" and (name:match("^PartyMemberFrame%d+$") or name:match("^PartyMemberFrame%d+PetFrame$")) and true or false
+end
 
-hooksecurefunc("UnitFrame_Update", function(self, isParty)
-	if not IsEnabled() then
-		return;
-	end
-	UnitFrameHealPredictionBars_UpdateMax(self);
-	UnitFrameHealPredictionBars_Update(self);
-	UnitFrameManaCostPredictionBars_Update(self);
-	UpdateHealthBarColor(self);
-end);
-
-hooksecurefunc("UnitFrame_OnEvent", function(self, event, ...)
-	if not IsEnabled() then
-		return;
+local function RefreshUnitFrameLayers(self, event, ...)
+	if not IsEnabled() or not self or IsBlizzardPartyFrame(self) then
+		return
 	end
 
-	if ( not self.myHealPredictionBar ) then
-		CreateFrame("Frame", nil, self, "StatusBarHealPredictionTemplate");
-		local thisName = self:GetName();
-
+	if not self.myHealPredictionBar and self.GetName and self:GetName() then
+		CreateFrame("Frame", nil, self, "StatusBarHealPredictionTemplate")
+		local thisName = self:GetName()
 		UnitFrameLayer_Initialize(self, _G[thisName.."FrameMyHealPredictionBar"], _G[thisName.."FrameOtherHealPredictionBar"],
 									_G[thisName.."TotalAbsorbBar"], _G[thisName.."TotalAbsorbBarOverlay"],
 									_G[thisName.."FrameOverAbsorbGlow"], _G[thisName.."OverHealAbsorbGlow"],
 									_G[thisName.."HealAbsorbBar"], _G[thisName.."HealAbsorbBarLeftShadow"],
-									_G[thisName.."HealAbsorbBarRightShadow"], _G[thisName.."FrameManaCostPredictionBar"]);
+									_G[thisName.."HealAbsorbBarRightShadow"], _G[thisName.."FrameManaCostPredictionBar"])
 	end
 
-	UnitFrameHealPredictionBars_Update(self);
+	if self.healthbar and self.healthbar.AnimatedLossBar then
+		self.healthbar.AnimatedLossBar:UpdateHealthMinMax()
+	end
+	UnitFrameHealPredictionBars_UpdateMax(self)
+	UnitFrameHealPredictionBars_Update(self)
+	UnitFrameManaCostPredictionBars_Update(self)
+	UpdateHealthBarColor(self)
 
-	if ( event == "UNIT_SPELLCAST_START" or event == "UNIT_SPELLCAST_STOP" or event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_SUCCEEDED" ) then
-		local unit = ...;
-		if ( UnitIsUnit(unit, "player") ) then
-			local name, text, texture, startTime, endTime, isTradeSkill, castID, notInterruptible = UnitCastingInfo(unit);
-			UnitFrameManaCostPredictionBars_Update(self, event == "UNIT_SPELLCAST_START", startTime, endTime, name);
+	if event == "UNIT_SPELLCAST_START" or event == "UNIT_SPELLCAST_STOP" or event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_SUCCEEDED" then
+		local unit = ...
+		if unit and UnitIsUnit(unit, "player") then
+			local name, _, _, _, startTime, endTime = UnitCastingInfo(unit)
+			UnitFrameManaCostPredictionBars_Update(self, event == "UNIT_SPELLCAST_START", startTime, endTime, name)
 		end
 	end
-end)
+end
 
 -- Вспомогательная функция для правильного поиска фреймов по unit
 local function GetUnitFrameByUnit(unit)
@@ -880,46 +871,81 @@ end
 
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+frame:RegisterEvent("PARTY_MEMBERS_CHANGED")
 frame:RegisterEvent("GROUP_ROSTER_UPDATE")
 frame:RegisterEvent("PLAYER_TARGET_CHANGED")
 frame:RegisterEvent("PLAYER_FOCUS_CHANGED")
 frame:RegisterEvent("UNIT_HEALTH")
-frame:RegisterEvent("UNIT_POWER_UPDATE")
+frame:RegisterEvent("UNIT_MAXHEALTH")
+frame:RegisterEvent("UNIT_MANA")
+frame:RegisterEvent("UNIT_RAGE")
+frame:RegisterEvent("UNIT_ENERGY")
+frame:RegisterEvent("UNIT_RUNIC_POWER")
 frame:RegisterEvent("UNIT_DISPLAYPOWER")
+frame:RegisterEvent("UNIT_SPELLCAST_START")
+frame:RegisterEvent("UNIT_SPELLCAST_STOP")
+frame:RegisterEvent("UNIT_SPELLCAST_FAILED")
+frame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+
+local healthColorPending = false
+local layeredUnits = {"player", "target", "focus", "pet"}
+frame:SetScript("OnUpdate", function()
+	-- Run the extra animation and prediction work from our own frame.  Blizzard
+	-- keeps its original OnUpdate scripts on every protected unit button.
+	if IsEnabled() then
+		for _, unit in ipairs(layeredUnits) do
+			local unitFrame = GetUnitFrameByUnit(unit)
+			if unitFrame then
+				local healthbar = unitFrame.healthbar
+				if healthbar and healthbar.unit then UnitFrameLayers_HealthBar_OnUpdate(healthbar) end
+				local manabar = unitFrame.manabar
+				if manabar and manabar.unit then UnitFrameLayers_ManaBar_OnUpdate(manabar) end
+			end
+		end
+	end
+	if not healthColorPending then
+		return
+	end
+	healthColorPending = false
+	local units = {"player", "target", "focus", "pet", "party1", "party2", "party3", "party4"}
+	for _, u in ipairs(units) do
+		UpdateHealthBarColor(GetUnitFrameByUnit(u))
+		local n = u:match("^party(%d+)$")
+		if n then
+			UpdateHealthBarColor(_G["PartyMemberFrame"..n.."PetFrame"])
+		end
+	end
+end)
 
 frame:SetScript("OnEvent", function(self, event, unit)
 	if not IsEnabled() then
-		return;
+		return
 	end
-    if event == "PLAYER_ENTERING_WORLD" or event == "GROUP_ROSTER_UPDATE" then
-        -- Обновляем цвет для всех групповых фреймов
-        local units = {"player", "target", "focus", "party1", "party2", "party3", "party4"}
-        for _, u in ipairs(units) do
-            local f = GetUnitFrameByUnit(u)
-            if f then
-                -- Вызываем всегда, но функция сама решит по настройкам
-                UpdateHealthBarColor(f)
-            end
-        end
-        -- Обновляем полосу ресурса игрока (после смерти/воскрешения)
-        local pf = PlayerFrame
-        if pf and pf.manabar then
-            UnitFrameManaBar_Update(pf.manabar, "player")
-        end
-    else
-        if unit then
-            local f = GetUnitFrameByUnit(unit)
-            if f then
-                -- Вызываем всегда, но функция сама решит по настройкам
-                UpdateHealthBarColor(f)
-            end
-            -- При изменении здоровья игрока (в т.ч. воскрешение) обновляем полосу ресурса
-            if unit == "player" and (event == "UNIT_HEALTH" or event == "UNIT_POWER_UPDATE" or event == "UNIT_DISPLAYPOWER") then
-                local pf = PlayerFrame
-                if pf and pf.manabar then
-                    UnitFrameManaBar_Update(pf.manabar, "player")
-                end
-            end
-        end
-    end
+	healthColorPending = true
+	local roster = event == "PLAYER_ENTERING_WORLD" or event == "PARTY_MEMBERS_CHANGED" or event == "GROUP_ROSTER_UPDATE"
+		or event == "PLAYER_TARGET_CHANGED" or event == "PLAYER_FOCUS_CHANGED"
+	if roster then
+		local units = {"player", "target", "focus", "pet", "party1", "party2", "party3", "party4"}
+		for _, u in ipairs(units) do
+			local f = GetUnitFrameByUnit(u)
+			if f then
+				RefreshUnitFrameLayers(f, event, u)
+			end
+		end
+		local pf = PlayerFrame
+		if pf and pf.manabar then
+			UnitFrameManaBar_Update(pf.manabar, "player")
+		end
+	elseif unit then
+		local f = GetUnitFrameByUnit(unit)
+		if f then
+			RefreshUnitFrameLayers(f, event, unit)
+		end
+		if unit == "player" then
+			local pf = PlayerFrame
+			if pf and pf.manabar then
+				UnitFrameManaBar_Update(pf.manabar, "player")
+			end
+		end
+	end
 end)

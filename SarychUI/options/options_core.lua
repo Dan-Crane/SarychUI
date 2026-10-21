@@ -181,8 +181,8 @@ function OC:BuildSectionsFromAce()
 			local children = SortedGroupArgs(top.opt.args)
 
 			-- Аддоны: один пункт nav (как Система) - сразу two-pane список, без «Управление».
-			if top.key == "addons" then
-				local ported = top.opt.args and top.opt.args.ported
+			if top.key == "addons" or top.key == "extensions" then
+				local ported = top.opt.args and (top.opt.args.ported or top.opt.args.registered)
 				self:RegisterSection(topId, {
 					id = topId,
 					label = ResolveName(top.opt),
@@ -468,7 +468,7 @@ function OC:_RenderContent()
 					child:SetHeight(scrollH)
 				else
 					local lh = listHost:GetHeight() or 40
-					child:SetHeight(math.max(40, -y + lh + 8))
+					child:SetHeight(math.max(40, -y + lh))
 				end
 				if OW.SetContentScrollLocked then
 					OW:SetContentScrollLocked(true)
@@ -826,7 +826,7 @@ end
 
 function OC:Open()
 	local tOpen = PerfStart()
-	if SUI.IsPlayerInCombat and SUI:IsPlayerInCombat() then
+	if SUI.IsOptionsBlockedByCombat and SUI:IsOptionsBlockedByCombat() then
 		if SUI.PrintOptionsUnavailableInCombat then
 			SUI:PrintOptionsUnavailableInCombat()
 		end
@@ -835,7 +835,6 @@ function OC:Open()
 
 	self:EnsureDataReady()
 
-	if SUI.CloseGladiusExConfig then SUI:CloseGladiusExConfig() end
 	if SUI.CloseMapsterConfig then SUI:CloseMapsterConfig() end
 	if SUI.CloseCarboniteConfig then SUI:CloseCarboniteConfig() end
 	if SUI.CloseNamePlatesConfig then SUI:CloseNamePlatesConfig() end

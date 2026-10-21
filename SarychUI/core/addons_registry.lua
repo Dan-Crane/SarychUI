@@ -87,8 +87,6 @@ local function CoordinatorSetModeForAddOn(self, addonName, enable)
 	end
 	if addonName == "Carbonite" and self.SetMapType then
 		self:SetMapType("carbonite")
-	elseif addonName == "GladiusEx" and self.SetArenaMode then
-		self:SetArenaMode("gladiusex")
 	elseif addonName == "ElvUI_NamePlates" and self.SetNameplateMode then
 		self:SetNameplateMode("elvui")
 	elseif addonName == "BaudBag" and self.SetBagsMode then
@@ -109,9 +107,7 @@ local function CoordinatorClearModeForAddOn(self, addonName)
 	if self._coordinatorApplying then
 		return
 	end
-	if addonName == "GladiusEx" and self.SetArenaMode then
-		self:SetArenaMode("classic")
-	elseif addonName == "ElvUI_NamePlates" and self.SetNameplateMode then
+	if addonName == "ElvUI_NamePlates" and self.SetNameplateMode then
 		self:SetNameplateMode("classic")
 	elseif addonName == "BaudBag" and self.SetBagsMode then
 		local bags = self.db and self.db.profile and self.db.profile.modules and self.db.profile.modules.bags
@@ -216,9 +212,9 @@ end
 -- CompactRaidFrame must init before HealEx/ERF so unit frames exist for their hooks.
 local RAID_FRAME_INIT_ORDER = {
 	"CompactRaidFrame",
+	"RaidFrameSorter",
 	"CompactRaidFrame_HealEx",
 	"EnhancedRaidFrames",
-	"OmniCD",
 }
 
 local function ForEachAddOnInOrder(addons, callback)

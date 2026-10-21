@@ -455,7 +455,7 @@ local function RefreshUnitFramePortrait(frame)
 end
 
 local function OnUnitFramePortraitUpdate(self)
-	if not self or not self.portrait or not self.unit then
+	if not self or not self.unit then
 		return
 	end
 	-- UnitFramePortrait_Update is shared with protected BossNTargetFrame.
@@ -464,9 +464,13 @@ local function OnUnitFramePortraitUpdate(self)
 	if not slot or self ~= _G[slot.frameName] then
 		return
 	end
+	local portrait = self.portrait or _G[slot.textureName]
+	if not portrait then
+		return
+	end
 
 	-- Class / spec icons first: they must sit above (and replace) the 3D portrait.
-	if TryApplyClassIcon(slot, self.portrait, self.unit) then
+	if TryApplyClassIcon(slot, portrait, self.unit) then
 		return
 	end
 
@@ -476,27 +480,27 @@ local function OnUnitFramePortraitUpdate(self)
 		return
 	end
 
-	ReleaseModel(slot, self.portrait)
+	ReleaseModel(slot, portrait)
 	HideBadge(slot)
-	self.portrait:SetAlpha(1)
-	self.portrait:Show()
-	self.portrait:SetTexCoord(0, 1, 0, 1)
+	portrait:SetAlpha(1)
+	portrait:Show()
+	portrait:SetTexCoord(0, 1, 0, 1)
 end
 
 local function EnsurePortraitHook()
 	if portraitHookInstalled then return end
 	portraitHookInstalled = true
-	if type(hooksecurefunc) == "function" and UnitFramePortrait_Update then
-		hooksecurefunc("UnitFramePortrait_Update", OnUnitFramePortraitUpdate)
-	end
+	-- UnitFramePortrait_Update runs inside PartyMemberFrame_UpdateMember.
+	-- Portraits refresh from UNIT_PORTRAIT_UPDATE / UNIT_MODEL_CHANGED instead.
 end
 
 local function ApplySlotPortrait(slot)
 	HideLegacyModelUi(slot.unit)
 	local frame = slot.frameName and _G[slot.frameName]
 	local tex = _G[slot.textureName]
-	RefreshUnitFramePortrait(frame)
-	-- The hook above has already painted the slot (icon or 3D).
+	if frame then
+		OnUnitFramePortraitUpdate(frame)
+	end
 	if slot.modelActive or (tex and ShouldApplyClassIcon(slot.unit)) then
 		return
 	end
@@ -521,10 +525,14 @@ local function RefreshAllPortraits()
 	for _, slot in ipairs(MODEL_ONLY_SLOTS) do
 		local frame = _G[slot.frameName]
 		if frame then
-			if not use3D and slot.modelActive then
-				RestoreDefaultPortrait(slot)
+			if use3D then
+				OnUnitFramePortraitUpdate(frame)
+			else
+				if slot.modelActive then
+					RestoreDefaultPortrait(slot)
+				end
+				RefreshUnitFramePortrait(frame)
 			end
-			RefreshUnitFramePortrait(frame)
 		end
 	end
 end
@@ -532,19 +540,23 @@ end
 function module:UpdateClassIconPortraits(force, onlyUnit)
 	EnsurePortraitHook()
 	if onlyUnit then
-		for _, slot in ipairs(PORTRAIT_SLOTS) do
-			if slot.unit == onlyUnit then
-				if force then
-					-- UNIT_MODEL_CHANGED etc.: make the 3D portrait load the model again.
-					slot.modelGuid = nil
+		local lists = { PORTRAIT_SLOTS, MODEL_ONLY_SLOTS }
+		for n = 1, #lists do
+			local list = lists[n]
+			for i = 1, #list do
+				local slot = list[i]
+				if slot.unit == onlyUnit then
+					if force then
+						slot.modelGuid = nil
+					end
+					if Is3DEnabled() or IsClassIconPortraitsEnabled() then
+						ApplySlotPortrait(slot)
+					else
+						RestoreDefaultPortrait(slot)
+						RefreshUnitFramePortrait(_G[slot.frameName])
+					end
+					return
 				end
-				if Is3DEnabled() or IsClassIconPortraitsEnabled() then
-					ApplySlotPortrait(slot)
-				else
-					RestoreDefaultPortrait(slot)
-					RefreshUnitFramePortrait(_G[slot.frameName])
-				end
-				return
 			end
 		end
 		return
@@ -631,10 +643,12 @@ modelEvents:RegisterEvent("UNIT_MODEL_CHANGED")
 modelEvents:RegisterEvent("UNIT_PORTRAIT_UPDATE")
 modelEvents:SetScript("OnEvent", function(_, _, unit)
 	local slot = unit and SLOT_BY_UNIT[unit]
-	if slot and slot.modelActive then
-		slot.modelGuid = nil
-		RefreshUnitFramePortrait(_G[slot.frameName])
+	local frame = slot and _G[slot.frameName]
+	if not frame then
+		return
 	end
+	slot.modelGuid = nil
+	OnUnitFramePortraitUpdate(frame)
 end)
 
 -- A spec became known (inspect finished / own talents changed): redraw the icons of that unit.

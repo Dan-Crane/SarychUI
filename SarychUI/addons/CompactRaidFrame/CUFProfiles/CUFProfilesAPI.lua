@@ -1,5 +1,10 @@
-local MAX_CUF_PROFILES = 10;
-local PROFILES, CUF_CONFIG, PROFILE_COPY;
+local CompactRaidFrame = LibStub("AceAddon-3.0"):NewAddon("CompactRaidFrame", "AceConsole-3.0", "AceEvent-3.0");
+_G["CompactRaidFrame"] = CompactRaidFrame;
+local AceDB = LibStub("AceDB-3.0");
+
+local PROFILES, CUF_CONFIG;
+local SAVED_PROFILE = { };
+local MAX_CUF_PROFILES = 5;
 
 local DEFAULT_PROFILE = {
 	name = DEFAULT_CUF_PROFILE_NAME,
@@ -7,78 +12,89 @@ local DEFAULT_PROFILE = {
 
 	shown = true,
 	locked = true,
+	keepGroupsTogether = false,
+	horizontalGroups = false,
 	sortBy = "group",
+	displayHealPrediction = true,
+	displayPowerBar = false,
 	displayAggroHighlight = true,
+	useClassColors = false,
+	displayPets = false,
 	displayMainTankAndAssist = true,
 	displayBorder = true,
 	displayNonBossDebuffs = true,
+	displayOnlyDispellableDebuffs = false,
 	healthText = "none",
 	frameWidth = 72,
 	frameHeight = 36,
+	autoActivate2Players = false,
+	autoActivate3Players = false,
+	autoActivate5Players = false,
+	autoActivate10Players = false,
+	autoActivate15Players = false,
+	autoActivate25Players = false,
+	autoActivate40Players = false,
+	autoActivatePvP = false,
+	autoActivatePvE = false,
 };
 
-local ALL_OPTIONS = {
-	shown = 0,
-	locked = 0,
-	keepGroupsTogether = 1,
-	horizontalGroups = 1,
-	sortBy = 1,
-	displayPowerBar = 1,
-	displayAggroHighlight = 1,
-	useClassColors = 1,
-	displayPets = 1,
-	displayMainTankAndAssist = 1,
-	displayBorder = 1,
-	displayNonBossDebuffs = 1,
-	displayOnlyDispellableDebuffs = 1,
-	healthText = 1,
-	frameWidth = 1,
-	frameHeight = 1,
-	autoActivate2Players = 1,
-	autoActivate3Players = 1,
-	autoActivate5Players = 1,
-	autoActivate10Players = 1,
-	autoActivate15Players = 1,
-	autoActivate25Players = 1,
-	autoActivate40Players = 1,
-	autoActivatePvP = 1,
-	autoActivatePvE = 1,
+local FLATTENDED_OPTIONS = {
+	["locked"] = 0,
+	["shown"] = 0,
+	["keepGroupsTogether"] = 1,
+	["horizontalGroups"] = 1,
+	["sortBy"] = 1,
+	["displayHealPrediction"] = 1,
+	["displayPowerBar"] = 1,
+	["displayAggroHighlight"] = 1,
+	["useClassColors"] = 1,
+	["displayPets"] = 1,
+	["displayMainTankAndAssist"] = 1,
+	["displayBorder"] = 1,
+	["displayNonBossDebuffs"] = 1,
+	["displayOnlyDispellableDebuffs"] = 0,
+	["healthText"] = 1,
+	["frameWidth"] = 1,
+	["frameHeight"] = 1,
+	["autoActivate2Players"] = 1,
+	["autoActivate3Players"] = 1,
+	["autoActivate5Players"] = 1,
+	["autoActivate10Players"] = 1,
+	["autoActivate15Players"] = 1,
+	["autoActivate25Players"] = 1,
+	["autoActivate40Players"] = 1,
+	["autoActivatePvP"] = 1,
+	["autoActivatePvE"] = 1,
 };
 
-local ProfileAPI = CreateFrame("Frame");
-ProfileAPI:SetScript("OnEvent", function(self, event, addon)
-	if ( addon == "CompactRaidFrame" or addon == "SarychUI" ) then
-		local ID = "CompactRaidFrameDB";
-		local DB = _G[ID];
+function CompactRaidFrame:OnInitialize()
+    self.db = AceDB:New("CompactRaidFrameDB");
+	self.db.global.profile = self.db.global.profile or {};
+	self.db.char.cvar = self.db.char.cvar or {};
+	self.db.char.profile = self.db.char.profile or {};
 
-		if ( DB ) then
-			-- Migration
-			if ( DB.profileKeys or DB.profile ) then
-				wipe(DB);
-			else
-				local P1 = DB[1];
-				if ( P1 and (P1.autoActivateSpec1 or P1.autoActivateSpec2) ) then
-					for i=1,#DB do
-						local DB = DB[i];
-						DB.autoActivateSpec1 = nil;
-						DB.autoActivateSpec2 = nil;
-					end
-				end
+	-- Raid profiles are account-wide. Pull this character's list in once.
+	if not self.db.char.profilesMigrated then
+		local seen = {};
+		for _, profileData in ipairs(self.db.global.profile) do
+			if type(profileData) == "table" and profileData.name then
+				seen[profileData.name] = true;
 			end
-		else
-			DB = {useCompactPartyFrames = "1"};
-			_G[ID] = DB;
 		end
-
-		PROFILES = DB;
-		CUF_CONFIG = DB;
-
-		CompactUnitFrameProfiles_OnEvent(CompactUnitFrameProfiles, "COMPACT_UNIT_FRAME_PROFILES_LOADED");
-		self:UnregisterEvent(event);
-		self:SetScript("OnEvent", nil);
+		for _, profileData in ipairs(self.db.char.profile) do
+			if type(profileData) == "table" and profileData.name and not seen[profileData.name] then
+				table.insert(self.db.global.profile, CopyTable(profileData));
+				seen[profileData.name] = true;
+			end
+		end
+		self.db.char.profilesMigrated = true;
 	end
-end)
-ProfileAPI:RegisterEvent("ADDON_LOADED");
+
+	PROFILES = self.db.global.profile;
+	CUF_CONFIG = self.db.char.cvar;
+
+	CompactUnitFrameProfiles_OnEvent(CompactUnitFrameProfiles, "COMPACT_UNIT_FRAME_PROFILES_LOADED");
+end
 
 function GetNumRaidProfiles()
 	if ( not PROFILES ) then
@@ -103,8 +119,7 @@ function RaidProfileExists(profile)
 		return;
 	end
 
-	for i=1,#PROFILES do
-		local profileData = PROFILES[i];
+	for _, profileData in ipairs(PROFILES) do
 		if ( profileData.name == profile ) then
 			return true;
 		end
@@ -116,36 +131,35 @@ function HasLoadedCUFProfiles()
 end
 
 function RaidProfileHasUnsavedChanges()
-	if not ( PROFILES and PROFILE_COPY ) then
+	if not ( PROFILES and SAVED_PROFILE ) then
 		return;
 	end
 
-	for i=1,#PROFILES do
-		local profileData = PROFILES[i]
-		if ( profileData.name == PROFILE_COPY.name ) then
-			for option, valid in pairs(ALL_OPTIONS) do
-				if ( valid == 1 and profileData[option] ~= PROFILE_COPY[option] ) then
+
+	for _, profileData in ipairs(PROFILES) do
+		if ( profileData.name == SAVED_PROFILE.name ) then
+			for option, noIgnore in pairs(FLATTENDED_OPTIONS) do
+				if ( noIgnore == 1 and profileData[option] ~= SAVED_PROFILE[option] ) then
 					return true;
 				end
 			end
 		end
 	end
+
 end
 
 function RestoreRaidProfileFromCopy()
-	if ( not PROFILE_COPY or not RaidProfileHasUnsavedChanges() ) then
+	if ( not SAVED_PROFILE ) then
 		return;
 	end
 
-	for i=1,#PROFILES do
-		local profileData = PROFILES[i]
-		if ( profileData.name == PROFILE_COPY.name ) then
-			for option, valid in pairs(ALL_OPTIONS) do
-				if ( valid == 1 and profileData[option] ~= PROFILE_COPY[option] ) then
-					profileData[option] = PROFILE_COPY[option];
+	for _, profileData in ipairs(PROFILES) do
+		if ( profileData.name == SAVED_PROFILE.name ) then
+			for option, noIgnore in pairs(FLATTENDED_OPTIONS) do
+				if ( noIgnore == 1 and profileData[option] ~= SAVED_PROFILE[option] ) then
+					profileData[option] = SAVED_PROFILE[option];
 				end
 			end
-			break;
 		end
 	end
 end
@@ -157,8 +171,7 @@ function CreateNewRaidProfile(name, baseOnProfile)
 
 	local profile
 	if ( baseOnProfile and baseOnProfile ~= DEFAULTS ) then
-		for i=1,#PROFILES do
-			local profileData = PROFILES[i];
+		for _, profileData in ipairs(PROFILES) do
 			if ( profileData.name == baseOnProfile ) then
 				profile = CopyTable(profileData);
 				break;
@@ -180,10 +193,9 @@ function DeleteRaidProfile(profile)
 	if ( type(profile) == "number" ) then
 		table.remove(PROFILES, profile);
 	else
-		for i=1,#PROFILES do
-			local profileData = PROFILES[i];
+		for index, profileData in ipairs(PROFILES) do
 			if ( profileData.name == profile ) then
-				table.remove(PROFILES, i);
+				table.remove(PROFILES, index);
 				break;
 			end
 		end
@@ -191,14 +203,13 @@ function DeleteRaidProfile(profile)
 end
 
 function SaveRaidProfileCopy(profile)
-	if ( not profile or (PROFILE_COPY and not RaidProfileHasUnsavedChanges()) ) then
+	if ( not PROFILES or not profile ) then
 		return;
 	end
 
-	for i=1,#PROFILES do
-		local profileData = PROFILES[i];
+	for _, profileData in ipairs(PROFILES) do
 		if ( profileData.name == profile ) then
-			PROFILE_COPY = CopyTable(profileData);
+			SAVED_PROFILE = CopyTable(profileData);
 			break;
 		end
 	end
@@ -209,10 +220,9 @@ function SetRaidProfileOption(profile, optionName, value)
 		return;
 	end
 
-	for i=1,#PROFILES do
-		local profileData = PROFILES[i];
+	for index, profileData in ipairs(PROFILES) do
 		if ( profileData.name == profile ) then
-			PROFILES[i][optionName] = value or nil;
+			PROFILES[index][optionName] = value;
 			break;
 		end
 	end
@@ -223,8 +233,7 @@ function GetRaidProfileOption(profile, optionName)
 		return;
 	end
 
-	for i=1,#PROFILES do
-		local profileData = PROFILES[i];
+	for _, profileData in ipairs(PROFILES) do
 		if ( profileData.name == profile ) then
 			return profileData[optionName];
 		end
@@ -236,14 +245,15 @@ function GetRaidProfileFlattenedOptions(profile)
 		return;
 	end
 
-	for i=1,#PROFILES do
-		local profileData = PROFILES[i];
+	for _, profileData in ipairs(PROFILES) do
 		if ( profileData.name == profile ) then
-			local flattenedCache = {};
-			for option, value in pairs(ALL_OPTIONS) do
-				flattenedCache[option] = profileData[option] or false;
+			local flattenedOptions = {};
+			for option, value in pairs(profileData) do
+				if FLATTENDED_OPTIONS[option] then
+					flattenedOptions[option] = value;
+				end
 			end
-			return flattenedCache;
+			return flattenedOptions;
 		end
 	end
 end
@@ -253,10 +263,9 @@ function SetRaidProfileSavedPosition(profile, isDynamic, topPoint, topOffset, bo
 		return;
 	end
 
-	for i=1,#PROFILES do
-		local profileData = PROFILES[i];
+	for _, profileData in ipairs(PROFILES) do
 		if ( profileData.name == profile ) then
-			profileData.isDynamic = isDynamic or nil;
+			profileData.isDynamic = isDynamic;
 			profileData.topPoint = topPoint;
 			profileData.topOffset = topOffset;
 			profileData.bottomPoint = bottomPoint;
@@ -273,8 +282,7 @@ function GetRaidProfileSavedPosition(profile)
 		return;
 	end
 
-	for i=1,#PROFILES do
-		local profileData = PROFILES[i];
+	for _, profileData in ipairs(PROFILES) do
 		if ( profileData.name == profile ) then
 			return profileData.isDynamic, profileData.topPoint, profileData.topOffset, profileData.bottomPoint, profileData.bottomOffset, profileData.leftPoint, profileData.leftOffset;
 		end
@@ -286,11 +294,11 @@ function GetMaxNumCUFProfiles()
 end
 
 function SetActiveRaidProfile(profile)
-	CUF_CVar:SetValue("ACTIVE_CUF_PROFILE", profile);
+	CUF_CVar:SetValue("CVAR_SET_ACTIVE_CUF_PROFILE", profile);
 end
 
 function GetActiveRaidProfile()
-	return CUF_CVar:GetValue("ACTIVE_CUF_PROFILE");
+	return CUF_CVar:GetValue("CVAR_SET_ACTIVE_CUF_PROFILE");
 end
 
 CUF_CVar = {}
@@ -299,7 +307,7 @@ function CUF_CVar:SetValue(cvar, value)
 		return;
 	end
 
-	CUF_CONFIG[cvar] = value ~= "0" and value or nil;
+	CUF_CONFIG[cvar] = value;
 end
 
 function CUF_CVar:GetValue(cvar, addon)
@@ -311,5 +319,5 @@ function CUF_CVar:GetValue(cvar, addon)
 end
 
 function CUF_CVar:GetCVarBool(cvar)
-	return self:GetValue(cvar) == "1" and true or false;
+	return self:GetValue(cvar) == "1" and true or false
 end

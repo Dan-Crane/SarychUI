@@ -25,6 +25,56 @@ local module = getModule()
 local updateTimerByButton = setmetatable({}, { __mode = "k" })
 local iconByButton = setmetatable({}, { __mode = "k" })
 local colorStateByButton = setmetatable({}, { __mode = "k" })
+local debugEnabled = false
+local debugButtonName
+local debugStateByButton = setmetatable({}, { __mode = "k" })
+
+-- Read-only diagnostics. Called from the two existing Blizzard hooks only
+-- while /scolor is enabled; it never changes an action button or its timer.
+local function DebugButtonColor(button, source)
+    if not debugEnabled or not button or not button:IsVisible() or not button.action then return end
+    local name = button:GetName()
+    if not name or (debugButtonName and name ~= debugButtonName) then return end
+    local icon = _G[name .. "Icon"] or button.icon
+    if not icon or not icon.GetVertexColor then return end
+    local hotkey = _G[name .. "HotKey"]
+    local ir, ig, ib = icon:GetVertexColor()
+    local hr, hg, hb, hotkeyText, hotkeyShown
+    if hotkey then
+        if hotkey.GetTextColor then
+            hr, hg, hb = hotkey:GetTextColor()
+        end
+        hotkeyText, hotkeyShown = hotkey:GetText(), hotkey:IsShown()
+    end
+    local state = debugStateByButton[button]
+    if state and state.action == button.action and state.ir == ir and state.ig == ig and
+       state.ib == ib and state.hr == hr and state.hg == hg and state.hb == hb and
+       state.text == hotkeyText and state.shown == hotkeyShown then return end
+    if not state then
+        state = {}
+        debugStateByButton[button] = state
+    end
+    state.action, state.ir, state.ig, state.ib = button.action, ir, ig, ib
+    state.hr, state.hg, state.hb = hr, hg, hb
+    state.text, state.shown = hotkeyText, hotkeyShown
+    local usable, mana = IsUsableAction(button.action)
+    local range = IsActionInRange(button.action)
+    local _, duration = GetActionCooldown(button.action)
+    DEFAULT_CHAT_FRAME:AddMessage(string.format(
+        "[SUI color] %.3f %s action=%s source=%s range=%s usable=%s mana=%s cd=%.2f icon=%.2f/%.2f/%.2f hotkey=%s/%s/%s timer=%s",
+        GetTime(), name, tostring(button.action), source, tostring(range), tostring(usable),
+        tostring(mana), duration or 0, ir, ig, ib,
+        hr and string.format("%.2f/%.2f/%.2f", hr, hg, hb) or (hotkey and "unavailable" or "missing"),
+        tostring(hotkeyText), tostring(hotkeyShown), tostring(button.rangeTimer)))
+end
+
+local function SafeDebugButtonColor(button, source)
+    local ok, err = pcall(DebugButtonColor, button, source)
+    if not ok then
+        debugEnabled = false
+        DEFAULT_CHAT_FRAME:AddMessage("[SUI color] debug stopped: " .. tostring(err))
+    end
+end
 
 local INDICATION_COLOR_DEFAULTS = {
     colorCooldownColor = { 0.4, 0.4, 0.4, 0.6 },
@@ -50,6 +100,11 @@ local function GetIndicationColor(db, key)
     return r, g, b, a
 end
 
+local function IndicationEnabled()
+    local db = SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.modules and SarychUI.db.profile.modules.mainmenubar
+    return db and db.enabled and true or false
+end
+
 -- Initialize color system
 function module:InitializeColorSystem()
     -- Hooks are permanent; re-running Initialize must not stack another copy.
@@ -59,37 +114,61 @@ function module:InitializeColorSystem()
     end
     module.__sarColorHooked = true
 
-    -- Hook into ActionButton_UpdateUsable to apply color indication
+    -- Repaint in the same call that Blizzard recolors the icon. Deferring to
+    -- another frame briefly exposes Blizzard's default color as a flash.
     hooksecurefunc("ActionButton_UpdateUsable", function(button)
-        if SarychUI.modules and SarychUI.modules.mainmenubar and SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.modules and SarychUI.db.profile.modules.mainmenubar and SarychUI.db.profile.modules.mainmenubar.enabled then
-            if module.UpdateButtonColorIndication then module:UpdateButtonColorIndication(button, true) end
+        if button and IndicationEnabled() then
+            module:UpdateButtonColorIndication(button, true)
+            if debugEnabled then SafeDebugButtonColor(button, "usable") end
         end
     end)
-    
-    -- Hook into ActionButton_OnUpdate for real-time updates
-    hooksecurefunc("ActionButton_OnUpdate", function(self, elapsed)
-        local timer = (updateTimerByButton[self] or TOOLTIP_UPDATE_TIME) - elapsed
 
-        if timer <= 0 then
-            -- Update only if button is visible and has action
-            if self:IsVisible() and self.action then
-                if SarychUI.modules and SarychUI.modules.mainmenubar and SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.modules and SarychUI.db.profile.modules.mainmenubar and SarychUI.db.profile.modules.mainmenubar.enabled then
-                    if module.UpdateButtonColorIndication then module:UpdateButtonColorIndication(self) end
-                end
+    -- Blizzard paints HotKey when rangeTimer resets to TOOLTIP_UPDATE_TIME.
+    -- Use that exact tick for the icon too, so their range colors change in
+    -- the same frame. Keep the old timer only for buttons without rangeTimer.
+    hooksecurefunc("ActionButton_OnUpdate", function(button, elapsed)
+        if not IndicationEnabled() then return end
+        if not button:IsVisible() or not button.action then return end
+
+        if button.rangeTimer then
+            if button.rangeTimer == TOOLTIP_UPDATE_TIME then
+                module:UpdateButtonColorIndication(button)
             end
-            timer = TOOLTIP_UPDATE_TIME
+        else
+            local timer = (updateTimerByButton[button] or 0) - elapsed
+            if timer <= 0 then
+                module:UpdateButtonColorIndication(button)
+                timer = TOOLTIP_UPDATE_TIME
+            end
+            updateTimerByButton[button] = timer
         end
-        updateTimerByButton[self] = timer
+        if debugEnabled then SafeDebugButtonColor(button, "frame") end
     end)
-    
-    -- Apply initial color indication to all buttons
+
     if module.UpdateColorIndication then module:UpdateColorIndication() end
 end
 
--- Update color indication for a specific button.
--- `force` must be set whenever Blizzard code just wrote to the icon itself
--- (ActionButton_UpdateUsable), because the cached values below no longer describe
--- what is actually on the texture.
+SLASH_SARYCHUICOLOR1 = "/scolor"
+SlashCmdList["SARYCHUICOLOR"] = function(msg)
+    local command, name = (msg or ""):match("^(%S*)%s*(%S*)")
+    command = string.lower(command or "")
+    if command == "on" then
+        debugEnabled = true
+        debugButtonName = name ~= "" and name or nil
+        debugStateByButton = setmetatable({}, { __mode = "k" })
+        DEFAULT_CHAT_FRAME:AddMessage("[SUI color] on: " .. (debugButtonName or "all visible buttons"))
+    elseif command == "off" then
+        debugEnabled = false
+        DEFAULT_CHAT_FRAME:AddMessage("[SUI color] off")
+    else
+        DEFAULT_CHAT_FRAME:AddMessage("[SUI color] /scolor on [ActionButton1] | /scolor off")
+    end
+end
+
+local function ColorFar(a, b)
+    return math.abs((a or 0) - (b or 0)) > 0.03
+end
+
 function module:UpdateButtonColorIndication(button, force)
     -- Get fresh db reference
     if not SarychUI.db or not SarychUI.db.profile or not SarychUI.db.profile.modules then
@@ -126,10 +205,10 @@ function module:UpdateButtonColorIndication(button, force)
     -- what is already on the texture. This hook fires ~5x/sec per button.
     local desat, r, g, b, alpha
 
-    if duration > 1.51 and colorCooldownEnabled then
+    if duration and duration > 1.51 and colorCooldownEnabled then
         desat = true
         r, g, b, alpha = GetIndicationColor(currentDb, "colorCooldownColor")
-    elseif duration > 1.51 and not colorCooldownEnabled then
+    elseif duration and duration > 1.51 and not colorCooldownEnabled then
         desat, r, g, b, alpha = false, 1.0, 1.0, 1.0, 1.0
     elseif notEnoughMana and colorManaEnabled then
         desat = false
@@ -160,11 +239,14 @@ function module:UpdateButtonColorIndication(button, force)
         state.desat = desat
         icon:SetDesaturated(desat)
     end
-    if force or state.r ~= r or state.g ~= g or state.b ~= b then
+
+    local cr, cg, cb = icon:GetVertexColor()
+    local ca = icon:GetAlpha()
+    if ColorFar(cr, r) or ColorFar(cg, g) or ColorFar(cb, b) then
         state.r, state.g, state.b = r, g, b
         icon:SetVertexColor(r, g, b)
     end
-    if force or state.alpha ~= alpha then
+    if ColorFar(ca, alpha) then
         state.alpha = alpha
         icon:SetAlpha(alpha)
     end
@@ -199,15 +281,6 @@ function module:UpdateColorIndication()
                 self:UpdateButtonColorIndication(button, true)
             end
         end
-    end
-
-    local FA = SarychUI.FrostAtomBars
-    if FA and FA.IsActive and FA.IsActive() and FA.ForEachStyledButton then
-        FA.ForEachStyledButton(function(button)
-            if button and button:IsVisible() and button.action then
-                self:UpdateButtonColorIndication(button, true)
-            end
-        end)
     end
 end
 
@@ -294,3 +367,5 @@ function module:ApplyDisabledColorsToAllButtons()
         end
     end
 end
+
+

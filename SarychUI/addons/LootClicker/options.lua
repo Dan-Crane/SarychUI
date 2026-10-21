@@ -7,6 +7,39 @@ local addon_name = "LootClicker"
 local L = private.L
 local C = private.constants
 
+-- FrameXML's arena buttons are load-on-demand. Initializing an addon dropdown
+-- before Blizzard_ArenaUI taints UIDROPDOWNMENU_MENU_LEVEL, which its OnLoad
+-- reads before constructing the secure right-click FocusUnit handler.
+local pendingDropdowns = {}
+local dropdownLoader
+local function InitializeDropdownAfterArena(dropdown, initialize)
+  if IsAddOnLoaded('Blizzard_ArenaUI') then
+    UIDropDownMenu_Initialize(dropdown, initialize)
+    return
+  end
+  dropdown.initialize = initialize
+  pendingDropdowns[#pendingDropdowns + 1] = dropdown
+  if dropdownLoader then return end
+  dropdownLoader = CreateFrame('Frame')
+  dropdownLoader:RegisterEvent('ADDON_LOADED')
+  dropdownLoader:SetScript('OnEvent', function(self, _, addon)
+    if addon ~= 'Blizzard_ArenaUI' then return end
+    self:UnregisterAllEvents()
+    for _, frame in ipairs(pendingDropdowns) do
+      UIDropDownMenu_Initialize(frame, frame.initialize)
+    end
+    pendingDropdowns = {}
+  end)
+end
+
+local function SetWidgetEnabled(widget, state)
+  if state then widget:Enable() else widget:Disable() end
+end
+
+local function SetWidgetShown(widget, state)
+  if state then widget:Show() else widget:Hide() end
+end
+
 local function CreateTab(parent, text)
   local tabNumber = #parent.tabs + 1
   local tab = CreateFrame('Button', '$parentTab'..tabNumber, parent, 'OptionsFrameTabButtonTemplate', tabNumber)
@@ -268,7 +301,7 @@ general_frame.item_quality_label:SetPoint('TOPLEFT', 10, -20)
 general_frame.item_quality = CreateFrame('Frame', '$parentItemQualityDropdown', general_frame, 'UIDropDownMenuTemplate')
 general_frame.item_quality:SetPoint('LEFT', general_frame.item_quality_label, 'RIGHT', 0, -2)
 
-UIDropDownMenu_Initialize(general_frame.item_quality, function()
+InitializeDropdownAfterArena(general_frame.item_quality, function()
   for i = ITEM_QUALITY_UNCOMMON, ITEM_QUALITY_EPIC do
     local info = UIDropDownMenu_CreateInfo()
     info.text = _G['ITEM_QUALITY'..i..'_DESC']
@@ -402,7 +435,7 @@ for i = 1, #sort_types do
   else
     exception_frame.sorting[i]:SetPoint('LEFT', exception_frame.sorting[(i-1)], 'RIGHT', 100, 0)
   end
-  UIDropDownMenu_Initialize(exception_frame.sorting[i], function()
+  InitializeDropdownAfterArena(exception_frame.sorting[i], function()
     for k, v in pairs(sort_types[i]) do
       local info = UIDropDownMenu_CreateInfo()
       info.arg1 = i
@@ -776,26 +809,26 @@ end
 
 function general_frame.item_quality_enable.setFunc(state)
   state = GetBoolean(state)
-  general_frame.only_boe:SetEnabled(state)
-  general_frame.need_looter:SetEnabled(state)
-  general_frame.disenchant_looter:SetEnabled(state)
+  SetWidgetEnabled(general_frame.only_boe, state)
+  SetWidgetEnabled(general_frame.need_looter, state)
+  SetWidgetEnabled(general_frame.disenchant_looter, state)
   if state then
     if general_frame.disenchant_looter:GetChecked() then
-      general_frame.greed_looter:SetEnabled(GetBoolean(not general_frame.smart_disenchant.with_dis:GetChecked()))
-      general_frame.smart_disenchant.with_dis:SetEnabled(C.HAS_DISENCHANT)
-      general_frame.smart_disenchant.without_dis:SetEnabled(GetBoolean(not general_frame.only_boe:GetChecked()))
-      general_frame.smart_disenchant.only_boe:SetEnabled(GetBoolean(general_frame.only_boe:GetChecked()))
+      SetWidgetEnabled(general_frame.greed_looter, GetBoolean(not general_frame.smart_disenchant.with_dis:GetChecked()))
+      SetWidgetEnabled(general_frame.smart_disenchant.with_dis, C.HAS_DISENCHANT)
+      SetWidgetEnabled(general_frame.smart_disenchant.without_dis, GetBoolean(not general_frame.only_boe:GetChecked()))
+      SetWidgetEnabled(general_frame.smart_disenchant.only_boe, GetBoolean(general_frame.only_boe:GetChecked()))
     else
-      general_frame.greed_looter:SetEnabled(true)
-      general_frame.smart_disenchant.with_dis:SetEnabled(false)
-      general_frame.smart_disenchant.without_dis:SetEnabled(false)
-      general_frame.smart_disenchant.only_boe:SetEnabled(false)
+      SetWidgetEnabled(general_frame.greed_looter, true)
+      SetWidgetEnabled(general_frame.smart_disenchant.with_dis, false)
+      SetWidgetEnabled(general_frame.smart_disenchant.without_dis, false)
+      SetWidgetEnabled(general_frame.smart_disenchant.only_boe, false)
     end
   else
-    general_frame.greed_looter:SetEnabled(false)
-    general_frame.smart_disenchant.with_dis:SetEnabled(false)
-    general_frame.smart_disenchant.without_dis:SetEnabled(false)
-    general_frame.smart_disenchant.only_boe:SetEnabled(false)
+    SetWidgetEnabled(general_frame.greed_looter, false)
+    SetWidgetEnabled(general_frame.smart_disenchant.with_dis, false)
+    SetWidgetEnabled(general_frame.smart_disenchant.without_dis, false)
+    SetWidgetEnabled(general_frame.smart_disenchant.only_boe, false)
   end
   general_frame:UpdateCacheSettings(state, 'enabled')
   general_frame:UpdateExampleText()
@@ -803,9 +836,9 @@ end
 
 function general_frame.only_boe.setFunc(state)
   state = GetBoolean(state)
-  general_frame.smart_disenchant.with_dis:SetEnabled(general_frame.disenchant_looter:GetChecked() and C.HAS_DISENCHANT)
-  general_frame.smart_disenchant.without_dis:SetEnabled(general_frame.disenchant_looter:GetChecked() and not state)
-  general_frame.smart_disenchant.only_boe:SetEnabled(general_frame.disenchant_looter:GetChecked() and state)
+  SetWidgetEnabled(general_frame.smart_disenchant.with_dis, general_frame.disenchant_looter:GetChecked() and C.HAS_DISENCHANT)
+  SetWidgetEnabled(general_frame.smart_disenchant.without_dis, general_frame.disenchant_looter:GetChecked() and not state)
+  SetWidgetEnabled(general_frame.smart_disenchant.only_boe, general_frame.disenchant_looter:GetChecked() and state)
   general_frame:UpdateCacheSettings(state, 'only_boe')
   general_frame:UpdateExampleText()
 end
@@ -824,10 +857,10 @@ end
 
 function general_frame.disenchant_looter.setFunc(state)
   state = GetBoolean(state)
-  general_frame.greed_looter:SetEnabled(not state or state and not general_frame.smart_disenchant.with_dis:GetChecked())
-  general_frame.smart_disenchant.with_dis:SetEnabled(state and C.HAS_DISENCHANT)
-  general_frame.smart_disenchant.without_dis:SetEnabled(state and not general_frame.only_boe:GetChecked())
-  general_frame.smart_disenchant.only_boe:SetEnabled(state and general_frame.only_boe:GetChecked())
+  SetWidgetEnabled(general_frame.greed_looter, not state or state and not general_frame.smart_disenchant.with_dis:GetChecked())
+  SetWidgetEnabled(general_frame.smart_disenchant.with_dis, state and C.HAS_DISENCHANT)
+  SetWidgetEnabled(general_frame.smart_disenchant.without_dis, state and not general_frame.only_boe:GetChecked())
+  SetWidgetEnabled(general_frame.smart_disenchant.only_boe, state and general_frame.only_boe:GetChecked())
   general_frame:UpdateCacheSettings(state, 'disenchant_looter')
   general_frame:UpdateExampleText()
 end
@@ -838,12 +871,12 @@ function general_frame.smart_disenchant.with_dis.setFunc(state)
     general_frame.smart_disenchant.without_dis:SetChecked(false)
     general_frame.smart_disenchant.only_boe:SetChecked(false)
 
-    general_frame.greed_looter:SetEnabled(false)
+    SetWidgetEnabled(general_frame.greed_looter, false)
 
     general_frame:UpdateCacheSettings(false, 'smart_disenchant', 'without_dis')
     general_frame:UpdateCacheSettings(false, 'smart_disenchant', 'only_boe')
   else
-    general_frame.greed_looter:SetEnabled(true)
+    SetWidgetEnabled(general_frame.greed_looter, true)
   end
   general_frame:UpdateCacheSettings(state, 'smart_disenchant', 'with_dis')
   general_frame:UpdateExampleText()
@@ -855,7 +888,7 @@ function general_frame.smart_disenchant.without_dis.setFunc(state)
     general_frame.smart_disenchant.with_dis:SetChecked(false)
     general_frame.smart_disenchant.only_boe:SetChecked(false)
 
-    general_frame.greed_looter:SetEnabled(true)
+    SetWidgetEnabled(general_frame.greed_looter, true)
 
     general_frame:UpdateCacheSettings(false, 'smart_disenchant', 'with_dis')
     general_frame:UpdateCacheSettings(false, 'smart_disenchant', 'only_boe')
@@ -870,7 +903,7 @@ function general_frame.smart_disenchant.only_boe.setFunc(state)
     general_frame.smart_disenchant.with_dis:SetChecked(false)
     general_frame.smart_disenchant.without_dis:SetChecked(false)
 
-    general_frame.greed_looter:SetEnabled(true)
+    SetWidgetEnabled(general_frame.greed_looter, true)
 
     general_frame:UpdateCacheSettings(false, 'smart_disenchant', 'with_dis')
     general_frame:UpdateCacheSettings(false, 'smart_disenchant', 'without_dis')
@@ -1052,9 +1085,9 @@ end
 
 function modules_frame.spam_filter.enabled.setFunc(state)
   state = GetBoolean(state)
-  modules_frame.spam_filter.clicked_btn:SetEnabled(state)
-  modules_frame.spam_filter.roll_result:SetEnabled(state)
-  modules_frame.spam_filter.won:SetEnabled(state)
+  SetWidgetEnabled(modules_frame.spam_filter.clicked_btn, state)
+  SetWidgetEnabled(modules_frame.spam_filter.roll_result, state)
+  SetWidgetEnabled(modules_frame.spam_filter.won, state)
 end
 
 function modules_frame:UpdateConfig(db)
@@ -1094,8 +1127,8 @@ end
 
 function config.enabled.setFunc(state)
   state = GetBoolean(state)
-  config.container:SetShown(state)
-  config.about:SetShown(not state)
+  SetWidgetShown(config.container, state)
+  SetWidgetShown(config.about, not state)
 end
 
 function config:UpdateConfig(db)
@@ -1140,8 +1173,8 @@ function config:CancelChanges()
 end
 
 function private:LoadConfig()
-  general_frame.smart_disenchant.with_dis:SetShown(C.HAS_DISENCHANT)
-  general_frame.smart_disenchant.without_dis:SetShown(not C.HAS_DISENCHANT)
+  SetWidgetShown(general_frame.smart_disenchant.with_dis, C.HAS_DISENCHANT)
+  SetWidgetShown(general_frame.smart_disenchant.without_dis, not C.HAS_DISENCHANT)
   general_frame:Acquire_CacheSettingsTable()
   container:Tab_OnClick(general_tab)
   config:UpdateConfig()

@@ -1204,12 +1204,12 @@ end
 
 local TITLE_BAR_H = 28
 local TOOLBAR_H = 28
--- QuestTracker.BLP atlas slices — same clean header + footer line as bags.
-local DF_HEADER = [[Interface\AddOns\SarychUI\media\textures\questtracker\QuestTracker.BLP]]
+-- QuestTracker atlas slices — same visible gold header + footer line as bags.
+local DF_HEADER = [[Interface\AddOns\SarychUI\media\textures\questtracker\QuestTracker]]
 local DF_TEX_W, DF_TEX_H = 1024, 512
-local DF_HDR = { l = 36, r = 566, t = 328, b = 376 }   -- clean gold rails; 2px crop off bottom
-local DF_LINE = { l = 21, r = 656, t = 384, b = 395 }   -- thin fade underline
-local DF_TITLE_BAR_H = 24
+local DF_HDR = { l = 11, r = 571, t = 247, b = 317 }
+local DF_LINE = { l = 21, r = 656, t = 384, b = 395 }
+local DF_TITLE_BAR_H = 28
 
 local function IsDragonflightHeaderEnabled()
 	local addons = SarychUI and SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.addons
@@ -1761,6 +1761,200 @@ local function LayoutMainChrome(frame, tabs)
 	if bactions then bactions:SetPoint("LEFT", toolBar, "LEFT", 6, 0) end
 	if bmode and bactions then bmode:SetPoint("LEFT", bactions, "RIGHT", 8, 0) end
 
+	-- Template name: editable for saved templates, label for live specs.
+	-- Recreate without InputBoxTemplate — the Blizzard template loses clicks after skinning.
+	local oldEdit = frame.editname
+	if oldEdit and not oldEdit.talentedNameEdit then
+		oldEdit:EnableMouse(false)
+		oldEdit:Hide()
+		oldEdit:ClearAllPoints()
+
+		local function CommitTemplateName(edit)
+			if not edit or not Talented or not Talented.template then
+				return
+			end
+			if Talented.UpdateTemplateName then
+				Talented:UpdateTemplateName(Talented.template, edit:GetText())
+			end
+			if Talented.UpdateView then
+				Talented:UpdateView()
+			end
+		end
+
+		local e = CreateFrame("EditBox", nil, toolBar)
+		e:SetAutoFocus(false)
+		e:SetSize(168, 18)
+		e:SetTextInsets(6, 6, 2, 2)
+		e:SetMaxLetters(64)
+		e:EnableMouse(true)
+		e:EnableKeyboard(true)
+		e:SetAltArrowKeyMode(false)
+		FontTemplate(e, nil, 10, "")
+		if GREEN_FONT_COLOR then
+			e:SetTextColor(GREEN_FONT_COLOR.r, GREEN_FONT_COLOR.g, GREEN_FONT_COLOR.b)
+		end
+		e.tooltip = oldEdit.tooltip
+		e:SetScript("OnEscapePressed", function(self)
+			self:ClearFocus()
+		end)
+		e:SetScript("OnEditFocusGained", function(self)
+			if frame.bnameok then
+				frame.bnameok:Show()
+			end
+		end)
+		e:SetScript("OnEditFocusLost", function(self)
+			if frame.bnameok then
+				frame.bnameok:Hide()
+			end
+			if self.talentedCommitting then
+				self.talentedCommitting = nil
+				return
+			end
+			if Talented and Talented.template then
+				self:SetText(Talented.template.name or "")
+			end
+		end)
+		e:SetScript("OnEnterPressed", function(self)
+			self.talentedCommitting = true
+			CommitTemplateName(self)
+			self:ClearFocus()
+		end)
+		e:SetScript("OnMouseDown", function(self)
+			self:SetFocus()
+		end)
+		e:SetScript("OnEnter", oldEdit:GetScript("OnEnter"))
+		e:SetScript("OnLeave", oldEdit:GetScript("OnLeave"))
+		CreateBackdrop(e, "Default")
+		if e.backdrop then
+			e.backdrop:EnableMouse(false)
+			e.backdrop:SetFrameLevel(math.max((e:GetFrameLevel() or 1) - 1, 0))
+		end
+		e.talentedNameEdit = true
+		e.talentedSkinned = true
+		if Talented and Talented.template and Talented.template.name then
+			e:SetText(Talented.template.name)
+		end
+		frame.editname = e
+
+		local ok = CreateFrame("Button", nil, toolBar)
+		ok:SetSize(34, 18)
+		ok:SetText(_G.OKAY or "OK")
+		HandleButton(ok)
+		local okText = ok:GetFontString()
+		if okText then
+			FontTemplate(okText, nil, 10, "")
+			okText:SetTextColor(VALUE[1], VALUE[2], VALUE[3])
+		end
+		ok:SetScript("OnMouseDown", function()
+			e.talentedCommitting = true
+			CommitTemplateName(e)
+		end)
+		ok:SetScript("OnClick", function()
+			e:ClearFocus()
+		end)
+		ok:Hide()
+		ok.talentedNameOk = true
+		frame.bnameok = ok
+	end
+
+	local edit = frame.editname
+	if edit then
+		edit:SetParent(toolBar)
+		edit:SetFrameLevel((toolBar:GetFrameLevel() or 0) + 8)
+		edit:EnableMouse(true)
+		edit:EnableKeyboard(true)
+		edit:ClearAllPoints()
+		if bmode then
+			edit:SetPoint("LEFT", bmode, "RIGHT", 10, 0)
+		else
+			edit:SetPoint("LEFT", toolBar, "LEFT", 6, 0)
+		end
+		FontTemplate(edit, nil, 10, "")
+	end
+
+	if edit and not frame.bnameok then
+		local function CommitTemplateName(box)
+			if not box or not Talented or not Talented.template then
+				return
+			end
+			if Talented.UpdateTemplateName then
+				Talented:UpdateTemplateName(Talented.template, box:GetText())
+			end
+			if Talented.UpdateView then
+				Talented:UpdateView()
+			end
+		end
+
+		edit:SetScript("OnEditFocusGained", function(self)
+			if frame.bnameok then
+				frame.bnameok:Show()
+			end
+		end)
+		edit:SetScript("OnEditFocusLost", function(self)
+			if frame.bnameok then
+				frame.bnameok:Hide()
+			end
+			if self.talentedCommitting then
+				self.talentedCommitting = nil
+				return
+			end
+			if Talented and Talented.template then
+				self:SetText(Talented.template.name or "")
+			end
+		end)
+		edit:SetScript("OnEnterPressed", function(self)
+			self.talentedCommitting = true
+			CommitTemplateName(self)
+			self:ClearFocus()
+		end)
+
+		local ok = CreateFrame("Button", nil, toolBar)
+		ok:SetSize(34, 18)
+		ok:SetText(_G.OKAY or "OK")
+		HandleButton(ok)
+		local okText = ok:GetFontString()
+		if okText then
+			FontTemplate(okText, nil, 10, "")
+			okText:SetTextColor(VALUE[1], VALUE[2], VALUE[3])
+		end
+		ok:SetScript("OnMouseDown", function()
+			edit.talentedCommitting = true
+			CommitTemplateName(edit)
+		end)
+		ok:SetScript("OnClick", function()
+			edit:ClearFocus()
+		end)
+		ok:Hide()
+		ok.talentedNameOk = true
+		frame.bnameok = ok
+	end
+
+	local ok = frame.bnameok
+	if ok and edit then
+		ok:SetParent(toolBar)
+		ok:SetFrameLevel((toolBar:GetFrameLevel() or 0) + 8)
+		ok:ClearAllPoints()
+		ok:SetPoint("LEFT", edit, "RIGHT", 4, 0)
+		if not edit:HasFocus() then
+			ok:Hide()
+		end
+	end
+
+	local target = frame.targetname
+	if target then
+		FontTemplate(target, nil, BUTTON_FONT_SIZE, "")
+		target:SetTextColor(VALUE[1], VALUE[2], VALUE[3])
+		target:SetJustifyH("LEFT")
+		target:ClearAllPoints()
+		if edit then
+			target:SetPoint("LEFT", edit, "LEFT", 4, 0)
+			target:SetPoint("RIGHT", edit, "RIGHT", -4, 0)
+			target:SetHeight(18)
+		elseif bmode then
+			target:SetPoint("LEFT", bmode, "RIGHT", 14, 0)
+		end
+	end
+
 	-- Edit / Learn / Reset toolbar buttons
 	EnsureEditModeButton(frame)
 	if frame.view then
@@ -2110,8 +2304,17 @@ RefreshGlyphSummary = function(frame)
 					row.name:SetTextColor(0.6, 0.6, 0.6)
 				else
 					local spellName = GetSpellInfo(entry.spell)
-					row.icon:SetTexture(entry.icon or "Interface\\Spellbook\\UI-Glyph-Rune1")
-					ApplyIconTexCoords(row.icon)
+					local iconPath = entry.icon or "Interface\\Spellbook\\UI-Glyph-Rune1"
+					local EG = _G.SarychUI_EasyGlyph
+					if EG and EG.IsEnabled and EG.IsEnabled() and EG.GetListIconPath then
+						iconPath = EG.GetListIconPath(entry.spell, spellName, entry.icon) or iconPath
+					end
+					row.icon:SetTexture(iconPath)
+					if EG and EG.IsEnabled and EG.IsEnabled() then
+						row.icon:SetTexCoord(0, 1, 0, 1)
+					else
+						ApplyIconTexCoords(row.icon)
+					end
 					row.icon:SetDesaturated(false)
 					row.icon:SetVertexColor(1, 1, 1)
 					row.name:SetText(spellName or ("#" .. tostring(entry.spell)))
@@ -2526,10 +2729,8 @@ local function SkinBaseFrame(frame)
 	SetTemplate(frame, "Transparent")
 	ApplyFrameScale(frame)
 
-	-- Header chrome: drop level / points counter and selected template name
+	-- Header chrome: drop the old points counter (footer/toolbar replace it)
 	if frame.points then Kill(frame.points) end
-	if frame.editname then Kill(frame.editname) end
-	if frame.targetname then Kill(frame.targetname) end
 
 	StyleDropdownTrigger(frame.bactions)
 	StyleDropdownTrigger(frame.bmode)

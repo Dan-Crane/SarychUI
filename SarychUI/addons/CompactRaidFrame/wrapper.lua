@@ -6,8 +6,8 @@ local ADDON_NAME = "CompactRaidFrame"
 local wrapper = {
 	name = ADDON_NAME,
 	title = "CompactRaidFrame",
-	author = "Blizzard, Tsoukie",
-	version = "1.14",
+	author = "RomanSpector & Blizzard",
+	version = "1.2.2",
 	loaded = true,
 	enabled = false,
 }
@@ -26,6 +26,102 @@ local function SetRuntimeEnabledInDB(enable)
 		SarychUI.db.profile.addons[ADDON_NAME] = {}
 	end
 	SarychUI.db.profile.addons[ADDON_NAME].enabled = enable and true or false
+end
+
+local function GetQuickControlsEnabledFromDB()
+	local addons = SarychUI and SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.addons
+	local db = addons and addons[ADDON_NAME]
+	return not db or db.showQuickControls ~= false
+end
+
+function SarychUI_CompactRaidFrameQuickControlsEnabled()
+	return GetQuickControlsEnabledFromDB()
+end
+
+local function SetQuickControlsEnabledInDB(enable)
+	if not SarychUI or not SarychUI.db or not SarychUI.db.profile then return end
+	SarychUI.db.profile.addons = SarychUI.db.profile.addons or {}
+	SarychUI.db.profile.addons[ADDON_NAME] = SarychUI.db.profile.addons[ADDON_NAME] or {}
+	SarychUI.db.profile.addons[ADDON_NAME].showQuickControls = enable and true or false
+end
+
+local quickControlsCombatFrame
+local pendingQuickControlsState
+
+local QUICK_CONTROLS_ARTWORK = {
+	"CompactRaidFrameManagerBorderTopLeft",
+	"CompactRaidFrameManagerBorderTopRight",
+	"CompactRaidFrameManagerBorderBottomLeft",
+	"CompactRaidFrameManagerBorderBottomRight",
+	"CompactRaidFrameManagerBorderTop",
+	"CompactRaidFrameManagerBorderBottom",
+	"CompactRaidFrameManagerBorderRight",
+	"CompactRaidFrameManagerBg",
+}
+
+local function SetQuickControlsArtworkShown(shown)
+	for i = 1, #QUICK_CONTROLS_ARTWORK do
+		local region = _G[QUICK_CONTROLS_ARTWORK[i]]
+		if region then
+			if shown then
+				region:Show()
+			else
+				region:Hide()
+			end
+		end
+	end
+end
+
+local quickControlsHooked
+
+local function ApplyQuickControlsVisibility(enable)
+	pendingQuickControlsState = enable and true or false
+
+	if InCombatLockdown and InCombatLockdown() then
+		if not quickControlsCombatFrame then
+			quickControlsCombatFrame = CreateFrame("Frame")
+			quickControlsCombatFrame:SetScript("OnEvent", function(self, event)
+				if event ~= "PLAYER_REGEN_ENABLED" then return end
+				self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+				ApplyQuickControlsVisibility(pendingQuickControlsState)
+			end)
+		end
+		quickControlsCombatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+		return
+	end
+
+	local manager = CompactRaidFrameManager
+	if not manager or manager._suiNeedsInit then
+		return
+	end
+
+	local toggleButton = manager.toggleButton or CompactRaidFrameManagerToggleButton
+	if enable then
+		-- Checked only lifts the hide we applied when it was off.
+		-- The manager's state driver decides when the panel is on screen.
+		if manager.EnableMouse then
+			manager:EnableMouse(true)
+		end
+		SetQuickControlsArtworkShown(true)
+		if toggleButton and not toggleButton:IsShown() then
+			toggleButton:Show()
+		end
+		return
+	end
+
+	if CompactRaidFrameManager_Collapse then
+		CompactRaidFrameManager_Collapse(manager)
+	end
+	if manager.displayFrame then
+		manager.displayFrame:Hide()
+	end
+	if toggleButton then
+		toggleButton:Hide()
+	end
+	SetQuickControlsArtworkShown(false)
+	if manager.EnableMouse then
+		manager:EnableMouse(false)
+	end
 end
 
 local function IsStandaloneCompactRaidFrameEnabled()
@@ -49,13 +145,15 @@ local function ApplyCompactRaidFrameRuntime(enable)
 		if CompactUnitFrameProfiles_RegisterInterfaceOptions then
 			CompactUnitFrameProfiles_RegisterInterfaceOptions()
 		end
-		if CompactRaidFrameManager then
-			CompactRaidFrameManager:Show()
+		-- Profile data can finish loading while the embedded addon is disabled.
+		-- Apply it only after both the container and manager have been initialized.
+		-- Their own state drivers own visibility; do not Show() them here.
+		if CompactUnitFrameProfiles and CompactUnitFrameProfiles_ValidateProfilesLoaded then
+			CompactUnitFrameProfiles_ValidateProfilesLoaded(CompactUnitFrameProfiles)
 		end
-		if CompactRaidFrameContainer then
-			CompactRaidFrameContainer:Show()
-		end
+		ApplyQuickControlsVisibility(GetQuickControlsEnabledFromDB())
 	else
+		ApplyQuickControlsVisibility(false)
 		if CompactRaidFrameManager then
 			CompactRaidFrameManager:Hide()
 		end
@@ -98,6 +196,15 @@ function wrapper:SetRuntimeEnabled(enable)
 end
 
 function wrapper:Initialize()
+	if not quickControlsHooked and type(hooksecurefunc) == "function" and type(CompactRaidFrameManager_UpdateShown) == "function" then
+		quickControlsHooked = true
+		hooksecurefunc("CompactRaidFrameManager_UpdateShown", function()
+			if not GetQuickControlsEnabledFromDB() then
+				ApplyQuickControlsVisibility(false)
+			end
+		end)
+	end
+
 	wrapper.enabled = GetRuntimeEnabledFromDB()
 
 	if IsStandaloneCompactRaidFrameEnabled() then
@@ -214,13 +321,29 @@ function wrapper:GetOptions()
 					wrapper:OpenConfig()
 				end,
 			},
+			quickControls = {
+				type = "toggle",
+				name = "Панель быстрого управления",
+				desc = "Показывать кнопку на левом краю экрана, открывающую компактную панель управления рейдовыми фреймами.",
+				order = 3,
+				disabled = function()
+					return not wrapper:IsRuntimeEnabled()
+				end,
+				get = function()
+					return GetQuickControlsEnabledFromDB()
+				end,
+				set = function(_, value)
+					SetQuickControlsEnabledInDB(value)
+					ApplyQuickControlsVisibility(value)
+				end,
+			},
 			description = {
 				type = "description",
 				name = "Компактные рейдовые фреймы (Classic Raid Frames).\nВключение - сразу; выключение из списка Модификаций - после /reload.\n\nАвтор: "
-					.. (wrapper.author or "Blizzard, Tsoukie")
+					.. (wrapper.author or "RomanSpector & Blizzard")
 					.. "\nВерсия: "
-					.. (wrapper.version or "1.14"),
-				order = 3,
+					.. (wrapper.version or "1.2.2"),
+				order = 4,
 				width = "full",
 			},
 			conflict = {
@@ -231,7 +354,7 @@ function wrapper:GetOptions()
 					end
 					return ""
 				end,
-				order = 4,
+				order = 5,
 				width = "full",
 			},
 		},

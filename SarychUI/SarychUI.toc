@@ -4,15 +4,11 @@
 ## Notes-ruRU: Комплексный интерфейс для WotLK 3.3.5
 ## Author: Сарыч
 ## Version: 1.2.0
-## SavedVariables: SarychUIDB, CompactRaidFrameDB, EnhancedRaidFramesDB, OmniCDDB, InternalCooldownsDB, BagnonForeverDB, BigDebuffsDB, OmniBarDB, LootClickerDB, LootHistoryDB, MapsterDB, SarychUIElvNamePlatesDB, SarychUIElvNamePlatesPrivateDB, SarychUIElvBagsDB, SarychUIElvBagsPrivateDB, GladiusExDB, EquipenceDB, TrufiGCDGlSave, Postal3DB, AUCTIONATOR_SAVEDVARS, AUCTIONATOR_PRICING_HISTORY, AUCTIONATOR_SHOPPING_LISTS, AUCTIONATOR_PRICE_DATABASE, AUCTIONATOR_MEAN_PRICE_DATABASE, AUCTIONATOR_LAST_SCAN_TIME, AUCTIONATOR_TOONS, AUCTIONATOR_STACKING_PREFS, AUCTIONATOR_SCAN_MINLEVEL, _CursorOptions, InspectEquipConfig, RaidRoll_DB, RaidRoll_DBPC, TalentedDB
+## SavedVariables: SarychUIDB, CompactRaidFrameDB, EnhancedRaidFramesDB, RaidFrameSorterDB, InternalCooldownsDB, BagnonForeverDB, BigDebuffsDB, OmniBarDB, LootClickerDB, LootHistoryDB, MapsterDB, SarychUIElvNamePlatesDB, SarychUIElvNamePlatesPrivateDB, SarychUIElvBagsDB, SarychUIElvBagsPrivateDB, EquipenceDB, TrufiGCDGlSave, Postal3DB, AUCTIONATOR_SAVEDVARS, AUCTIONATOR_PRICING_HISTORY, AUCTIONATOR_SHOPPING_LISTS, AUCTIONATOR_PRICE_DATABASE, AUCTIONATOR_MEAN_PRICE_DATABASE, AUCTIONATOR_LAST_SCAN_TIME, AUCTIONATOR_TOONS, AUCTIONATOR_STACKING_PREFS, AUCTIONATOR_SCAN_MINLEVEL, _CursorOptions, InspectEquipConfig, RaidRoll_DB, RaidRoll_DBPC, TalentedDB
 ## SavedVariablesPerCharacter: TrufiGCDChSave, AUCTIONATOR_SHOW_ST_PRICE, AUCTIONATOR_ENABLE_ALT, AUCTIONATOR_OPEN_FIRST, AUCTIONATOR_OPEN_BUY, AUCTIONATOR_OPEN_ALL_BAGS, AUCTIONATOR_DEF_DURATION, AUCTIONATOR_SHOW_TIPS, AUCTIONATOR_V_TIPS, AUCTIONATOR_A_TIPS, AUCTIONATOR_D_TIPS, AUCTIONATOR_SHIFT_TIPS, AUCTIONATOR_DE_DETAILS_TIPS, AUCTIONATOR_DEFTAB, AUCTIONATOR_CHARACTER_RECENTS, _CursorOptionsCharacter, BASpammerDB, BaudBag_Cfg, BaudBag_Cache, RR_Accept_All_Rolls, RR_Track_Unannounced_Rolls, RR_Roll_Tracking_Enabled, RR_AllowExtraRolls, RR_Show_Ranks, RR_RankPriority, RR_ExtraWidth, RR_ShowGroupNumber, RR_RollFrameHeight
 
-# Libraries
+# Libraries (includes ClassicAPI)
 libs\load-libs.xml
-
-# ClassicAPI (before modules)
-addons\!!!ClassicAPI\embeds.xml
-addons\!!!ClassicAPI\Load.xml
 
 # HealEx LibHealComm-4.0 117 must load first (original HealEx is the only LHC).
 addons\CompactRaidFrame_HealEx\Libs\Load.xml
@@ -21,7 +17,15 @@ addons\CompactRaidFrame_HealEx\Libs\Load.xml
 core\init.lua
 core\lockdown_debug.lua
 core\format_money.lua
+core\quickstart.lua
+core\quickstart_catalog.lua
+core\quickstart_profiles.lua
 core\profile.lua
+core\transfer_encode.lua
+core\transfer_data.lua
+core\transfer.lua
+core\transfer_equip.lua
+core\transfer_presets.lua
 core\perf.lua
 core\perf_debug.lua
 core\compatibility.lua
@@ -29,21 +33,25 @@ core\compatibility.lua
 core\runtime.lua
 core\carbonite_detect.lua
 core\channel_frame_fix.lua
+core\wcollections_micromenu.lua
 core\registry.lua
 core\defaults.lua
 core\profiles\Sarych.lua
 core\coordinator.lua
 core\media.lua
 core\alt_mode.lua
+core\toggle_bindings.lua
 core\combat_animations.lua
 core\drag_mode.lua
 core\combat_text_drag_panel.lua
 core\addons_registry.lua
+extensions\registry.lua
 # Localization
 core\localization\Locale.lua
 core\localization\en.lua
 core\localization\ru.lua
 core\localization\esES.lua
+core\localization\ukUA.lua
 core\localization\maps\enUS.lua
 core\localization\maps\esES.lua
 core\localization\maps\enUS_extra.lua
@@ -54,6 +62,7 @@ core\localization\Apply.lua
 modules\mainmenubar\module.lua
 modules\minimap\module.lua
 modules\minimap\preview.lua
+modules\minimap\visibility.lua
 modules\map\module.lua
 modules\map\api.lua
 modules\map\data\poi_names.lua
@@ -89,6 +98,7 @@ modules\chat\appearance.lua
 modules\chat\tooltip_preview.lua
 modules\chat\spam_filter.lua
 modules\chat\chatwheel.lua
+modules\chat\visibility.lua
 modules\chat\ChatBar.xml
 modules\player_resources\module.lua
 modules\player_resources\plate.lua
@@ -97,6 +107,9 @@ modules\player_resources\runes.lua
 modules\player_resources\totem_data.lua
 modules\player_resources\totems.lua
 modules\player_resources\shield.lua
+modules\castbar\module.lua
+modules\castbar\ticks.lua
+modules\castbar\dragonflight.lua
 modules\cc\module.lua
 modules\cc\previews.lua
 modules\bags\module.lua
@@ -112,12 +125,15 @@ addons\LortiUI\frames.lua
 addons\LortiUI\func\functions.lua
 addons\LortiUI\auras.lua
 addons\LortiUI\compactraid.lua
+addons\EasyGlyph\EasyGlyph.lua
+addons\EasyGlyph\EasyGlyph_ItemData.lua
+addons\EasyGlyph\EasyGlyph_ItemIcons.lua
 modules\tools\module.lua
-modules\tools\key_echo.lua
 modules\tools\quest_tracker.lua
 modules\floating_text\module.lua
 modules\floating_text\preview.lua
 modules\health_indicators\module.lua
+modules\health_indicators\scale.lua
 modules\health_indicators\distance_preview.lua
 modules\plates_auras\configID.lua
 modules\plates_auras\elvui_layout.lua
@@ -131,25 +147,17 @@ modules\arena\drag_mode.lua
 modules\arena\module.lua
 modules\arena\preview.lua
 
+# Native extensions
+extensions\party_abilities\data.lua
+extensions\party_abilities\module.lua
+extensions\party_abilities\preview.lua
+
 # MainMenuBar Panels (loaded after main module)
 modules\mainmenubar\panelText.lua
 modules\mainmenubar\panelVisual.lua
 modules\mainmenubar\panelColor.lua
 modules\mainmenubar\preview.lua
-
-# MainMenuBar: FrostAtomUI action bars (ported; barMode = "frostatom")
-modules\mainmenubar\frostatom\core.lua
-modules\mainmenubar\frostatom\experiencebar.lua
-modules\mainmenubar\frostatom\actionbar.lua
-modules\mainmenubar\frostatom\actionbutton.lua
-modules\mainmenubar\frostatom\petbar.lua
-modules\mainmenubar\frostatom\shapeshiftbar.lua
-modules\mainmenubar\frostatom\totembar.lua
-modules\mainmenubar\frostatom\vehicle_exit.lua
-modules\mainmenubar\frostatom\binder.lua
-modules\mainmenubar\frostatom\blizzard.lua
-modules\mainmenubar\frostatom\bridge.lua
-modules\mainmenubar\frostatom\player_castbar.lua
+modules\mainmenubar\bfa.lua
 
 # Module Options
 modules\mainmenubar\options.lua
@@ -159,6 +167,7 @@ modules\frame\options.lua
 modules\auras\options.lua
 modules\chat\options.lua
 modules\player_resources\options.lua
+modules\castbar\options.lua
 modules\cc\options.lua
 modules\bags\options.lua
 modules\automation\options.lua
@@ -167,6 +176,7 @@ modules\floating_text\options.lua
 modules\health_indicators\options.lua
 modules\plates_auras\options.lua
 modules\arena\options.lua
+extensions\party_abilities\options.lua
 
 # Options Interface
 options\options_perf.lua
@@ -181,6 +191,7 @@ options\options_widgets_custom.lua
 options\options_window.lua
 options\options_renderer.lua
 options\options_core.lua
+options\options_transfer.lua
 options\options.lua
 
 # AddOns (from addons folder)
@@ -237,7 +248,8 @@ addons\LevelUpDisplay\LevelUpDisplay.xml
 addons\LevelUpDisplay\wrapper.lua
 
 # LootClicker
-addons\LootClicker\global_patches.lua
+# Do not load global_patches.lua: it writes SetShown/SetEnabled into the
+# shared Blizzard widget metatables and taints protected unit frames.
 addons\LootClicker\util.lua
 addons\LootClicker\locale.lua
 addons\LootClicker\init.lua
@@ -285,35 +297,6 @@ addons\SarychUI_Bags\wrapper.lua
 # BaudBag (embedded)
 addons\BaudBag\embeds.xml
 addons\BaudBag\wrapper.lua
-
-# GladiusEx (embedded)
-addons\GladiusEx\embeds.xml
-addons\GladiusEx\localization\enUS.lua
-addons\GladiusEx\localization\ruRU.lua
-addons\GladiusEx\localization\locales.lua
-addons\GladiusEx\GladiusEx.lua
-addons\GladiusEx\bootstrap.lua
-addons\GladiusEx\options.lua
-addons\GladiusEx\Data.lua
-addons\GladiusEx\modules\spectate.lua
-addons\GladiusEx\modules\alerts.lua
-addons\GladiusEx\modules\announcements.lua
-addons\GladiusEx\modules\auras.lua
-addons\GladiusEx\modules\castbar.lua
-addons\GladiusEx\modules\classicon.lua
-addons\GladiusEx\modules\clicks.lua
-addons\GladiusEx\modules\cooldowns.lua
-addons\GladiusEx\modules\drtracker.lua
-addons\GladiusEx\modules\healthbar.lua
-addons\GladiusEx\modules\highlight.lua
-addons\GladiusEx\modules\powerbar.lua
-addons\GladiusEx\modules\skill_history.lua
-addons\GladiusEx\modules\tags.lua
-addons\GladiusEx\modules\unitbar.lua
-addons\GladiusEx\modules\targetbar.lua
-addons\GladiusEx\modules\petbar.lua
-addons\GladiusEx\modules\interrupts.lua
-addons\GladiusEx\wrapper.lua
 
 # Equipence (embedded)
 addons\Equipence\bootstrap.lua
@@ -388,11 +371,11 @@ addons\autolos\main.lua
 addons\autolos\elvui_layout.lua
 addons\autolos\wrapper.lua
 
-# CompactRaidFrame (Blizzard, Tsoukie 1.14)
-addons\CompactRaidFrame\sui_bootstrap.lua
-addons\CompactRaidFrame\Libs\Load.xml
-addons\CompactRaidFrame\Locales\Load.xml
-addons\CompactRaidFrame\Compat.lua
+# CompactRaidFrame 1.2.2 (RomanSpector & Blizzard), embedded
+addons\CompactRaidFrame\embeds.xml
+addons\CompactRaidFrame\locales.xml
+addons\CompactRaidFrame\Dependence\load.xml
+addons\CompactRaidFrame\Templates\load.xml
 addons\CompactRaidFrame\CUFProfiles\CompactUnitFrameProfiles.xml
 addons\CompactRaidFrame\FlowContainer.lua
 addons\CompactRaidFrame\CompactUnitFrame.xml
@@ -403,11 +386,11 @@ addons\CompactRaidFrame\CompactRaidFrames\CompactRaidFrameContainer.xml
 addons\CompactRaidFrame\CompactRaidFrames\CompactRaidFrameManager.xml
 addons\CompactRaidFrame\wrapper.lua
 
-# CompactRaidFrame_HealEx (Tsoukie 1.7) — libs already loaded above
+# CompactRaidFrame_HealEx (Tsoukie 1.8) — libs already loaded above
 addons\CompactRaidFrame_HealEx\Extension.lua
 addons\CompactRaidFrame_HealEx\wrapper.lua
 
-# EnhancedRaidFrames (Britt W. Yazel, Tsoukie 1.8)
+# EnhancedRaidFrames (Britt W. Yazel, Tsoukie 1.9)
 addons\EnhancedRaidFrames\Libs\embeds.xml
 addons\EnhancedRaidFrames\Localizations\Localizations.xml
 addons\EnhancedRaidFrames\EnhancedRaidFrames.lua
@@ -426,17 +409,15 @@ addons\EnhancedRaidFrames\GUI\TargetMarkerConfigPanel.lua
 addons\EnhancedRaidFrames\GUI\ProfileImportExport.lua
 addons\EnhancedRaidFrames\wrapper.lua
 
-# OmniCD (Treebonker, Tsoukie 1.7)
-addons\OmniCD\Embeds.xml
-addons\OmniCD\Locales\Locales.xml
-addons\OmniCD\Core\Core.xml
-addons\OmniCD\Modules\Spells\Spells.xml
-addons\OmniCD\Modules\Modules.xml
-addons\OmniCD\Config\Config.xml
-addons\OmniCD\wrapper.lua
-
-# !!!ClassicAPI wrapper (registration only, addon already loaded)
-addons\!!!ClassicAPI\wrapper.lua
+# RaidFrameSorter (zooood, Tsoukie v1.3)
+addons\RaidFrameSorter\embeds.xml
+addons\RaidFrameSorter\globals.lua
+addons\RaidFrameSorter\util.lua
+addons\RaidFrameSorter\constants.lua
+addons\RaidFrameSorter\Init.lua
+addons\RaidFrameSorter\Options.lua
+addons\RaidFrameSorter\RaidFrameSorter.lua
+addons\RaidFrameSorter\wrapper.lua
 
 # Bagnon_FT
 addons\Bagnon_FT\localization\localization.lua
@@ -488,3 +469,4 @@ addons\Talented\Ui.lua
 addons\Talented\Glyphs.lua
 addons\Talented\Talented_Skin.lua
 addons\Talented\wrapper.lua
+

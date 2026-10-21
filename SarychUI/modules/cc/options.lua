@@ -82,11 +82,6 @@ local function timerToggleSet(key, applyFn)
     end
 end
 
-local function isTimerOn(key)
-    local v = GetSetting(key, 1)
-    return v == 1 or v == true
-end
-
 function module:GetOptions()
     return {
         type = "group",
@@ -255,10 +250,20 @@ function module:GetOptions()
                                 get = function() return GetSetting("minIconSize", 23) end,
                                 set = function(_, v) SetAndApply("minIconSize", v) end,
                             },
+                            partyAbilitiesExempt = {
+                                type = "toggle",
+                                name = L and L["CC_PartyAbilitiesExempt"] or "Исключение для расширения \"Способности группы\"",
+                                desc = L and L["CC_PartyAbilitiesExempt_Desc"] or "Показывать таймер на иконках способностей группы без учёта минимального масштаба и размера иконки.",
+                                order = 3,
+                                width = "full",
+                                suiFullRow = true,
+                                get = function() return GetSetting("partyAbilitiesExempt", true) and true or false end,
+                                set = function(_, v) SetAndApply("partyAbilitiesExempt", v and true or false) end,
+                            },
                             gcdPreview = {
                                 type = "description",
                                 name = "",
-                                order = 3,
+                                order = 4,
                                 width = "full",
                                 suiFullRow = true,
                                 suiGcdCooldownPreview = true,
@@ -267,7 +272,7 @@ function module:GetOptions()
                                 type = "toggle",
                                 name = L and (L["Hide_On_GCD"] or "Не отображать при ГКД") or "Не отображать при ГКД",
                                 desc = L and (L["Hide_On_GCD_Desc"] or "Скрывать текст кулдауна на способностях с глобальным временем восстановления (ГКД ~1.5 сек)") or "Скрывать текст кулдауна на способностях с глобальным временем восстановления (ГКД ~1.5 сек)",
-                                order = 4,
+                                order = 5,
                                 width = "full",
                                 suiFullRow = true,
                                 get = function() return GetSetting("minDuration", 3) >= 3 end,
@@ -283,82 +288,18 @@ function module:GetOptions()
                 },
             },
 
-            -- Timers (moved from Инструменты и утилиты)
+            -- Timers (invite / arena countdown; castbar timers live under Кастбар)
             timers = {
                 type = "group",
                 name = "Таймеры",
                 order = 2,
                 disabled = function() return not isEnabled() end,
                 args = {
-                    castbarBox = {
-                        type = "group",
-                        name = "Таймер на каст барах",
-                        desc = "Настройки отображения таймеров на панелях каста заклинаний",
-                        order = 1,
-                        inline = true,
-                        args = {
-                            preview = {
-                                type = "description",
-                                name = "",
-                                order = 0,
-                                width = "full",
-                                suiCastbarTimerPreview = true,
-                            },
-                            enableCastbarTimers = {
-                                type = "toggle",
-                                name = "Включить",
-                                desc = "Включить отображение таймеров на каст барах",
-                                order = 1,
-                                width = "full",
-                                get = timerToggleGet("enableCastbarTimers"),
-                                set = timerToggleSet("enableCastbarTimers", "ApplyCastbarTimers"),
-                            },
-                            castbarTargets = {
-                                type = "group",
-                                name = "Отображать на",
-                                order = 2,
-                                inline = true,
-                                disabled = function() return not isTimerOn("enableCastbarTimers") end,
-                                args = {
-                                    enableCastbarPlayer = {
-                                        type = "toggle",
-                                        name = "Игрок",
-                                        desc = "Показывать таймер на каст баре игрока",
-                                        order = 1,
-                                        width = "full",
-                                        disabled = function() return not isTimerOn("enableCastbarTimers") end,
-                                        get = timerToggleGet("enableCastbarPlayer"),
-                                        set = timerToggleSet("enableCastbarPlayer", "ApplyCastbarTimers"),
-                                    },
-                                    enableCastbarTarget = {
-                                        type = "toggle",
-                                        name = "Цель",
-                                        desc = "Показывать таймер на каст баре цели",
-                                        order = 2,
-                                        width = "full",
-                                        disabled = function() return not isTimerOn("enableCastbarTimers") end,
-                                        get = timerToggleGet("enableCastbarTarget"),
-                                        set = timerToggleSet("enableCastbarTarget", "ApplyCastbarTimers"),
-                                    },
-                                    enableCastbarFocus = {
-                                        type = "toggle",
-                                        name = "Фокус",
-                                        desc = "Показывать таймер на каст баре фокуса",
-                                        order = 3,
-                                        width = "full",
-                                        disabled = function() return not isTimerOn("enableCastbarTimers") end,
-                                        get = timerToggleGet("enableCastbarFocus"),
-                                        set = timerToggleSet("enableCastbarFocus", "ApplyCastbarTimers"),
-                                    },
-                                },
-                            },
-                        },
-                    },
                     countdownBox = {
                         type = "group",
                         name = "Обратный отсчёт",
                         desc = "Таймеры обратного отсчёта:\n* При приглашениях - на окне приглашения в группу/рейд и в диалоге готовности подземелья (LFG).\n* До открытия дверей - в центре экрана перед стартом арены или поля боя.",
-                        order = 2,
+                        order = 1,
                         inline = true,
                         args = {
                             preview = {

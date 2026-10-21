@@ -83,11 +83,17 @@ end
 _G.sarPlatesAuras_GetDisplayScale = GetAuraDisplayScale
 
 local function GetAuraContainerParent(namePlate)
-	-- Always keep SUI aura containers on the real nameplate root. Awesome can
-	-- deliver a plate before ElvUI has built UnitFrame, while the fallback usually
-	-- arrives afterwards. Parenting to UnitFrame therefore made identical SetSize
-	-- values inherit different/timing-dependent scale chains. Anchors may still
-	-- point at ElvUI Health/Name; only ownership is normalized here.
+	-- Classic scale moves Blizzard art onto plate._suiClassicVisual. Keep SUI
+	-- aura containers on that wrapper so they follow the same scale. ElvUI
+	-- plates stay on the WorldFrame root (not UnitFrame) for a stable scale chain.
+	if namePlate and namePlate._suiClassicVisual then
+		return namePlate._suiClassicVisual
+	end
+	local hi = SarychUI and SarychUI.GetModule and SarychUI:GetModule("health_indicators", true)
+	local visual = hi and hi.GetClassicPlateVisual and hi:GetClassicPlateVisual(namePlate)
+	if visual then
+		return visual
+	end
 	return namePlate
 end
 
@@ -158,6 +164,56 @@ local COOLDOWN_TEXT_UPDATE_INTERVAL = 0.10
 local LibNameplates = LibStub("LibNameplates-1.0", true)
 -- LibAuraInfo: combat-log aura feed for non-Awesome (same SPELL_DATA / UpdateAuras path)
 local LibAuraInfo = LibStub("LibAuraInfo-1.0", true)
+
+-- Cell/WA-style rank matching: one configured ID covers every rank that
+-- shares the same localized name. Exact SPELL_DATA[id] still wins.
+local SPELL_DATA_BY_NAME = {}
+local SPELL_DATA_BY_NAME_ID = {}
+
+local function RebuildSpellNameIndex()
+	for name in pairs(SPELL_DATA_BY_NAME) do
+		SPELL_DATA_BY_NAME[name] = nil
+		SPELL_DATA_BY_NAME_ID[name] = nil
+	end
+	local data = SPELL_DATA
+	if not data then
+		return
+	end
+	for spellId, info in pairs(data) do
+		if info and info.enabled ~= false then
+			local name = GetSpellInfo(spellId)
+			if name then
+				local existingId = SPELL_DATA_BY_NAME_ID[name]
+				if not existingId or (type(spellId) == "number" and type(existingId) == "number" and spellId > existingId) then
+					SPELL_DATA_BY_NAME[name] = info
+					SPELL_DATA_BY_NAME_ID[name] = spellId
+				end
+			end
+		end
+	end
+end
+
+local function GetSpellData(spellId)
+	if not spellId then
+		return nil
+	end
+	local data = SPELL_DATA
+	if data then
+		local exact = data[spellId]
+		if exact then
+			return exact
+		end
+	end
+	local name = GetSpellInfo(spellId)
+	if name then
+		return SPELL_DATA_BY_NAME[name]
+	end
+	return nil
+end
+
+_G.sarPlatesAuras_RebuildSpellNameIndex = RebuildSpellNameIndex
+_G.sarPlatesAuras_GetSpellData = GetSpellData
+RebuildSpellNameIndex()
 
 -- True only when the toggle is on AND C_NamePlate API actually exists.
 -- Stale DB with useAwesomeWotlk=true but no Awesome DLL must fall back to LibNameplates.
@@ -366,7 +422,7 @@ _G.sarPlatesAuras_HasGuidAuras = function(guid)
 end
 
 local function MakeAuraEntry(spellId, iconTexture, stackCount, duration, expirationTime, caster)
-	local spellInfo = SPELL_DATA and SPELL_DATA[spellId]
+	local spellInfo = GetSpellData(spellId)
 	if not spellInfo or spellInfo.enabled == false then
 		return nil
 	end
@@ -385,7 +441,8 @@ local function AddSpellToGuidCache(dstGUID, spellID, srcGUID, stackCount, durati
 	if not dstGUID or not spellID then
 		return false
 	end
-	if not SPELL_DATA or not SPELL_DATA[spellID] or SPELL_DATA[spellID].enabled == false then
+	local spellInfo = GetSpellData(spellID)
+	if not spellInfo or spellInfo.enabled == false then
 		return false
 	end
 	local _, _, iconTexture = GetSpellInfo(spellID)
@@ -552,7 +609,8 @@ FindAllAuras = function(unitId)
         if not spellId then
             break
         end
-        if SPELL_DATA[spellId] and SPELL_DATA[spellId].enabled ~= false then
+        local spellInfo = GetSpellData(spellId)
+        if spellInfo and spellInfo.enabled ~= false then
             local existing = foundAuras[spellId]
             if not existing or (not IsPlayerCaster(existing.caster) and IsPlayerCaster(caster)) then
                 foundAuras[spellId] = {
@@ -561,8 +619,8 @@ FindAllAuras = function(unitId)
                     expirationTime = expirationTime,
                     stackCount = stackCount,
                     caster = caster,
-                    type = SPELL_DATA[spellId].type,
-                    priority = SPELL_DATA[spellId].priority or 100
+                    type = spellInfo.type,
+                    priority = spellInfo.priority or 100
                 }
             end
         end
@@ -574,7 +632,8 @@ FindAllAuras = function(unitId)
         if not spellId then
             break
         end
-        if SPELL_DATA[spellId] and SPELL_DATA[spellId].enabled ~= false then
+        local spellInfo = GetSpellData(spellId)
+        if spellInfo and spellInfo.enabled ~= false then
             local existing = foundAuras[spellId]
             if not existing or (not IsPlayerCaster(existing.caster) and IsPlayerCaster(caster)) then
                 foundAuras[spellId] = {
@@ -583,8 +642,8 @@ FindAllAuras = function(unitId)
                     expirationTime = expirationTime,
                     stackCount = stackCount,
                     caster = caster,
-                    type = SPELL_DATA[spellId].type,
-                    priority = SPELL_DATA[spellId].priority or 100
+                    type = spellInfo.type,
+                    priority = spellInfo.priority or 100
                 }
             end
         end
@@ -919,7 +978,7 @@ local function CreateOtherAuraIcons(frame, size)
 end
 
 local function GetAuraPriority(spellId, desiredTypes)
-    local spellInfo = SPELL_DATA[spellId]
+    local spellInfo = GetSpellData(spellId)
     if spellInfo then
         for _, auraType in ipairs(desiredTypes) do
             if spellInfo.type == auraType then
@@ -965,7 +1024,7 @@ local function FindOtherAurasFromCache(foundAuras)
             -- Проверяем, наложена ли аура игроком
             local isPlayerCaster = auraData.caster == "player"
             -- Проверяем, разрешено ли отображение от других игроков для этого заклинания
-            local spellInfo = SPELL_DATA[spellId]
+            local spellInfo = GetSpellData(spellId)
             local allowFromOthers = spellInfo and spellInfo.allowFromOthers == true
             local iconTexture = ResolveAuraTexture(spellId, auraData.iconTexture)
             
@@ -1000,7 +1059,7 @@ local function ReleaseOtherAuras(otherAuras)
 end
 
 local function IsSpellGlowEnabled(spellId)
-	local data = spellId and SPELL_DATA and SPELL_DATA[spellId]
+	local data = GetSpellData(spellId)
 	if not data then
 		return false
 	end
@@ -1314,7 +1373,7 @@ local function UpdateCenterFramesPosition(namePlate)
         end
     else
         namePlate.centerContainer:ClearAllPoints()
-        namePlate.centerContainer:SetPoint("CENTER", namePlate, "TOP", 0, yOffset)
+        namePlate.centerContainer:SetPoint("CENTER", GetAuraContainerParent(namePlate), "TOP", 0, yOffset)
     end
     
     -- Позиционируем фреймы внутри контейнера - центрируем как раньше
@@ -1357,7 +1416,7 @@ local function UpdateMobilityFramesPosition(namePlate)
     -- Позиционируем контейнер
     if not UsesElvUILayout() then
         namePlate.mobilityContainer:ClearAllPoints()
-        namePlate.mobilityContainer:SetPoint("LEFT", namePlate, "RIGHT", RightX, RightY)
+        namePlate.mobilityContainer:SetPoint("LEFT", GetAuraContainerParent(namePlate), "RIGHT", RightX, RightY)
     end
     
     -- Позиционируем фреймы внутри контейнера - сначала OTHER, потом MOBILITY
@@ -1594,13 +1653,15 @@ function _G.UpdateAuras(namePlate, unitId, forcedGuid)
     local containerParent = GetAuraContainerParent(namePlate)
     if not namePlate.centerContainer then
         namePlate.centerContainer = CreateFrame("Frame", nil, containerParent)
+        namePlate.centerContainer._suiPlateAura = true
     elseif namePlate.centerContainer:GetParent() ~= containerParent then
         namePlate.centerContainer:SetParent(containerParent)
     end
+    namePlate.centerContainer._suiPlateAura = true
     namePlate.centerContainer:SetSize(ICON_SIZE_CONTROL + ICON_SIZE_CAST + 4, ICON_SIZE_CONTROL)
     if not UsesElvUILayout() then
         namePlate.centerContainer:ClearAllPoints()
-        namePlate.centerContainer:SetPoint("CENTER", namePlate, "TOP", 0, CentrY)
+        namePlate.centerContainer:SetPoint("CENTER", GetAuraContainerParent(namePlate), "TOP", 0, CentrY)
     end
     namePlate.centerContainer:SetAlpha(alpha)
     ApplyAuraContainerScale(namePlate, namePlate.centerContainer, "center", scale)
@@ -1665,13 +1726,15 @@ function _G.UpdateAuras(namePlate, unitId, forcedGuid)
     -- Создаем общий контейнерный фрейм для mobility фреймов
     if not namePlate.mobilityContainer then
         namePlate.mobilityContainer = CreateFrame("Frame", nil, containerParent)
+        namePlate.mobilityContainer._suiPlateAura = true
     elseif namePlate.mobilityContainer:GetParent() ~= containerParent then
         namePlate.mobilityContainer:SetParent(containerParent)
     end
+    namePlate.mobilityContainer._suiPlateAura = true
     namePlate.mobilityContainer:SetSize(ICON_SIZE_MOBILITY + ICON_SIZE_OTHER + 4, ICON_SIZE_MOBILITY)
     if not UsesElvUILayout() then
         namePlate.mobilityContainer:ClearAllPoints()
-        namePlate.mobilityContainer:SetPoint("LEFT", namePlate, "RIGHT", RightX, RightY)
+        namePlate.mobilityContainer:SetPoint("LEFT", GetAuraContainerParent(namePlate), "RIGHT", RightX, RightY)
     end
     namePlate.mobilityContainer:SetAlpha(alpha)
     ApplyAuraContainerScale(namePlate, namePlate.mobilityContainer, "right", scale)
@@ -1731,10 +1794,12 @@ function _G.UpdateAuras(namePlate, unitId, forcedGuid)
     if not namePlate.playerFrame then
         -- Same normalized root parent as the other aura containers.
         namePlate.playerFrame = CreateFrame("Frame", nil, containerParent)
+        namePlate.playerFrame._suiPlateAura = true
         CreateOtherAuraIcons(namePlate.playerFrame, ICON_SIZE_PLAYER)
     elseif namePlate.playerFrame:GetParent() ~= containerParent then
         namePlate.playerFrame:SetParent(containerParent)
     end
+    namePlate.playerFrame._suiPlateAura = true
     if not UsesElvUILayout() or IsPlayerAltRight() then
         AnchorPlayerFrame(namePlate)
     else
@@ -2184,7 +2249,7 @@ local function ApplySizesToPlate(namePlate)
         namePlate.centerContainer:SetSize(ICON_SIZE_CONTROL + ICON_SIZE_CAST + 4, ICON_SIZE_CONTROL)
         if not UsesElvUILayout() then
             namePlate.centerContainer:ClearAllPoints()
-            namePlate.centerContainer:SetPoint("CENTER", namePlate, "TOP", 0, CentrY)
+            namePlate.centerContainer:SetPoint("CENTER", GetAuraContainerParent(namePlate), "TOP", 0, CentrY)
         end
     end
     if namePlate.controlFrame then
@@ -2205,7 +2270,7 @@ local function ApplySizesToPlate(namePlate)
         namePlate.mobilityContainer:SetSize(ICON_SIZE_MOBILITY + ICON_SIZE_OTHER + 4, ICON_SIZE_MOBILITY)
         if not UsesElvUILayout() then
             namePlate.mobilityContainer:ClearAllPoints()
-            namePlate.mobilityContainer:SetPoint("LEFT", namePlate, "RIGHT", RightX, RightY)
+            namePlate.mobilityContainer:SetPoint("LEFT", GetAuraContainerParent(namePlate), "RIGHT", RightX, RightY)
         end
     end
     if namePlate.mobilityFrame then

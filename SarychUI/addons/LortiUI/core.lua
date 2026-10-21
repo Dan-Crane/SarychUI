@@ -33,6 +33,8 @@ L.cfg = L.cfg or {
 		inset = 5,
 	},
 	color = {
+		-- Keep button chrome as dark as the original Lorti UI. The configurable
+		-- SarychUI dark tint applies to other interface artwork via GetColor().
 		normal = { r = 0, g = 0, b = 0, a = 0.9 },
 		equipped = { r = 0.3, g = 0.55, b = 0.1 },
 		classcolored = false,
@@ -71,12 +73,6 @@ function L.GetColor()
 	return n.r, n.g, n.b, n.a
 end
 
-function L.SyncColor()
-	local r, g, b, a = L.GetColor()
-	local n = L.cfg.color.normal
-	n.r, n.g, n.b, n.a = r, g, b, a
-end
-
 function L.IsSettingOn()
 	local mods = SarychUI and SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.modules
 	local db = mods and mods.tools
@@ -106,7 +102,97 @@ function L:RestoreTexture(texture)
 	end
 end
 
+-- Arena frames and the classic party frames are protected. SetVertexColor on
+-- their Blizzard textures taints the frame: the next combat Show/Hide/SetPoint
+-- is blocked and blamed on SarychUI. Draw our own copy on top and never call
+-- methods that modify the original.
+local function IsSecureUnitArtwork(name)
+	return type(name) == "string" and (
+		name:match("^ArenaEnemyFrame%d")
+		or name:match("^ArenaPrepFrame%d")
+		or name:match("^PartyMemberFrame%d")
+	) ~= nil
+end
+
+local secureArtworkWatch
+
+local function SyncSecureArtworkOverlays()
+	local overlays = L.arenaOverlays
+	if not overlays then return end
+	for tex, overlay in pairs(overlays) do
+		local host = overlay._host
+		if host then
+			local parent = tex.GetParent and tex:GetParent()
+			local shown = tex.IsShown and tex:IsShown() and parent and parent.IsVisible and parent:IsVisible()
+			if shown then
+				if not host:IsShown() then host:Show() end
+			elseif host:IsShown() then
+				host:Hide()
+			end
+		end
+	end
+end
+
+function L:DarkenArenaArtwork(name)
+	local tex = _G[name]
+	if not tex or not tex.GetParent then return end
+	local parent = tex:GetParent()
+	if not parent then return end
+	self.arenaOverlays = self.arenaOverlays or {}
+	local overlay = self.arenaOverlays[tex]
+	if not overlay then
+		-- Own frame, not a region of the protected arena button. Creating a
+		-- texture on ArenaEnemyFrame taints its right-click FocusUnit handler.
+		local host = CreateFrame("Frame", nil, UIParent)
+		host:Hide()
+		host:SetFrameStrata((parent.GetFrameStrata and parent:GetFrameStrata()) or "MEDIUM")
+		local level = (parent.GetFrameLevel and parent:GetFrameLevel()) or 1
+		if level < 1 then level = 1 end
+		host:SetFrameLevel(level + 1)
+		overlay = host:CreateTexture(nil, "ARTWORK")
+		overlay:SetAllPoints(host)
+		host:SetAllPoints(tex)
+		local path = tex.GetTexture and tex:GetTexture()
+		if path and overlay.SetTexture then
+			overlay:SetTexture(path)
+		end
+		if tex.GetTexCoord and overlay.SetTexCoord then
+			overlay:SetTexCoord(tex:GetTexCoord())
+		end
+		overlay._host = host
+		self.arenaOverlays[tex] = overlay
+		if not secureArtworkWatch then
+			secureArtworkWatch = CreateFrame("Frame")
+			local elapsed = 0
+			secureArtworkWatch:SetScript("OnUpdate", function(_, dt)
+				elapsed = elapsed + (dt or 0)
+				if elapsed < 0.2 then return end
+				elapsed = 0
+				SyncSecureArtworkOverlays()
+			end)
+		end
+	end
+	local cr, cg, cb, ca = self.GetColor()
+	overlay:SetVertexColor(cr, cg, cb, ca)
+	SyncSecureArtworkOverlays()
+end
+
+function L:RestoreArenaArtwork(name)
+	local tex = type(name) == "string" and _G[name] or name
+	local overlay = tex and self.arenaOverlays and self.arenaOverlays[tex]
+	if overlay then
+		overlay:Hide()
+		if overlay._host then
+			overlay._host:Hide()
+		end
+	end
+end
+
 function L:DarkenNamed(name)
+	if IsSecureUnitArtwork(name) then
+		self:DarkenArenaArtwork(name)
+		return
+	end
 	if type(name) == "string" then
 		self:DarkenTexture(_G[name])
 	elseif name then
@@ -115,6 +201,10 @@ function L:DarkenNamed(name)
 end
 
 function L:RestoreNamed(name)
+	if IsSecureUnitArtwork(name) then
+		self:RestoreArenaArtwork(name)
+		return
+	end
 	if type(name) == "string" then
 		self:RestoreTexture(_G[name])
 	elseif name then
@@ -161,7 +251,6 @@ function L:Apply()
 		return
 	end
 	self.enabled = true
-	self.SyncColor()
 	self:InstallHooks()
 	if self.ApplyFrames then
 		self:ApplyFrames()

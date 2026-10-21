@@ -52,8 +52,8 @@ local defaults = {
 			customTimer = true,     -- Изменено на true
 			hideBorder = false,
 			interruptIcon = true,
-			timeThreshold = 0,
-			customTimerSize = 1.9,
+			timeThreshold = 60,
+			customTimerSize = 3.3,
 			font = "Friz Quadrata TT",
 			outline = "OUTLINE",
 
@@ -1118,7 +1118,15 @@ function BigDebuffs:AttachUnitFrame(unit)
 		frame.timer:SetShadowOffset(0, 0)
 	end
 
+	-- Always show tenths below 60s on portrait replacement icons.
+	if (config.timeThreshold or 0) < 60 then
+		config.timeThreshold = 60
+	end
 	timeThreshold = config.timeThreshold
+	-- Old product default was 1.9; move saved profiles that still have it.
+	if config.customTimerSize == 1.9 then
+		config.customTimerSize = 3.3
+	end
 
 	frame:SetAlpha(configUnit.alpha)
 
@@ -1246,8 +1254,8 @@ function BigDebuffs:AttachUnitFrame(unit)
 		if config[unit].position then
 			frame:SetPoint(unpack(config[unit].position))
 		else
-			-- No saved position, anchor to the blizzard position
-			LoadAddOn("Blizzard_ArenaUI")
+			-- No saved position, anchor to the blizzard position.
+			-- Do not LoadAddOn("Blizzard_ArenaUI"): that taints arena OnEvent.
 			local relativeFrame = _G[anchors.Blizzard.units[unit]] or UIParent
 			frame:SetPoint("CENTER", relativeFrame, "CENTER")
 		end
@@ -2023,14 +2031,10 @@ function BigDebuffs:OnUpdate()
 	-- Создаём кастомный таймер
 	local remain = self.timeEnd - GetTime()
 	if remain > 0 then
-		if remain <= timeThreshold then
-			--self.timer:SetTextColor(1, 0, 0)
+		if remain <= 60 then
 			self.timer:SetTextColor(1, 1, 1)
+			-- Spaces keep the outline from jittering as tenths change.
 			self.timer:SetFormattedText(" %.01f ", remain)
-		elseif remain <= 60 then
-			--self.timer:SetTextColor(1, 1, 0)
-			self.timer:SetTextColor(1, 1, 1)
-			self.timer:SetText(ceil(remain))
 		elseif remain <= 3600 then
 			self.timer:SetText(ceil(remain / 60) .. L["m"])
 			self.timer:SetTextColor(1, 1, 1)

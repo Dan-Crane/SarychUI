@@ -1025,9 +1025,12 @@ function TrGCDSizeQueue(i) -- узнать длину очереди спелл�
 	return (k - TrGCDQueueFirstI[i])
 end
 function TrGCDPlayerDetect(who) --Определим игрока отправившего спелл
-	if (who == "player") then return 1 end 
-	if (string.starts(who, "party")) then return who:sub(6,7)+1 end
-	if (string.starts(who, "arena")) then return who:sub(6,7)+5 end
+	if type(who) ~= "string" then return end
+	if (who == "player") then return 1 end
+	local partyN = who:match("^party([1-4])$")
+	if partyN then return tonumber(partyN) + 1 end
+	local arenaN = who:match("^arena([1-5])$")
+	if arenaN then return tonumber(arenaN) + 5 end
 	if (who == "target") then return 11 end
 	if (who == "focus") then return 12 end
 end

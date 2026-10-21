@@ -976,89 +976,11 @@ function Runtime:InstallThrashGuard()
 	local cfg = RuntimeDB()
 	if not cfg or cfg.enabled == false or cfg.uiCacheEnabled == false then return false end
 
-	local probe = CreateFrame("StatusBar")
-	local meta = getmetatable(probe)
-	probe:Hide()
-	if not meta or not meta.__index then return false end
-	statusMeta = meta.__index
-	local hooked = 0
-
-	if type(statusMeta.SetValue) == "function" then
-		local original = statusMeta.SetValue
-		statusOriginals.SetValue = original
-		local wrapper = function(widget, value)
-			if not statusReady or type(value) ~= "number" then return original(widget, value) end
-			local cached = statusCache[widget]
-			if cached and cached[K_VALUE_SET] and cached[K_VALUE] == value then
-				statusStats.skipped = statusStats.skipped + 1
-				statusStats.valueSkipped = statusStats.valueSkipped + 1
-				return
-			end
-			cached = cached or StatusEntry(widget)
-			cached[K_VALUE], cached[K_VALUE_SET] = value, true
-			statusStats.passed = statusStats.passed + 1
-			statusStats.valuePassed = statusStats.valuePassed + 1
-			return original(widget, value)
-		end
-		if pcall(function() statusMeta.SetValue = wrapper end) then
-			statusWrappers.SetValue = wrapper
-			hooked = hooked + 1
-		end
-	end
-
-	if type(statusMeta.SetMinMaxValues) == "function" then
-		local original = statusMeta.SetMinMaxValues
-		statusOriginals.SetMinMaxValues = original
-		local wrapper = function(widget, lowValue, highValue)
-			if not statusReady then return original(widget, lowValue, highValue) end
-			local cached = statusCache[widget]
-			if cached and cached[K_RANGE_SET] and cached[K_MIN] == lowValue and cached[K_MAX] == highValue then
-				statusStats.skipped = statusStats.skipped + 1
-				statusStats.rangeSkipped = statusStats.rangeSkipped + 1
-				return
-			end
-			cached = cached or StatusEntry(widget)
-			cached[K_MIN], cached[K_MAX], cached[K_RANGE_SET] = lowValue, highValue, true
-			cached[K_VALUE_SET] = nil
-			statusStats.passed = statusStats.passed + 1
-			statusStats.rangePassed = statusStats.rangePassed + 1
-			return original(widget, lowValue, highValue)
-		end
-		if pcall(function() statusMeta.SetMinMaxValues = wrapper end) then
-			statusWrappers.SetMinMaxValues = wrapper
-			hooked = hooked + 1
-		end
-	end
-
-	if type(statusMeta.SetStatusBarColor) == "function" then
-		local original = statusMeta.SetStatusBarColor
-		statusOriginals.SetStatusBarColor = original
-		local wrapper = function(widget, r, g, b, a)
-			if not statusReady then return original(widget, r, g, b, a) end
-			local cached = statusCache[widget]
-			if cached and cached[K_COLOR_SET] and cached[K_R] == r and cached[K_G] == g
-				and cached[K_B] == b and cached[K_A] == a then
-				statusStats.skipped = statusStats.skipped + 1
-				statusStats.colorSkipped = statusStats.colorSkipped + 1
-				return
-			end
-			cached = cached or StatusEntry(widget)
-			cached[K_R], cached[K_G], cached[K_B], cached[K_A] = r, g, b, a
-			cached[K_COLOR_SET] = true
-			statusStats.passed = statusStats.passed + 1
-			statusStats.colorPassed = statusStats.colorPassed + 1
-			return original(widget, r, g, b, a)
-		end
-		if pcall(function() statusMeta.SetStatusBarColor = wrapper end) then
-			statusWrappers.SetStatusBarColor = wrapper
-			hooked = hooked + 1
-		end
-	end
-
-	statusStats.hooked = hooked
-	statusStats.active = hooked > 0
-	statusReady = statusStats.active
-	return statusStats.active
+	-- Do not replace StatusBar methods on the shared metatable. PartyMemberFrame
+	-- calls SetValue/SetMinMaxValues and later SetScript("OnEvent") in the same
+	-- update. The Lua wrapper taints that SetScript, and every later combat
+	-- UNIT_PET then fails Hide/Show/SetPoint on the pet frame.
+	return false
 end
 
 function Runtime:UninstallThrashGuard()
@@ -1747,10 +1669,15 @@ function Runtime:OnCombatEvent(event)
 		self:MarkActivity()
 		self._inCombat = true
 		self:SyncBackendState()
+		-- StatusBar SetValue/SetMinMaxValues wrappers sit on the shared
+		-- metatable. PartyMemberFrame_UpdateMember calls them and then
+		-- SetPoint/Show on the pet frame. A Lua wrapper taints that remainder.
+		self:UninstallThrashGuard()
 	elseif event == "PLAYER_REGEN_ENABLED" then
 		self._inCombat = false
 		self:MarkActivity()
 		self:SyncBackendState()
+		self:RefreshUICacheOwnership()
 		self:StepGC(128, true)
 	end
 end

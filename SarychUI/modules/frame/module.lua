@@ -3,6 +3,7 @@
 
 local select = select
 local format = string.format
+local Private = select(2, ...)
 
 local moduleName = "frame"
 local module = {}
@@ -833,6 +834,9 @@ function module:OnEvent(event, ...)
         self:SaveDefaultPositions()
         -- Применяем настройки позиций
         self:ApplyFramePositions()
+        -- FrameXML anchors PetFrame to PlayerFrame, so restoring the player
+        -- scale also restores the pet frame after world/instance transitions.
+        self:ApplyFrameScale()
         -- Инициализируем текстовые индикаторы
         self:UpdateTextIndicators()
         -- Принудительно обновляем отображение процентов
@@ -860,6 +864,7 @@ function module:OnEvent(event, ...)
     elseif event == "ZONE_CHANGED_NEW_AREA" or event == "PLAYER_UNGHOST" or event == "PLAYER_ALIVE" or event == "PLAYER_LOGIN" then
         -- Применяем настройки позиций при смене зоны, воскрешении и т.д.
         self:ApplyFramePositions()
+        self:ApplyFrameScale()
     elseif event == "UNIT_PORTRAIT_UPDATE" or event == "UNIT_MODEL_CHANGED" then
         local unit = ...
         if self.Update3DPortraits then
@@ -992,39 +997,28 @@ function module:ApplyFramePositions()
     end
     self._pendingFramePositions = false
     
-    -- Проверяем, не происходит ли сейчас drag - если да, не применяем позицию
-    -- Это предотвращает перезапись позиции во время drag
-    if SarychUI.DragMode then
-        local playerData = SarychUI.DragMode:GetFrameData("playerFrame")
-        local targetData = SarychUI.DragMode:GetFrameData("targetFrame")
-        local focusData = SarychUI.DragMode:GetFrameData("focusFrame")
-        
-        -- Если фрейм только что был перемещен через drag или сейчас перемещается, не применяем позицию
-        if (playerData and (playerData.justDragged or playerData.isMoving)) or
-           (targetData and (targetData.justDragged or targetData.isMoving)) or
-           (focusData and (focusData.justDragged or focusData.isMoving)) then
-            return
-        end
+    local function IsDragBusy(frameId)
+        if not SarychUI.DragMode then return false end
+        local data = SarychUI.DragMode:GetFrameData(frameId)
+        return data and (data.justDragged or data.isMoving) and true or false
     end
-    
-    if PlayerFrame then
-        PlayerFrame:ClearAllPoints()
-        PlayerFrame:SetPoint("CENTER", UIParent, "CENTER", GetSetting('playerFrameX', -514), GetSetting('playerFrameY', 200))
+
+    local function ApplyOne(frame, frameId, xKey, yKey, defX, defY)
+        if not frame or IsDragBusy(frameId) then return end
+        -- Prefer raw SetPoint: DragMode may intercept and re-apply getPoint().
+        local data = SarychUI.DragMode and SarychUI.DragMode:GetFrameData(frameId)
+        local setPoint = (data and data.originalSetPoint) or frame.SetPoint
+        frame:ClearAllPoints()
+        setPoint(frame, "CENTER", UIParent, "CENTER", GetSetting(xKey, defX), GetSetting(yKey, defY))
     end
-    
-    if TargetFrame then
-        TargetFrame:ClearAllPoints()
-        TargetFrame:SetPoint("CENTER", UIParent, "CENTER", GetSetting('targetFrameX', -240), GetSetting('targetFrameY', 200))
-    end
-    
-    if FocusFrame then
-        FocusFrame:ClearAllPoints()
-        FocusFrame:SetPoint("CENTER", UIParent, "CENTER", GetSetting('focusFrameX', 350), GetSetting('focusFrameY', -150))
-    end
+
+    ApplyOne(PlayerFrame, "playerFrame", "playerFrameX", "playerFrameY", -514, 200)
+    ApplyOne(TargetFrame, "targetFrame", "targetFrameX", "targetFrameY", -240, 200)
+    ApplyOne(FocusFrame, "focusFrame", "focusFrameX", "focusFrameY", 350, -150)
 end
 
 function module:ResetFramePositions()
-    -- Восстанавливаем близовские дефолтные позиции
+    -- FrameXML defaults: PlayerFrame.xml / TargetFrame.xml / FocusFrame.xml
     if PlayerFrame then
         PlayerFrame:ClearAllPoints()
         PlayerFrame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -19, -4)
@@ -1037,7 +1031,7 @@ function module:ResetFramePositions()
     
     if FocusFrame then
         FocusFrame:ClearAllPoints()
-        FocusFrame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -19, -4)
+        FocusFrame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 12, -395)
     end
 end
 
@@ -1061,7 +1055,7 @@ end
 
 -- Restore Blizzard default frame positions (hardcoded default positions)
 function module:RestoreBlizzardDefaultPositions()
-    -- Близовские дефолтные позиции фреймов
+    -- FrameXML defaults: PlayerFrame.xml / TargetFrame.xml / FocusFrame.xml
     if PlayerFrame then
         PlayerFrame:ClearAllPoints()
         PlayerFrame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -19, -4)
@@ -1074,11 +1068,26 @@ function module:RestoreBlizzardDefaultPositions()
     
     if FocusFrame then
         FocusFrame:ClearAllPoints()
-        FocusFrame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -19, -4)
+        FocusFrame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 12, -395)
     end
 end
 
 -- Frame scaling functions
+local function ApplyPetFrameScale(scale)
+    if not PetFrame then return end
+
+    -- FrameXML/PetFrame.xml creates PetFrame with parent="PlayerFrame".  Its
+    -- effective scale therefore already includes PlayerFrame:GetScale().
+    -- Applying the profile scale to both frames would square the pet scale.
+    -- Keep the child-local factor neutral; retain a fallback for clients or
+    -- other UI replacements that reparent PetFrame.
+    if PlayerFrame and PetFrame:GetParent() == PlayerFrame then
+        PetFrame:SetScale(1.0)
+    else
+        PetFrame:SetScale(scale)
+    end
+end
+
 function module:ApplyFrameScale()
     if InCombatLockdown and InCombatLockdown() then
         self._pendingFrameScale = true
@@ -1091,7 +1100,7 @@ function module:ApplyFrameScale()
         if PlayerFrame then PlayerFrame:SetScale(1.0) end
         if TargetFrame then TargetFrame:SetScale(1.0) end
         if FocusFrame then FocusFrame:SetScale(1.0) end
-        if PetFrame then PetFrame:SetScale(1.0) end
+        ApplyPetFrameScale(1.0)
         return
     end
     
@@ -1099,14 +1108,14 @@ function module:ApplyFrameScale()
     if PlayerFrame then PlayerFrame:SetScale(scale) end
     if TargetFrame then TargetFrame:SetScale(scale) end
     if FocusFrame then FocusFrame:SetScale(scale) end
-    if PetFrame then PetFrame:SetScale(scale) end
+    ApplyPetFrameScale(scale)
 end
 
 function module:ResetFrameScale()
     if PlayerFrame then PlayerFrame:SetScale(1.0) end
     if TargetFrame then TargetFrame:SetScale(1.0) end
     if FocusFrame then FocusFrame:SetScale(1.0) end
-    if PetFrame then PetFrame:SetScale(1.0) end
+    ApplyPetFrameScale(1.0)
 end
 
 -- Text indicators functions
@@ -1394,10 +1403,12 @@ function module:ApplyVisualSettings()
     self:EnsureLevelHooks()
     self:EnsureClassColorHooks()
     self:EnsurePlayerRestStateHooks()
+    self:EnsureLeaderIconWatcher()
     self:HidePVPIcons()
     self:HidePVPTimer()
     self:HideFrameLevels()
     self:ApplyPlayerRestState()
+    self:ApplyLeaderIcons()
     self:ApplyNameBackground()
     self:ApplyClassNames()
     self:ResetClassOutlines()
@@ -1433,6 +1444,108 @@ function module:ApplyPlayerRestState()
             element:Hide()
         end
     end
+end
+
+local function EachLeaderIcon(callback)
+    local names = {
+        "PlayerLeaderIcon",
+        "PlayerGuideIcon",
+        "TargetFrameTextureFrameLeaderIcon",
+        "FocusFrameTextureFrameLeaderIcon",
+    }
+    local i
+    for i = 1, #names do
+        callback(_G[names[i]])
+    end
+    local partyCount = MAX_PARTY_MEMBERS or 4
+    for i = 1, partyCount do
+        local prefix = "PartyMemberFrame" .. i
+        callback(_G[prefix .. "LeaderIcon"])
+        callback(_G[prefix .. "GuideIcon"])
+    end
+    local bossCount = MAX_BOSS_FRAMES or 5
+    for i = 1, bossCount do
+        callback(_G["Boss" .. i .. "TargetFrameTextureFrameLeaderIcon"])
+    end
+end
+
+local function RestoreUnitLeaderIcon(frame)
+    local icon = frame and frame.leaderIcon
+    if not icon or not frame.unit or not frame.showLeader then return end
+    if UnitIsPartyLeader(frame.unit) and (UnitInParty(frame.unit) or UnitInRaid(frame.unit)) then
+        if type(HasLFGRestrictions) == "function" and HasLFGRestrictions() then
+            icon:SetTexture("Interface\\LFGFrame\\UI-LFG-ICON-PORTRAITROLES")
+            icon:SetTexCoord(0, 0.296875, 0.015625, 0.3125)
+        else
+            icon:SetTexture("Interface\\GroupFrame\\UI-Group-LeaderIcon")
+            icon:SetTexCoord(0, 1, 0, 1)
+        end
+        icon:Show()
+    else
+        icon:Hide()
+    end
+end
+
+function module:ApplyLeaderIcons(forceShow)
+    if not forceShow and SettingOn("hideLeaderIcon", 0) then
+        EachLeaderIcon(function(icon)
+            if not icon then return end
+            icon:SetAlpha(0)
+            icon:Hide()
+        end)
+        return
+    end
+
+    EachLeaderIcon(function(icon)
+        if icon then icon:SetAlpha(1) end
+    end)
+    if _G.PlayerFrame_UpdatePartyLeader then
+        _G.PlayerFrame_UpdatePartyLeader()
+    end
+    if _G.PartyMemberFrame_UpdateLeader then
+        local partyCount = MAX_PARTY_MEMBERS or 4
+        local i
+        for i = 1, partyCount do
+            local frame = _G["PartyMemberFrame" .. i]
+            if frame then
+                _G.PartyMemberFrame_UpdateLeader(frame)
+            end
+        end
+    end
+    RestoreUnitLeaderIcon(_G.TargetFrame)
+    RestoreUnitLeaderIcon(_G.FocusFrame)
+    local bossCount = MAX_BOSS_FRAMES or 5
+    local i
+    for i = 1, bossCount do
+        RestoreUnitLeaderIcon(_G["Boss" .. i .. "TargetFrame"])
+    end
+end
+
+function module:EnsureLeaderIconWatcher()
+    if self._leaderIconFrame then return end
+    local watcher = CreateFrame("Frame")
+    self._leaderIconFrame = watcher
+    watcher:RegisterEvent("PARTY_LEADER_CHANGED")
+    watcher:RegisterEvent("PARTY_MEMBERS_CHANGED")
+    watcher:RegisterEvent("RAID_ROSTER_UPDATE")
+    watcher:RegisterEvent("PLAYER_ENTERING_WORLD")
+    watcher:RegisterEvent("PLAYER_TARGET_CHANGED")
+    watcher:RegisterEvent("PLAYER_FOCUS_CHANGED")
+    watcher:RegisterEvent("PLAYER_FLAGS_CHANGED")
+    local pending = false
+    local elapsed = 0
+    watcher:SetScript("OnEvent", function()
+        pending = true
+    end)
+    watcher:SetScript("OnUpdate", function(_, dt)
+        elapsed = elapsed + (dt or 0)
+        if not pending and elapsed < 0.25 then return end
+        elapsed = 0
+        pending = false
+        if not self.db or not self.db.enabled then return end
+        if not SettingOn("hideLeaderIcon", 0) then return end
+        self:ApplyLeaderIcons()
+    end)
 end
 
 function module:EnsurePlayerRestStateHooks()
@@ -1814,6 +1927,7 @@ function module:ResetVisualSettings()
     if PlayerHitIndicator then PlayerHitIndicator.Show = nil end
     if PetHitIndicator then PetHitIndicator.Show = nil end
     self:ResetPlayerRestState()
+    self:ApplyLeaderIcons(true)
     self:ResetFrameLevels()
     self:ResetNameBackground()
     self:ResetClassNames()
@@ -1882,14 +1996,16 @@ local function GetCombatIconOffset(unit)
     return posX
 end
 
--- Create pulsing frame with animation using WoW's built-in animation system
-local function CreatePulsingFrame(parentFrame, point, relativePoint, xOffset, yOffset)
+-- Create pulsing frame with animation using WoW's built-in animation system.
+-- Child of the unit frame only — never SetPoint the parent (Player/Target/Focus).
+local function CreatePulsingFrame(parentFrame, point, relativeTo, relativePoint, xOffset, yOffset)
     local frame = CreateFrame("Frame", nil, parentFrame)
-    frame:SetPoint(point, parentFrame, relativePoint, xOffset, yOffset)
+    frame:ClearAllPoints()
+    frame:SetPoint(point, relativeTo or parentFrame, relativePoint, xOffset, yOffset)
     
     local textureWidth, textureHeight = GetCombatIndicatorSize()
     frame:SetSize(textureWidth, textureHeight)
-    frame:SetFrameLevel(parentFrame:GetFrameLevel() + 10)
+    frame:SetFrameLevel((parentFrame.GetFrameLevel and parentFrame:GetFrameLevel() or 0) + 10)
 
     frame.t = frame:CreateTexture(nil, "BORDER")
     frame.t:SetAllPoints()
@@ -1910,14 +2026,14 @@ local function CreatePulsingFrame(parentFrame, point, relativePoint, xOffset, yO
     pulseGroup:SetLooping("REPEAT")
     
     local fadeIn = pulseGroup:CreateAnimation("Alpha")
-    fadeIn:SetFromAlpha(0)
-    fadeIn:SetToAlpha(1)
+    Private.WidgetAPI.Alpha.SetFromAlpha(fadeIn, 0)
+    Private.WidgetAPI.Alpha.SetToAlpha(fadeIn, 1)
     fadeIn:SetDuration(0.5)
     fadeIn:SetOrder(1)
     
     local fadeOut = pulseGroup:CreateAnimation("Alpha")
-    fadeOut:SetFromAlpha(1)
-    fadeOut:SetToAlpha(0)
+    Private.WidgetAPI.Alpha.SetFromAlpha(fadeOut, 1)
+    Private.WidgetAPI.Alpha.SetToAlpha(fadeOut, 0)
     fadeOut:SetDuration(0.5)
     fadeOut:SetOrder(2)
     
@@ -1956,20 +2072,24 @@ function module:CreateCombatIndicators()
     if not CTT and TargetFrame then
         local posX = GetSetting('combatIndicatorTargetX', 57)
         local posY = GetSetting('combatIndicatorTargetY', 0)
-        CTT = CreatePulsingFrame(TargetFrame, "CENTER", "CENTER", posX, posY)
+        local rel = TargetFramePortrait or TargetFrame
+        CTT = CreatePulsingFrame(TargetFrame, "CENTER", rel, "CENTER", posX, posY)
     end
     
     if not CFT and FocusFrame then
         local posX = GetSetting('combatIndicatorFocusX', 57)
         local posY = GetSetting('combatIndicatorFocusY', 0)
-        CFT = CreatePulsingFrame(FocusFrame, "CENTER", "CENTER", posX, posY)
+        local rel = FocusFramePortrait or FocusFrame
+        CFT = CreatePulsingFrame(FocusFrame, "CENTER", rel, "CENTER", posX, posY)
     end
     
     if not CTP and PlayerFrame then
+        -- Was wrongly called as CreatePulsingFrame(..., "CENTER", PlayerFrame, "CENTER", ...)
+        -- which passed the frame object as relativePoint and stacked a second SetPoint
+        -- without ClearAllPoints. Indicator is a child only — does not move PlayerFrame.
         local posX = GetSetting('combatIndicatorPlayerX', 33)
         local posY = GetSetting('combatIndicatorPlayerY', 38)
-        CTP = CreatePulsingFrame(PlayerFrame, "CENTER", PlayerFrame, "CENTER", posX, posY)
-        CTP:SetPoint("CENTER", PlayerFrame, "LEFT", posX-24, posY)
+        CTP = CreatePulsingFrame(PlayerFrame, "CENTER", PlayerFrame, "LEFT", posX - 24, posY)
     end
 end
 
@@ -2016,10 +2136,13 @@ local function UpdateIconPosition(frame, unit)
     -- Update cached position
     lastCombatIndicatorPositions[unit] = { x = xOffset, y = posY }
     
+    frame:ClearAllPoints()
     if unit == "target" then
-        frame:SetPoint("CENTER", TargetFramePortrait, "CENTER", xOffset, posY)
+        frame:SetPoint("CENTER", TargetFramePortrait or TargetFrame, "CENTER", xOffset, posY)
     elseif unit == "focus" then
-        frame:SetPoint("CENTER", FocusFramePortrait, "CENTER", xOffset, posY)
+        frame:SetPoint("CENTER", FocusFramePortrait or FocusFrame, "CENTER", xOffset, posY)
+    elseif unit == "player" then
+        frame:SetPoint("CENTER", PlayerFrame, "LEFT", xOffset - 24, posY)
     end
 end
 
@@ -2051,14 +2174,7 @@ function module:UpdateCombatIndicatorPositions(forceUpdate)
         UpdateIconPosition(CFT, "focus")
     end
     if CTP then
-        local posX = GetSetting('combatIndicatorPlayerX', 33)
-        local posY = GetSetting('combatIndicatorPlayerY', 38)
-        local lastPos = lastCombatIndicatorPositions.player
-        -- Update if position changed or if forceUpdate
-        if forceUpdate or not lastPos or lastPos.x ~= posX or lastPos.y ~= posY then
-            lastCombatIndicatorPositions.player = { x = posX, y = posY }
-            CTP:SetPoint("CENTER", PlayerFrame, "LEFT", posX-24, posY)
-        end
+        UpdateIconPosition(CTP, "player")
     end
 end
 
@@ -2326,4 +2442,86 @@ end
 -- Export options hook (populated in options.lua)
 function module:GetOptions()
     return {}
+end
+
+-- BossNTargetFrame:Hide/Show comes from Blizzard's TargetFrame_Update. Once that
+-- path is tainted, combat blocks the protected call and spams ADDON_ACTION_BLOCKED.
+-- Keep the real methods out of combat. During combat, remember the last request
+-- and apply it on PLAYER_REGEN_ENABLED.
+local bossVisibilityPending
+local bossVisibilityFrame
+
+local function ForEachBossTargetFrame(func)
+    for i = 1, 5 do
+        local frame = _G["Boss" .. i .. "TargetFrame"]
+        if frame then
+            func(frame)
+        end
+    end
+end
+
+local function RestoreBossMethods(frame)
+    frame.Show = nil
+    frame.Hide = nil
+end
+
+local function ApplyBossVisibility(frame, action)
+    RestoreBossMethods(frame)
+    if action == "hide" then
+        frame:Hide()
+    elseif action == "show" and UnitExists(frame.unit) then
+        frame:Show()
+    end
+end
+
+local function FlushBossVisibility()
+    if InCombatLockdown() then
+        if bossVisibilityFrame then
+            bossVisibilityFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+        end
+        return
+    end
+    ForEachBossTargetFrame(RestoreBossMethods)
+    if not bossVisibilityPending then
+        return
+    end
+    local pending = bossVisibilityPending
+    bossVisibilityPending = nil
+    for frame, action in pairs(pending) do
+        ApplyBossVisibility(frame, action)
+    end
+end
+
+local function RememberBossVisibility(frame, action)
+    bossVisibilityPending = bossVisibilityPending or {}
+    bossVisibilityPending[frame] = action
+    bossVisibilityFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+end
+
+local function InstallBossCombatStubs()
+    ForEachBossTargetFrame(function(frame)
+        if not frame:IsProtected() then
+            return
+        end
+        frame.Show = function(self)
+            RememberBossVisibility(self, "show")
+        end
+        frame.Hide = function(self)
+            RememberBossVisibility(self, "hide")
+        end
+    end)
+end
+
+bossVisibilityFrame = CreateFrame("Frame")
+bossVisibilityFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+bossVisibilityFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+bossVisibilityFrame:SetScript("OnEvent", function(_, event)
+    if event == "PLAYER_REGEN_DISABLED" then
+        InstallBossCombatStubs()
+    else
+        FlushBossVisibility()
+    end
+end)
+if InCombatLockdown() then
+    InstallBossCombatStubs()
 end

@@ -24,8 +24,8 @@ local module = getModule()
 -- custom fields can carry insecure values into later secure update paths.
 local hotkeyByButton = setmetatable({}, { __mode = "k" })
 
--- Hotkey alpha has one owner.  Frost action-button refreshes, binding updates
--- and visibility events can all happen in the same frame, so using a separate
+-- Hotkey alpha has one owner. Action-button refreshes, binding updates and
+-- visibility events can all happen in the same frame, so using a separate
 -- UIFrameFade for every notification lets a later refresh cancel the fade and
 -- snap the text back to 0/1.  Keep the desired alpha and all active animations
 -- here instead.
@@ -34,12 +34,33 @@ local hotkeyAnimations = setmetatable({}, { __mode = "k" })
 local hotkeyInternalWrites = setmetatable({}, { __mode = "k" })
 local hotkeyOwnershipHooks = setmetatable({}, { __mode = "k" })
 local HOTKEY_ALPHA_EPSILON = 0.001
+-- FrameXML ActionButton.lua writes RANGE_INDICATOR ("●") when a slot has no
+-- binding.  That glyph is a range placeholder, not a hotkey, and must never
+-- appear through Alt / combat / target visibility.
+local RANGE_INDICATOR_GLYPH = "●"
+
+local function HasBindingHotkeyText(hotkey)
+    if not hotkey or not hotkey.GetText then
+        return false
+    end
+    local text = hotkey:GetText()
+    if not text or text == "" then
+        return false
+    end
+    if text == RANGE_INDICATOR_GLYPH then
+        return false
+    end
+    if RANGE_INDICATOR and text == RANGE_INDICATOR then
+        return false
+    end
+    return true
+end
 
 local function WriteHotkeyAlpha(hotkey, alpha)
     hotkeyInternalWrites[hotkey] = (hotkeyInternalWrites[hotkey] or 0) + 1
     -- 3.3.5 FontString:SetText/Show redraws the glyph at full opacity even when
     -- GetAlpha() still reports 0.  Re-stamp alpha, and Hide() at 0 so a later
-    -- Frost Show+SetText cannot leave the binding visible.
+    -- a later Show+SetText cannot leave the binding visible.
     if alpha <= HOTKEY_ALPHA_EPSILON then
         hotkey:SetAlpha(0)
         if hotkey.Hide then
@@ -67,14 +88,19 @@ hotkeyFadeDriver:SetScript("OnUpdate", function(self, elapsed)
     local running = false
 
     for hotkey, animation in pairs(hotkeyAnimations) do
-        animation.elapsed = animation.elapsed + elapsed
-        local progress = animation.elapsed / animation.duration
-        if progress >= 1 then
-            WriteHotkeyAlpha(hotkey, animation.toAlpha)
+        if not HasBindingHotkeyText(hotkey) then
+            WriteHotkeyAlpha(hotkey, 0)
             hotkeyAnimations[hotkey] = nil
         else
-            WriteHotkeyAlpha(hotkey, animation.fromAlpha + (animation.toAlpha - animation.fromAlpha) * progress)
-            running = true
+            animation.elapsed = animation.elapsed + elapsed
+            local progress = animation.elapsed / animation.duration
+            if progress >= 1 then
+                WriteHotkeyAlpha(hotkey, animation.toAlpha)
+                hotkeyAnimations[hotkey] = nil
+            else
+                WriteHotkeyAlpha(hotkey, animation.fromAlpha + (animation.toAlpha - animation.fromAlpha) * progress)
+                running = true
+            end
         end
     end
 
@@ -83,16 +109,21 @@ hotkeyFadeDriver:SetScript("OnUpdate", function(self, elapsed)
     end
 end)
 
--- Classic buttons finish their refresh through ActionButton_Update, which is
--- hooked below.  Frost buttons update their binding FontString directly via
--- SetText/Show, so mirror the classic post-update reconciliation on those
--- mutations as well.
+-- Action buttons finish their refresh through ActionButton_Update, which is
+-- hooked below.
 local function InstallHotkeyOwnershipHooks(hotkey)
     if not hotkey or hotkeyOwnershipHooks[hotkey] or not hooksecurefunc then return end
     hotkeyOwnershipHooks[hotkey] = true
 
     hooksecurefunc(hotkey, "SetAlpha", function(region, writtenAlpha)
         if hotkeyInternalWrites[region] then return end
+
+        if not HasBindingHotkeyText(region) then
+            if module.ApplyHotkeyRegion then
+                module:ApplyHotkeyRegion(region, "external:SetAlpha:unbound")
+            end
+            return
+        end
 
         local expected = module:GetHotkeyTargetAlpha()
         local actual = tonumber(writtenAlpha)
@@ -108,19 +139,6 @@ local function InstallHotkeyOwnershipHooks(hotkey)
         if module.ApplyHotkeyRegion then
             module:ApplyHotkeyRegion(region, "external:SetAlpha:repair")
         end
-    end)
-
-    local function ReconcileFrostMutation(region, source)
-        if hotkeyInternalWrites[region] then return end
-        if module.ApplyHotkeyRegion then
-            module:ApplyHotkeyRegion(region, source)
-        end
-    end
-    hooksecurefunc(hotkey, "SetText", function(region)
-        ReconcileFrostMutation(region, "Hotkey:SetText")
-    end)
-    hooksecurefunc(hotkey, "Show", function(region)
-        ReconcileFrostMutation(region, "Hotkey:Show")
     end)
 end
 
@@ -167,14 +185,22 @@ local function SetHotkeyAlpha(hotkey, alpha, fadeTime, force, restamp)
     if not hotkey then return end
     InstallHotkeyOwnershipHooks(hotkey)
 
+    -- Unbound slots keep RANGE_INDICATOR / empty text.  Never reveal that
+    -- placeholder, even when the Text panel wants hotkeys at alpha 1.
+    if not HasBindingHotkeyText(hotkey) then
+        alpha = 0
+        fadeTime = 0
+        force = true
+        restamp = true
+    end
+
     alpha = tonumber(alpha) or 0
     if alpha < 0 then alpha = 0 elseif alpha > 1 then alpha = 1 end
     local from = hotkey.GetAlpha and hotkey:GetAlpha() or alpha
 
     -- A repeated action-button/binding refresh must not interrupt an animation
-    -- which is already moving this FontString to the same target.  Frost
-    -- SetText/Show still redraws at full opacity while GetAlpha stays 0, so a
-    -- restamp must write even when the stored alpha already matches.
+    -- which is already moving this FontString to the same target. A restamp
+    -- must still write when the stored alpha already matches.
     if not force and hotkeyTargets[hotkey] == alpha then
         local animation = hotkeyAnimations[hotkey]
         if animation then
@@ -220,9 +246,7 @@ function module:GetHotkeyFadeTime()
     return 0
 end
 
--- The Text panel is the single source of truth for hotkey visibility.  Frost
--- buttons and Blizzard buttons both ask this function instead of deciding on
--- their own whether a label should appear.
+-- The Text panel is the single source of truth for hotkey visibility.
 function module:GetHotkeyTargetAlpha()
     if not SarychUI.db or not SarychUI.db.profile or not SarychUI.db.profile.modules then
         return nil
@@ -271,7 +295,7 @@ end
 
 -- Combat coordinator.  Classic bars latch from UnitAffectingCombat; CircleL
 -- often delivers PLAYER_REGEN_DISABLED before lockdown, so requiring lockdown
--- (or a post-exit "released" gate) hid Frost hotkeys in a real fight.
+-- can hide hotkeys in a real fight.
 function module:SetHotkeyCombatState(inCombat, fadeTime, source)
     if inCombat then
         if (InCombatLockdown and InCombatLockdown()) or UnitAffectingCombat("player") then
@@ -285,14 +309,18 @@ function module:SetHotkeyCombatState(inCombat, fadeTime, source)
     self:UpdateAllHotkeys(fadeTime, nil, source)
 end
 
--- Reconcile one region after Blizzard/Frost has refreshed its text.  A repair
+-- Reconcile one region after Blizzard has refreshed its text. A repair
 -- is immediate, but it preserves an active animation with the same target.
 function module:ApplyHotkeyRegion(hotkey, source)
     if not hotkey then return end
     InstallHotkeyOwnershipHooks(hotkey)
-    -- Stance bindings stay hidden on classic and Frost, matching FrostAtomUI's
-    -- showShapeshiftHotkeys = false.  Combat / Alt / target never reveal them.
+    -- Stance bindings stay hidden. Combat / Alt / target never reveal them.
     if IsShapeshiftHotkeyRegion(hotkey) then
+        SetHotkeyAlpha(hotkey, 0, 0, true, true)
+        return
+    end
+    -- No bind → no label.  RANGE_INDICATOR must not follow Alt/combat rules.
+    if not HasBindingHotkeyText(hotkey) then
         SetHotkeyAlpha(hotkey, 0, 0, true, true)
         return
     end
@@ -308,28 +336,7 @@ function module:ApplyHotkeyAlpha(button, source)
     local hotkey = hotkeyByButton[button]
     if hotkey == nil then
         local name = button.GetName and button:GetName()
-        -- SarychUIActionSlotN is an invisible Blizzard state proxy, not a
-        -- rendered Frost button.  Its template receives ActionButton_Update
-        -- events and used to become a second, conflicting hotkey owner.
-        if name and name:find("^SarychUIActionSlot%d+$") then
-            hotkeyByButton[button] = false
-            return
-        end
-        -- Frost action buttons intentionally use their private FontString;
-        -- the named template region is blank and permanently hidden.
-        if name and name:find("^SarychUIActionButton%d+$") then
-            hotkey = button.hotkey or false
-        else
-            local namedHotkey = name and _G[name .. "HotKey"]
-            -- Frost reuses Blizzard pet/stance buttons but renders bindings in
-            -- a private FontString.  Prefer it whenever it differs from the
-            -- now-suppressed template region.
-            if button.hotkey and button.hotkey ~= namedHotkey then
-                hotkey = button.hotkey
-            else
-                hotkey = namedHotkey or button.hotkey or false
-            end
-        end
+        hotkey = (name and _G[name .. "HotKey"]) or button.hotkey or false
         hotkeyByButton[button] = hotkey
     end
     if not hotkey then return end
@@ -352,6 +359,15 @@ function module:InitializeTextSystem()
                 if module.UpdateMacroNames then module:UpdateMacroNames(button) end
             end
         end)
+        -- FrameXML writes RANGE_INDICATOR on UPDATE_BINDINGS without going
+        -- through ActionButton_Update.  Hide that placeholder immediately.
+        if ActionButton_UpdateHotkeys then
+            hooksecurefunc("ActionButton_UpdateHotkeys", function(button)
+                if SarychUI.modules and SarychUI.modules.mainmenubar and SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.modules and SarychUI.db.profile.modules.mainmenubar and SarychUI.db.profile.modules.mainmenubar.enabled then
+                    module:ApplyHotkeyAlpha(button, "Blizzard:ActionButton_UpdateHotkeys")
+                end
+            end)
+        end
     end
     
     -- Combat events will be registered at the end of file
@@ -392,8 +408,8 @@ function module:UpdateAllHotkeys(fadeTime, force, source)
     
     local alpha = self:GetHotkeyTargetAlpha()
     if alpha == nil then return end
-    -- Fade is only for combat enter/leave.  Alt, target, Frost refreshes and
-    -- option changes must snap; otherwise the combat fade duration leaks onto
+    -- Fade is only for combat enter/leave. Alt, target and option changes must
+    -- snap; otherwise the combat fade duration leaks onto
     -- Alt and a later refresh can restart a fade in the wrong direction.
     if fadeTime == nil then
         fadeTime = 0
@@ -402,15 +418,6 @@ function module:UpdateAllHotkeys(fadeTime, force, source)
     local regions = GetHotkeyRegions()
     for i = 1, #regions do
         SetHotkeyAlpha(regions[i], alpha, fadeTime, force)
-    end
-    local FA = SarychUI.FrostAtomBars
-    local forEachFrostHotkey = FA and (FA.ForEachHotkeyButton or FA.ForEachStyledButton)
-    if FA and FA.IsActive and FA.IsActive() and forEachFrostHotkey then
-        forEachFrostHotkey(function(button)
-            if button and button.hotkey then
-                SetHotkeyAlpha(button.hotkey, alpha, fadeTime, force)
-            end
-        end)
     end
     local shapeshiftSlots = tonumber(NUM_SHAPESHIFT_SLOTS) or 10
     for i = 1, shapeshiftSlots do
@@ -457,19 +464,6 @@ function module:UpdateAllMacroNames()
                 end
             end
         end
-    end
-    local FA = SarychUI.FrostAtomBars
-    if FA and FA.IsActive and FA.IsActive() and FA.ForEachStyledButton then
-        FA.ForEachStyledButton(function(button)
-            local macroName = button and button.name
-            if macroName then
-                if hideMacroNames then
-                    macroName:Hide()
-                else
-                    macroName:Show()
-                end
-            end
-        end)
     end
 end
 
@@ -525,16 +519,6 @@ function module:ShowAllHotkeys()
     local regions = GetHotkeyRegions()
     for i = 1, #regions do
         SetHotkeyAlpha(regions[i], 1, 0, true)
-    end
-
-    local FA = SarychUI.FrostAtomBars
-    local forEachFrostHotkey = FA and (FA.ForEachHotkeyButton or FA.ForEachStyledButton)
-    if forEachFrostHotkey then
-        forEachFrostHotkey(function(button)
-            if button and button.hotkey then
-                SetHotkeyAlpha(button.hotkey, 1, 0, true)
-            end
-        end)
     end
 end
 

@@ -45,14 +45,6 @@ local function GetModuleSettings(moduleName)
     if not currentDb or not currentDb.enabled then 
         return nil 
     end
-    -- FrostAtomUI bars: Blizzard hotkeys / page numbers no longer exist.
-    if moduleName == "mainmenubar" then
-        local FA = SarychUI.FrostAtomBars
-        if FA and FA.bootMode == "frostatom" then
-            return nil
-        end
-    end
-    
     return currentDb
 end
 
@@ -312,8 +304,8 @@ combatFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
 combatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 combatFrame:SetScript("OnEvent", function(self, event)
     if event == "PLAYER_REGEN_DISABLED" then
-        -- Classic and Frost share this path.  CircleL may fire the event
-        -- before lockdown; SetHotkeyCombatState still latches from the live
+        -- CircleL may fire the event before lockdown;
+        -- SetHotkeyCombatState still latches from the live
         -- unit flag so in-combat hotkeys stay visible without a target.
         CombatAnimations:FadeInHotkeys("PLAYER_REGEN_DISABLED")
         CombatAnimations:FadeInPageNumbers()

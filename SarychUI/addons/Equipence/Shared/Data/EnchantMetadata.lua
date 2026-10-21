@@ -154,7 +154,7 @@ Engine.Shared.Data.EnchantMetadataByID = {
 	[1953] = { spellID = 47766 }, -- +22 Dodge Rating | Enchant Chest - Greater Dodge
 	[2322] = { spellID = 33999 }, -- +19 Spell Power | Enchant Gloves - Major Healing
 	[2326] = { spellID = 44635 }, -- +23 Spell Power | Enchant Bracer - Greater Spellpower
-	[2332] = { spellID = 60767 }, -- +30 Spell Power | Enchant Bracer - Superior Spellpower
+	[2332] = { spellID = 60767, itemIDs = { 44470 } }, -- +30 Spell Power | Enchant Bracer - Superior Spellpower
 	[2381] = { spellID = 44509 }, -- +20 Spirit | Enchant Chest - Greater Mana Restoration
 	[2443] = { spellID = 21931 }, -- +7 Frost Spell Damage | Enchant Weapon - Winter's Might
 	[2488] = { spellID = 22599 }, -- +5 All Resistances | Chromatic Mantle of the Dawn
@@ -288,17 +288,17 @@ Engine.Shared.Data.EnchantMetadataByID = {
 	[3225] = { spellID = 42974 }, -- Executioner | Enchant Weapon - Executioner
 	[3229] = { spellID = 44383 }, -- +12 Resilience Rating | Enchant Shield - Resilience
 	[3231] = { spellID = 44484 }, -- +15 Expertise Rating | Enchant Gloves - Expertise
-	[3232] = { spellID = 47901 }, -- +15 Stamina and Minor Speed Increase | Enchant Boots - Tuskarr's Vitality
+	[3232] = { spellID = 47901, itemIDs = { 39006 } }, -- +15 Stamina and Minor Speed Increase | Enchant Boots - Tuskarr's Vitality
 	[3233] = { spellID = 27958 }, -- +250 Mana | Enchant Chest - Exceptional Mana
 	[3234] = { spellID = 44488 }, -- +20 Hit Rating | Enchant Gloves - Precision
 	[3236] = { spellID = 44492 }, -- +200 Health | Enchant Chest - Mighty Health
 	[3238] = { spellID = 44506 }, -- Gatherer | Enchant Gloves - Gatherer
 	[3239] = { spellID = 44524 }, -- Icebreaker Weapon | Enchant Weapon - Icebreaker
 	[3241] = { spellID = 44576 }, -- Lifeward | Enchant Weapon - Lifeward
-	[3243] = { spellID = 44582 }, -- +35 Spell Penetration | Enchant Cloak - Spell Piercing
+	[3243] = { spellID = 44582, itemIDs = { 38973 } }, -- +35 Spell Penetration | Enchant Cloak - Spell Piercing
 	[3244] = { spellID = 44584 }, -- +14 Spirit and +14 Stamina | Enchant Boots - Greater Vitality
-	[3245] = { spellID = 44588 }, -- +20 Resilience Rating | Enchant Chest - Exceptional Resilience
-	[3246] = { spellID = 44592 }, -- +28 Spell Power | Enchant Gloves - Exceptional Spellpower
+	[3245] = { spellID = 44588, itemIDs = { 38975 } }, -- +20 Resilience Rating | Enchant Chest - Exceptional Resilience
+	[3246] = { spellID = 44592, itemIDs = { 38979 } }, -- +28 Spell Power | Enchant Gloves - Exceptional Spellpower
 	[3247] = { spellID = 44595 }, -- +140 Attack Power versus Undead | Enchant 2H Weapon - Scourgebane
 	[3251] = { spellID = 44621 }, -- Giantslaying | Enchant Weapon - Giant Slayer
 	[3252] = { spellID = 44623 }, -- +8 All Stats | Enchant Chest - Super Stats
@@ -393,7 +393,7 @@ Engine.Shared.Data.EnchantMetadataByID = {
 	[3831] = { spellID = 47898 }, -- +23 Haste Rating | Enchant Cloak - Greater Speed
 	[3832] = { spellID = 60692 }, -- +10 All Stats | Enchant Chest - Powerful Stats
 	[3833] = { spellID = 60707 }, -- +65 Attack Power | Enchant Weapon - Superior Potency
-	[3834] = { spellID = 60714 }, -- +63 Spell Power | Enchant Weapon - Mighty Spellpower
+	[3834] = { spellID = 60714, itemIDs = { 44467 } }, -- +63 Spell Power | Enchant Weapon - Mighty Spellpower
 	[3835] = { spellID = 61117 }, -- +120 Attack Power and +15 Crit Rating | Master's Inscription of the Axe
 	[3836] = { spellID = 61118 }, -- +60 Intellect and +15 Spirit | Master's Inscription of the Crag
 	[3837] = { spellID = 61119 }, -- +60 Dodge Rating and +15 Parry Rating | Master's Inscription of the Pinnacle

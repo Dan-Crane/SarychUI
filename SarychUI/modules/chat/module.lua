@@ -78,6 +78,9 @@ function module:Disable()
     -- Ensure chat animations are switched off immediately when module is disabled
     ForceDisableChatAnimations()
 
+    -- Restore chat and remove its visibility binding before other chat elements are disabled
+    self:DisableChatVisibility()
+
     -- Disable ChatBar completely
     self:DisableChatBar()
 
@@ -121,12 +124,6 @@ function module:Disable()
         -- Отключаем все хуки для позиционирования
         ItemRefTooltip:SetScript("OnShow", nil)
         ItemRefTooltip:SetScript("OnHide", nil)
-    end
-    
-    -- Отключаем хуки PetActionBarFrame
-    if PetActionBarFrame then
-        PetActionBarFrame:SetScript("OnShow", nil)
-        PetActionBarFrame:SetScript("OnHide", nil)
     end
     
     -- Disable Tooltip Icons completely
@@ -247,6 +244,7 @@ function module:ApplyAllSettings()
     local db = SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.modules and SarychUI.db.profile.modules[moduleName]
     if not db or not db.enabled then 
         -- Если модуль отключен, принудительно отключаем все функции
+        self:DisableChatVisibility()
         self:DisableChatBar()
         self:DisableHotkeys()
         self:DisableChatTabFontSizeMenu()
@@ -314,6 +312,9 @@ function module:ApplyAllSettings()
 
     -- Apply Chat Wheel settings
     self:ApplyChatWheelSettings()
+
+    -- Apply chat visibility toggle settings
+    self:ApplyChatVisibilitySettings()
     
     -- Apply Tooltip Position settings
     self:ApplyTooltipPositionSettings()
@@ -704,6 +705,19 @@ function module:DisableChatWheel()
         if _G.SarychUI_ChatWheel.ApplySettings then
             _G.SarychUI_ChatWheel.ApplySettings()
         end
+    end
+end
+
+-- Apply the key that toggles the complete chat window visibility
+function module:ApplyChatVisibilitySettings()
+    if _G.SarychUI_ChatVisibility and _G.SarychUI_ChatVisibility.ApplySettings then
+        _G.SarychUI_ChatVisibility.ApplySettings()
+    end
+end
+
+function module:DisableChatVisibility()
+    if _G.SarychUI_ChatVisibility and _G.SarychUI_ChatVisibility.Disable then
+        _G.SarychUI_ChatVisibility.Disable()
     end
 end
 

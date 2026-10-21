@@ -36,6 +36,13 @@ local function EnsureChatWheelDb(db)
     end
 end
 
+local function EnsureChatVisibilityDb(db)
+    if type(db.chatVisibility) ~= "table" then
+        local def = SarychUI.defaults.profile.modules.chat.chatVisibility
+        db.chatVisibility = def and CopyTable(def) or {}
+    end
+end
+
 local function ChatWheelModuleEnabled()
     local cw = SarychUI.db.profile.modules[moduleName].chatWheel
     return cw and (cw.enabled == 1 or cw.enabled == true)
@@ -1668,6 +1675,71 @@ function module:GetOptions()
                                 disabled = function()
                                     return not ChatWheelModuleEnabled()
                                 end,
+                            },
+                        },
+                    },
+                },
+            },
+
+            visibility = {
+                type = "group",
+                name = "Видимость",
+                order = 6,
+                disabled = function() return not isEnabled() end,
+                args = {
+                    visibilityBox = {
+                        type = "group",
+                        name = " ",
+                        order = 1,
+                        inline = true,
+                        args = {
+                            chat_visibility_enabled = {
+                                type = "toggle",
+                                name = "Включить управление видимостью",
+                                desc = "Разрешает скрывать и показывать окно чата назначенной кнопкой.",
+                                order = 1,
+                                width = "full",
+                                get = function()
+                                    local visibility = SarychUI.db.profile.modules[moduleName].chatVisibility
+                                    return visibility and (visibility.enabled == 1 or visibility.enabled == true)
+                                end,
+                                set = function(_, value)
+                                    local db = SarychUI.db.profile.modules[moduleName]
+                                    EnsureChatVisibilityDb(db)
+                                    db.chatVisibility.enabled = value and 1 or 0
+                                    if SarychUI.modules and SarychUI.modules[moduleName] then
+                                        SarychUI.modules[moduleName]:ApplyChatVisibilitySettings()
+                                    end
+                                end,
+                            },
+                            chat_visibility_key = {
+                                type = "keybinding",
+                                name = "Кнопка видимости чата",
+                                desc = "Одно нажатие скрывает чат, повторное показывает его.",
+                                order = 2,
+                                width = "full",
+                                disabled = function()
+                                    local visibility = SarychUI.db.profile.modules[moduleName].chatVisibility
+                                    return not visibility or (visibility.enabled ~= 1 and visibility.enabled ~= true)
+                                end,
+                                get = function()
+                                    local visibility = SarychUI.db.profile.modules[moduleName].chatVisibility
+                                    return visibility and visibility.key or nil
+                                end,
+                                set = function(_, value)
+                                    local db = SarychUI.db.profile.modules[moduleName]
+                                    EnsureChatVisibilityDb(db)
+                                    db.chatVisibility.key = value
+                                    if SarychUI.modules and SarychUI.modules[moduleName] then
+                                        SarychUI.modules[moduleName]:ApplyChatVisibilitySettings()
+                                    end
+                                end,
+                            },
+                            chat_visibility_desc = {
+                                type = "description",
+                                name = "|cFFFFD700Пометка:|r Нажмите назначенную кнопку, чтобы скрыть чат. Нажмите её повторно, чтобы вернуть чат.",
+                                order = 3,
+                                fontSize = "medium",
                             },
                         },
                     },

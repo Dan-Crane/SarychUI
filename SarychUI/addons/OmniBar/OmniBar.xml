@@ -180,10 +180,10 @@
 		</Frames>
 		<Scripts>
 			<OnLoad>
-				self.flash:SetAtlas("bags-glow-flash", true)
-				self.NewItemTexture:SetAtlas("bags-glow-blue", true)
-				self.TargetTexture:SetAtlas("bags-glow-purple", true)
-				self.FocusTexture:SetAtlas("bags-glow-white", true)
+				OmniBar_SetTextureAtlas(self.flash, "bags-glow-flash", true)
+				OmniBar_SetTextureAtlas(self.NewItemTexture, "bags-glow-blue", true)
+				OmniBar_SetTextureAtlas(self.TargetTexture, "bags-glow-purple", true)
+				OmniBar_SetTextureAtlas(self.FocusTexture, "bags-glow-white", true)
 
 				self.newitemglowAnim = self.NewItemTexture.anim
 				self.flashAnim = self.flash.anim

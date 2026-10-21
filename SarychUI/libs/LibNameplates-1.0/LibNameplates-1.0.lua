@@ -7,7 +7,7 @@
 		LibNameplates tries to function with the default nameplates, Aloft and TidyPlates.
 	Dependencies: LibStub, CallbackHandler-1.0
 ]]
-local MAJOR, MINOR = "LibNameplates-1.0", 35
+local MAJOR, MINOR = "LibNameplates-1.0", 36
 if not LibStub then
 	error(MAJOR .. " requires LibStub.")
 	return
@@ -43,6 +43,12 @@ local _
 local fastOnFinishThrottle = 0.25 -- check combat & threat every x seconds.
 local slowOnFinishThrottle = 1 -- Check for lingering mouseover texture and for TidyPlates frame.
 local CheckForFakePlate -- checks fake frames
+
+-- SarychUI classic scale reparents Blizzard art onto plate._suiClassicVisual.
+-- Region/child lookups must follow that wrapper or plates go unseen.
+local function GetPlateArtFrame(frame)
+	return frame and (frame._suiClassicVisual or frame) or frame
+end
 
 local regionOrder = {
 	[1] = "threatTexture",
@@ -189,10 +195,12 @@ do
 			or frame.UnitFrame  -- ElvUI
 			or frame.kui        -- KuiNameplates
 			or frame.aloftData  -- Aloft
+			or frame._suiClassicVisual -- SarychUI classic scale wrapper
 			then
 				return true
 			end
-			local _, r2 = frame:GetRegions()
+			local art = GetPlateArtFrame(frame)
+			local _, r2 = art:GetRegions()
 			return r2 and r2:GetObjectType() == "Texture" and r2:GetTexture() == "Interface\\Tooltips\\Nameplate-Border" 
 		end
 		-- Reused buffer: GetChildren() must be called once per scan, not once per
@@ -720,7 +728,7 @@ function lib:GetNameRegion(frame)
 	elseif frame.oldname then --dNameplates
 		return frame.oldname
 	end
-	return select(regionIndex.nameText, frame:GetRegions())
+	return select(regionIndex.nameText, GetPlateArtFrame(frame):GetRegions())
 end
 
 function lib:GetLevelRegion(frame)
@@ -733,7 +741,7 @@ function lib:GetLevelRegion(frame)
 	elseif frame.level then --dNameplates & KuiNameplates
 		return frame.level
 	end
-	return select(regionIndex.levelText, frame:GetRegions())
+	return select(regionIndex.levelText, GetPlateArtFrame(frame):GetRegions())
 end
 
 function lib:GetBossRegion(frame)
@@ -746,7 +754,7 @@ function lib:GetBossRegion(frame)
 	elseif frame.boss then --dNameplates & KuiNameplates
 		return frame.boss
 	end
-	return select(regionIndex.skullIcon, frame:GetRegions())
+	return select(regionIndex.skullIcon, GetPlateArtFrame(frame):GetRegions())
 end
 
 function lib:GetEliteRegion(frame)
@@ -761,7 +769,7 @@ function lib:GetEliteRegion(frame)
 	elseif frame.elite then --dNameplates
 		return frame.elite
 	end
-	return select(regionIndex.eliteIcon, frame:GetRegions())
+	return select(regionIndex.eliteIcon, GetPlateArtFrame(frame):GetRegions())
 end
 
 function lib:GetThreatRegion(frame)
@@ -776,7 +784,7 @@ function lib:GetThreatRegion(frame)
 	elseif frame.oldglow then --dNameplates
 		return frame.oldglow
 	end
-	return select(regionIndex.threatTexture, frame:GetRegions())
+	return select(regionIndex.threatTexture, GetPlateArtFrame(frame):GetRegions())
 end
 
 function lib:GetHightlightRegion(frame)
@@ -795,7 +803,7 @@ function lib:GetHightlightRegion(frame)
 	elseif frame.highlight then --dNameplates or KuiNameplates
 		return frame.highlight
 	end
-	return select(regionIndex.highlightTexture, frame:GetRegions())
+	return select(regionIndex.highlightTexture, GetPlateArtFrame(frame):GetRegions())
 end
 
 function lib:GetRaidIconRegion(frame)
@@ -806,7 +814,7 @@ function lib:GetRaidIconRegion(frame)
 	elseif frame.aloftData and frame.aloftData.raidIconRegion then
 		return frame.aloftData.raidIconRegion
 	end
-	return select(regionIndex.raidIcon, frame:GetRegions())
+	return select(regionIndex.raidIcon, GetPlateArtFrame(frame):GetRegions())
 end
 
 function lib:IsTarget(frame, quick)
@@ -836,7 +844,7 @@ function lib:GetHealthBar(frame)
 	elseif frame.healthOriginal then -- dNameplates
 		return frame.healthOriginal
 	end
-	return select(childIndex.healthBar, frame:GetChildren())
+	return select(childIndex.healthBar, GetPlateArtFrame(frame):GetChildren())
 end
 
 function lib:GetCastBar(frame)
@@ -847,7 +855,7 @@ function lib:GetCastBar(frame)
 	elseif frame.aloftData and frame.aloftData.castBar then
 		return frame.aloftData.castBar
 	end
-	return select(childIndex.castBar, frame:GetChildren())
+	return select(childIndex.castBar, GetPlateArtFrame(frame):GetChildren())
 end
 
 function lib:GetName(frame)

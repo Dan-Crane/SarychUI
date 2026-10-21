@@ -36,6 +36,7 @@ local KEY_TO_SLOT = {
 	portrait3D = "portrait3D",
 	hideFrameLevel = "level",
 	hidePlayerRestState = "restState",
+	hideLeaderIcon = "leader",
 	classIconEnabled = "style",
 	classIconMode = "classIcon",
 	classIconMaxLevelOnly = "classIcon",
@@ -544,6 +545,14 @@ local function PaintPreviewNameBg(tex, classToken, isPlayer)
 	end
 end
 
+local function MakeLeaderIcon(parent, point, x, y)
+	local icon = parent:CreateTexture(nil, "OVERLAY")
+	icon:SetSize(S(16), S(16))
+	icon:SetPoint(point, x, y)
+	icon:SetTexture("Interface\\GroupFrame\\UI-Group-LeaderIcon")
+	return icon
+end
+
 local function MakePlayer(parent)
 	local f = CreateFrame("Frame", nil, parent)
 	f:SetSize(FRAME_W, FRAME_H)
@@ -635,6 +644,9 @@ local function MakePlayer(parent)
 	restState.icon = restIcon
 	restState.glow = restGlow
 	f.restState = restState
+
+	-- PlayerFrame.xml: PlayerLeaderIcon 16x16 TOPLEFT 40,-12
+	f.leaderIcon = MakeLeaderIcon(borderFrame, "TOPLEFT", S(40), -S(12))
 
 	-- PlayerFrame.xml: PlayerLevelText CENTER -63, -16
 	f.levelWrap = MakeLevel(f, S(-63), S(-16))
@@ -732,6 +744,9 @@ local function MakeTarget(parent)
 	border:SetTexCoord(0.09375, 1.0, 0, 0.78125)
 	f.border = border
 
+	-- TargetFrame.xml: LeaderIcon 16x16 TOPRIGHT -44,-10
+	f.leaderIcon = MakeLeaderIcon(borderFrame, "TOPRIGHT", -S(44), -S(10))
+
 	-- TargetLevelText CENTER 63,-16
 	f.levelWrap = MakeLevel(f, S(63), S(-16))
 
@@ -784,6 +799,7 @@ function Preview:Create(parent)
 		local hideTimer = LiveFlag("hidePVPTimer", true)
 		local hideLevel = LiveFlag("hideFrameLevel", false)
 		local hideRestState = LiveFlag("hidePlayerRestState", false)
+		local hideLeader = LiveFlag("hideLeaderIcon", false)
 		-- One toggle + one style: class | spec | badge | model replace the portrait,
 		-- separate | replace put the class icon at the level badge.
 		local enabled = LiveFlag("classIconEnabled", false)
@@ -849,6 +865,22 @@ function Preview:Create(parent)
 			player.restState.icon:SetVertexColor(r, g, b)
 			player.restState.glow:SetVertexColor(r, g, b)
 		end
+
+		local function PaintLeader(icon)
+			if not icon then return end
+			if hideLeader then
+				icon:Hide()
+				return
+			end
+			icon:Show()
+			if IsActive("leader") then
+				icon:SetVertexColor(1, 0.92, 0.35)
+			else
+				icon:SetVertexColor(1, 1, 1)
+			end
+		end
+		PaintLeader(player.leaderIcon)
+		PaintLeader(target.leaderIcon)
 
 		PaintPreviewNameBg(player.nameBg, playerClass, true)
 		PaintPreviewNameBg(target.nameBg, "PALADIN", false)

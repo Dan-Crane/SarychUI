@@ -27,17 +27,18 @@ if not SarychUI._lProxyInstalled then
 end
 
 local VALID = {
-	ruRU = true, enUS = true, esES = true,
+	ruRU = true, enUS = true, esES = true, ukUA = true,
 }
 
 local DISPLAY_ORDER = {
-	"ruRU", "enUS", "esES",
+	"ruRU", "enUS", "esES", "ukUA",
 }
 
 local DISPLAY_NAMES = {
 	ruRU = "Русский",
 	enUS = "English",
 	esES = "Español",
+	ukUA = "Українська",
 }
 
 -- Flag textures for language select (Texture widgets, not |T markup).
@@ -449,6 +450,9 @@ function SarychUI:RebuildLocalizedOptions()
 	if type(self.AddModuleOptions) == "function" then
 		self:AddModuleOptions()
 	end
+	if type(self.AddExtensionOptions) == "function" then
+		self:AddExtensionOptions()
+	end
 	if type(self.AddAddOnOptions) == "function" then
 		self._addonOptionsDirty = true
 		self._addonOptionsBuilt = false
@@ -461,7 +465,7 @@ function SarychUI:RebuildLocalizedOptions()
 		if self.CustomizeProfileOptions then
 			self:CustomizeProfileOptions(profileOpts)
 		end
-		profileOpts.name = self:T("Профили")
+		profileOpts.name = self:T("Профили и перенос")
 		profileOpts.order = 3
 		root.args.general.args.profiles = profileOpts
 	end

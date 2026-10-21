@@ -104,32 +104,17 @@ function SarychUI_IsEmbeddedPostalLoaded()
 end
 
 function SarychUI_ShouldLoadPostalEmbedded()
+	if _G.SarychUI_PostalLoadDecisionAtStartup ~= nil then
+		return _G.SarychUI_PostalLoadDecisionAtStartup
+	end
 	SarychUI_GetPostalLoadMode()
-	local enabled, known = GetPostalRuntimeEnabledState()
-	if known and not enabled then
-		if _G.SarychUI_PostalLoadDecisionAtStartup == nil then
-			_G.SarychUI_PostalLoadDecisionAtStartup = false
-		end
-		return false
-	end
-	if SarychUI_IsStandalonePostalEnabled() then
-		if _G.SarychUI_PostalLoadDecisionAtStartup == nil then
-			_G.SarychUI_PostalLoadDecisionAtStartup = false
-		end
-		return false
-	end
-	if _G.IsAddOnLoaded and _G.IsAddOnLoaded(STANDALONE_ADDON) then
-		if _G.SarychUI_PostalLoadDecisionAtStartup == nil then
-			_G.SarychUI_PostalLoadDecisionAtStartup = false
-		end
-		return false
-	end
-	-- Freeze first load-time decision so wrapper can distinguish
-	-- "was disabled at startup" from real initialization failures.
-	if _G.SarychUI_PostalLoadDecisionAtStartup == nil then
-		_G.SarychUI_PostalLoadDecisionAtStartup = true
-	end
-	return true
+	-- Always build the core (unless a standalone Postal is present). The
+	-- SUI checkbox enables and disables it in place; skipping the files
+	-- made the checkbox wait for /reload.
+	local load = not SarychUI_IsStandalonePostalEnabled()
+		and not (_G.IsAddOnLoaded and _G.IsAddOnLoaded(STANDALONE_ADDON))
+	_G.SarychUI_PostalLoadDecisionAtStartup = load and true or false
+	return _G.SarychUI_PostalLoadDecisionAtStartup
 end
 
 function SarychUI_LoadEmbeddedPostal()
@@ -139,17 +124,11 @@ end
 
 function SarychUI_InitializeEmbeddedPostal()
 	SarychUI_GetPostalLoadMode()
-	if not SarychUI_IsPostalRuntimeEnabled() then
-		return false, "disabled"
-	end
 	if SarychUI_IsStandalonePostalEnabled() then
 		return false, "standalone_conflict"
 	end
 	if SarychUI_IsEmbeddedPostalLoaded() then
 		return true, "loaded"
-	end
-	if _G.SarychUI_PostalLoadDecisionAtStartup == false then
-		return false, "requires_reload"
 	end
 	return false, "not_initialized"
 end

@@ -308,10 +308,39 @@ function module:GetOptions()
 							},
 						},
 					},
+					scale = {
+						type = "range",
+						name = L and (L["Nameplate Scale"] or "Масштаб") or "Масштаб",
+						desc = L and (L["Nameplate Scale Desc"] or "Масштаб классических индикаторов здоровья WoW.") or "Масштаб классических индикаторов здоровья WoW.",
+						order = 3,
+						width = "full",
+						suiFullRow = true,
+						min = 0.5,
+						max = 3,
+						step = 0.05,
+						hidden = function()
+							return GetCurrentNameplateMode() ~= "classic"
+						end,
+						get = function()
+							if module.GetNameplateScale then
+								return module:GetNameplateScale()
+							end
+							local db = DB()
+							return (db and db.scale) or 1
+						end,
+						set = function(_, value)
+							local db = DB()
+							if not db then return end
+							db.scale = value
+							if module.ApplyNameplateScale then
+								module:ApplyNameplateScale()
+							end
+						end,
+					},
 					modeHint = {
 						type = "description",
 						name = "|cFFFFD700Внимание:|r После применения потребуется перезагрузка интерфейса.",
-						order = 3,
+						order = 4,
 						width = "full",
 					},
 				},
@@ -499,7 +528,8 @@ function module:GetOptions()
 									}
 								end,
 								get = function()
-									return GetAutolosProfile().fontOutline or GetAutolosProfile().fontFlags or "OUTLINE"
+									local p = GetAutolosProfile()
+									return p.fontOutline or p.fontFlags or "NONE"
 								end,
 								set = function(_, value)
 									GetAutolosProfile().fontOutline = value
@@ -513,10 +543,14 @@ function module:GetOptions()
 								order = 4,
 								min = -5,
 								max = 5,
-								step = 1,
+								step = 0.5,
 								suiPreviewKey = "shadowX",
 								get = function()
-									return GetAutolosProfile().shadowX or 2
+									local p = GetAutolosProfile()
+									if p.shadowX ~= nil then
+										return p.shadowX
+									end
+									return IsElvUIAutolosMode() and 1 or 0.5
 								end,
 								set = function(_, value)
 									GetAutolosProfile().shadowX = value
@@ -530,10 +564,14 @@ function module:GetOptions()
 								order = 5,
 								min = -5,
 								max = 5,
-								step = 1,
+								step = 0.5,
 								suiPreviewKey = "shadowY",
 								get = function()
-									return GetAutolosProfile().shadowY or -1
+									local p = GetAutolosProfile()
+									if p.shadowY ~= nil then
+										return p.shadowY
+									end
+									return IsElvUIAutolosMode() and -1 or -0.5
 								end,
 								set = function(_, value)
 									GetAutolosProfile().shadowY = value

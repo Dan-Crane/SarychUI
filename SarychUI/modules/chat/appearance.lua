@@ -108,20 +108,10 @@ local function InitializeTooltipPositioning()
     petBarTracker:RegisterEvent("PET_DISMISS_START")
     petBarTracker:RegisterEvent("PET_DISMISS_STOP")
 
-    -- Хук для отслеживания скрытия/показа PetActionBarFrame (EXACT COPY)
-    if PetActionBarFrame then
-        PetActionBarFrame:HookScript("OnShow", function()
-            if ItemRefTooltip:IsVisible() then
-                UpdateTooltipPosition()
-            end
-        end)
-        
-        PetActionBarFrame:HookScript("OnHide", function()
-            if ItemRefTooltip:IsVisible() then
-                UpdateTooltipPosition()
-            end
-        end)
-    end
+    -- Do not HookScript/SetScript PetActionBarFrame. It is a protected frame:
+    -- touching its scripts taints OnEvent, and in combat Blizzard's own
+    -- PetActionButton:Hide() / PetActionBarFrame:Show() is blocked as SarychUI.
+    -- PET_BAR_SHOW/HIDE plus the visibility poll below already move the tooltip.
 
     petBarTracker:SetScript("OnEvent", function(self, event, ...)
         -- Обновляем позицию тултипа при изменении состояния PetActionBarFrame
@@ -175,12 +165,6 @@ local function ForceDisableTooltipPositioning()
     if ItemRefTooltip then
         ItemRefTooltip:SetScript("OnShow", nil)
         ItemRefTooltip:SetScript("OnHide", nil)
-    end
-    
-    -- Отключаем хуки PetActionBarFrame
-    if PetActionBarFrame then
-        PetActionBarFrame:SetScript("OnShow", nil)
-        PetActionBarFrame:SetScript("OnHide", nil)
     end
 end
 

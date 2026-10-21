@@ -7,7 +7,7 @@ local wrapper = {
 	name = ADDON_NAME,
 	title = "EnhancedRaidFrames",
 	author = "Britt W. Yazel, Tsoukie",
-	version = "1.8",
+	version = "1.9",
 	loaded = true,
 	enabled = false,
 }
@@ -198,7 +198,7 @@ function wrapper:GetOptions()
 				name = "Индикаторы баффов и дебаффов на компактных рейдовых фреймах.\nВключение - сразу; выключение из списка Модификаций - после /reload.\n\nАвтор: "
 					.. (wrapper.author or "Britt W. Yazel, Tsoukie")
 					.. "\nВерсия: "
-					.. (wrapper.version or "1.8"),
+					.. (wrapper.version or "1.9"),
 				order = 3,
 				width = "full",
 			},

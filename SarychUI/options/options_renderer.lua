@@ -565,17 +565,15 @@ local function RemeasureWrappedChildren(parent, padX)
 			if child._alignCenter and fixed and fixed > 0 then
 				child:SetWidth(fixed)
 				child:SetPoint("TOP", parent, "TOP", 0, y)
+			elseif fixed and fixed > 0 then
+				-- Keep the value box inside this column. Stretching a half-width
+				-- slider to the panel's right edge hides it past the scroll clip.
+				child:SetWidth(fixed)
+				child:SetPoint("TOPLEFT", parent, "TOPLEFT", padX, y)
 			else
 				child:SetPoint("TOPLEFT", parent, "TOPLEFT", padX, y)
-				if fixed and fixed > 0 and not child._suiHalf and not child._suiThird then
-					child:SetWidth(fixed)
-				else
-					child._fixedWidth = nil
-					child._suiHalf = nil
-					child._suiThird = nil
-					child:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -padX, y)
-					child:SetWidth(innerW)
-				end
+				child:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -padX, y)
+				child:SetWidth(innerW)
 			end
 			local h = child:GetHeight() or 0
 			y = y - h - gap
@@ -668,16 +666,24 @@ local function AttachPanelDecorIcon(panel, decorPath, pad)
 			host:Hide()
 			return
 		end
-		local leftW = (T and T.sizes and T.sizes.controlMaxW) or 320
-		local emptyLeft = pad + leftW + 12
-		local emptyRight = pw - pad
-		if emptyRight - emptyLeft < 48 then
-			emptyLeft = pw * 0.5
+		local emptyLeft, emptyRight
+		if self._suiDecorRightThird then
+			-- Icon lives in the right third; content (2 cols) uses the left 2/3.
+			local colGap = 10
+			emptyLeft = pad + math.floor((pw - pad * 2) * 2 / 3) + colGap
 			emptyRight = pw - pad
+		else
+			local leftW = (T and T.sizes and T.sizes.controlMaxW) or 320
+			emptyLeft = pad + leftW + 12
+			emptyRight = pw - pad
+			if emptyRight - emptyLeft < 48 then
+				emptyLeft = pw * 0.5
+				emptyRight = pw - pad
+			end
 		end
 		local emptyW = math.max(48, emptyRight - emptyLeft)
 		local size = math.floor(math.min(emptyW, ph - pad * 2) * 0.62)
-		size = math.max(64, math.min(size, 160))
+		size = math.max(48, math.min(size, self._suiDecorRightThird and 120 or 160))
 		local cx = (emptyLeft + emptyRight) * 0.5
 		local cy = -ph * 0.5
 		host:ClearAllPoints()
@@ -709,6 +715,8 @@ local function ApplyConfirm(opt, info, proceed)
 		end
 	elseif c == true then
 		msg = opt.confirmText or "Подтвердить действие?"
+	elseif type(c) == "string" then
+		msg = c
 	else
 		proceed()
 		return
@@ -828,21 +836,45 @@ function R:RenderControl(parent, key, opt, path, y, padX, handler)
 		end, MakeTooltip(opt, info))
 		compactW = nil
 	elseif t == "execute" then
-		widget = W:Button(parent, name, function()
-			ApplyConfirm(opt, info, function()
-				CallFunc(opt, info)
-			end)
-		end, MakeTooltip(opt, info), function()
-			return ResolveName(opt, info)
-		end)
-		if compactW then
-			widget:SetWidth(compactW)
-		elseif opt.width == "full" then
-			-- Stretch to content width (e.g. Быстрые настройки -> Применить).
+		if type(opt.suiResetDefaults) == "function" and W.ButtonPair then
+			widget = W:ButtonPair(
+				parent,
+				name,
+				function()
+					ApplyConfirm(opt, info, function()
+						CallFunc(opt, info)
+					end)
+				end,
+				MakeTooltip(opt, info),
+				function()
+					return ResolveName(opt, info)
+				end,
+				TUI("По умолчанию"),
+				function()
+					Safe(opt.suiResetDefaults, info)
+				end,
+				function()
+					return TTip("Вернуть стандартную позицию")
+				end
+			)
 			compactW = nil
 		else
-			widget:SetWidth(180)
-			compactW = 180
+			widget = W:Button(parent, name, function()
+				ApplyConfirm(opt, info, function()
+					CallFunc(opt, info)
+				end)
+			end, MakeTooltip(opt, info), function()
+				return ResolveName(opt, info)
+			end)
+			if compactW then
+				widget:SetWidth(compactW)
+			elseif opt.width == "full" then
+				-- Stretch to content width (e.g. Быстрые настройки -> Применить).
+				compactW = nil
+			else
+				widget:SetWidth(180)
+				compactW = 180
+			end
 		end
 	elseif t == "description" then
 		if opt.suiStickyBottom and SUI.OptionsWindow and SUI.OptionsWindow.SetContentBottomNote then
@@ -856,6 +888,58 @@ function R:RenderControl(parent, key, opt, path, y, padX, handler)
 			end
 			SUI.OptionsWindow:SetContentBottomNote(text)
 			return y
+		elseif opt.suiRightIcon and W.DescriptionRightIcon then
+			local function ResolveRightIcon()
+				if type(opt.suiRightIcon) == "function" then
+					return Safe(opt.suiRightIcon, info)
+				end
+				return opt.suiRightIcon
+			end
+			local function ResolveRightIcon2()
+				if type(opt.suiRightIcon2) == "function" then
+					return Safe(opt.suiRightIcon2, info)
+				end
+				return opt.suiRightIcon2
+			end
+			local function ResolveRightText()
+				if type(opt.suiRightText) == "function" then
+					return Safe(opt.suiRightText, info)
+				end
+				return opt.suiRightText
+			end
+			local rightButton
+			if type(opt.suiRightButton) == "table" then
+				local rb = opt.suiRightButton
+				local btnTip
+				if type(rb.desc) == "function" then
+					btnTip = function() return TTip(Safe(rb.desc, info)) end
+				elseif type(rb.desc) == "string" and rb.desc ~= "" then
+					local src = rb.desc
+					btnTip = function() return TTip(src) end
+				end
+				rightButton = {
+					text = rb.name and TUI(tostring(rb.name)) or nil,
+					tooltipFn = btnTip,
+					onClick = function()
+						if type(rb.func) == "function" then
+							ApplyConfirm(rb, info, function()
+								Safe(rb.func, info)
+							end)
+						end
+					end,
+				}
+			end
+			widget = W:DescriptionRightIcon(parent, name, ResolveRightIcon(), opt.suiRightIconSize, ResolveRightText(), ResolveRightIcon2(), rightButton)
+			widget._suiValueWidget = true
+			widget.Refresh = function(self)
+				self:SetDynamicText(ResolveName(opt, info))
+				self:SetDynamicIcon(ResolveRightIcon())
+				if self.SetDynamicIcon2 then
+					self:SetDynamicIcon2(ResolveRightIcon2())
+				end
+				self:SetDynamicRightText(ResolveRightText())
+			end
+			compactW = nil
 		elseif opt.suiLayoutPreview and SUI.PlatesAurasLayoutPreview and SUI.PlatesAurasLayoutPreview.Create then
 			widget = SUI.PlatesAurasLayoutPreview:Create(parent, opt.suiLayoutPreview, opt.suiLayoutPreviewNotice)
 			compactW = nil
@@ -1003,6 +1087,9 @@ function R:RenderControl(parent, key, opt, path, y, padX, handler)
 			else
 				widget = W:Description(parent, "|cffff8080Group titles preview unavailable|r")
 			end
+		elseif opt.suiPartyAbilitiesPreview and SUI.PartyAbilitiesPreview and SUI.PartyAbilitiesPreview.Create then
+			widget = SUI.PartyAbilitiesPreview:Create(parent)
+			compactW = nil
 		elseif opt.suiAurasPreview
 			and (SUI.AurasPreview or SarychUI.AurasPreview) then
 			local AurasPreview = SUI.AurasPreview or SarychUI.AurasPreview
@@ -1235,22 +1322,199 @@ function R:RenderControl(parent, key, opt, path, y, padX, handler)
 			local showHeader = type(name) == "string" and name:gsub("%s+", "") ~= ""
 			local sorted = SortedKeys(opt.args)
 			local childHandler = opt.handler or handler
+			local decorSplit = opt.suiDecorRightHalf and opt.suiPanelDecorIcon and true or false
 
-				if showHeader then
-				local tipFn
+			local headerTipFn
+			if showHeader then
 				if type(opt.desc) == "function" then
-					tipFn = function()
+					headerTipFn = function()
 						return TTip(Safe(opt.desc, MakeInfo(path, opt, childHandler)))
 					end
 				elseif type(opt.desc) == "string" and opt.desc ~= "" then
 					local src = opt.desc
-					tipFn = function()
+					headerTipFn = function()
 						return TTip(src)
 					end
 				end
-				local header = W:Header(parent, name, tipFn, opt.suiHeaderIcon, opt.suiHelpIcon)
-				y = self:LayoutChild(parent, header, y)
+				-- Decorated split: title goes inside the left checkbox panel, not above the outer frame.
+				if not decorSplit then
+					local header = W:Header(parent, name, headerTipFn, opt.suiHeaderIcon, opt.suiHelpIcon)
+					y = self:LayoutChild(parent, header, y)
+				end
 			end
+
+			-- Outer frame: decor icon on the left; title + checkbox panel on the right.
+			if decorSplit then
+				local pad = (T and T.sizes and T.sizes.panelPad) or 8
+				local gap = (T and T.sizes and T.sizes.rowGap) or 4
+				local colGap = 10
+				local parentW = parent:GetWidth() or 400
+				local outer = W:Panel(parent)
+				outer:SetHeight(10)
+				if parentW > 40 then
+					outer:SetWidth(parentW)
+				end
+
+				local title
+				local titleH = 0
+				if showHeader then
+					title = W:Header(outer, name, headerTipFn, opt.suiHeaderIcon, opt.suiHelpIcon)
+					title._suiSkipRelayout = true
+					titleH = title:GetHeight() or 22
+				end
+
+				local leftPanel = W:Panel(outer)
+				leftPanel:SetPoint("TOPRIGHT", outer, "TOPRIGHT", -pad, -pad)
+
+				local decorPath = opt.suiPanelDecorIcon
+				if type(decorPath) == "function" then
+					local ok, value = pcall(decorPath)
+					decorPath = ok and value or nil
+				end
+				local decor = CreateFrame("Frame", nil, outer)
+				decor._suiSkipRelayout = true
+				local decorTex = decor:CreateTexture(nil, "ARTWORK")
+				decorTex:SetAllPoints()
+				if type(decorPath) == "string" then
+					decorTex:SetTexture(decorPath)
+				end
+				outer._suiDecorIcon = decor
+				outer._suiLeftPanel = leftPanel
+				outer._suiDecorTitle = title
+
+				local function LayoutSplit()
+					local ow = outer:GetWidth() or parentW or 400
+					local innerW = math.max(160, ow - pad * 2)
+					local half = math.max(110, math.floor((innerW - colGap) / 2))
+					local contentLeft = pad + half + colGap
+					local titleTop = -pad
+					if title then
+						title:ClearAllPoints()
+						title:SetWidth(half)
+						title:SetPoint("TOPLEFT", outer, "TOPLEFT", contentLeft, titleTop)
+						titleTop = titleTop - titleH - gap
+					end
+					leftPanel:ClearAllPoints()
+					leftPanel:SetPoint("TOPLEFT", outer, "TOPLEFT", contentLeft, titleTop)
+					leftPanel:SetPoint("BOTTOMRIGHT", outer, "BOTTOMRIGHT", -pad, pad)
+					leftPanel:SetWidth(half)
+					local sizeCap = tonumber(opt.suiPanelDecorIconSize) or 200
+					local iconSize = math.max(96, math.min(math.floor(half * 0.85), sizeCap))
+					decor:ClearAllPoints()
+					decor:SetSize(iconSize, iconSize)
+					-- Center in the left half, aligned to the checkbox panel.
+					decor:SetPoint("CENTER", leftPanel, "LEFT", -(half * 0.5 + colGap), 0)
+					decor:Show()
+				end
+
+				local innerY = -pad
+				local pendingRow = {}
+				local leftHalf = math.max(110, math.floor(((outer:GetWidth() or parentW) - pad * 2 - colGap) / 2))
+				local leftInnerW = math.max(90, leftHalf - pad * 2)
+				local colW = math.floor((leftInnerW - colGap) / 2)
+				local rowCols = 2
+				if colW < 72 then
+					rowCols = 1
+					colW = leftInnerW
+				end
+
+				local function FlushPendingRow()
+					local n = #pendingRow
+					if n == 0 then return end
+					local rowH = 0
+					local cols = math.min(n, rowCols)
+					for col = 1, cols do
+						local widget = pendingRow[col]
+						local x = pad + (col - 1) * (colW + colGap)
+						widget._fixedWidth = colW
+						widget:ClearAllPoints()
+						widget:SetWidth(colW)
+						widget:SetPoint("TOPLEFT", leftPanel, "TOPLEFT", x, innerY)
+						rowH = math.max(rowH, widget:GetHeight() or 22)
+					end
+					innerY = innerY - rowH - gap
+					wipe(pendingRow)
+				end
+
+				local function BuildSplitWidget(eOpt, eInfo, eName)
+					local tipFn
+					if type(eOpt.desc) == "function" then
+						tipFn = function() return TTip(Safe(eOpt.desc, eInfo)) end
+					elseif type(eOpt.desc) == "string" and eOpt.desc ~= "" then
+						local src = eOpt.desc
+						tipFn = function() return TTip(src) end
+					end
+					local widget
+					if eOpt.type == "toggle" then
+						widget = W:Checkbox(leftPanel, eName, function()
+							return CallGet(eOpt, eInfo)
+						end, function(value)
+							CallSet(eOpt, eInfo, value)
+						end, tipFn, eOpt.suiHelpIcon, eOpt.suiPreviewKey)
+					elseif eOpt.type == "execute" then
+						widget = W:Button(leftPanel, eName, function()
+							ApplyConfirm(eOpt, eInfo, function()
+								CallFunc(eOpt, eInfo)
+							end)
+						end, tipFn, function()
+							return ResolveName(eOpt, eInfo)
+						end)
+					end
+					if widget then
+						BindDisabled(widget, eOpt, eInfo)
+					end
+					return widget
+				end
+
+				for _, entry in ipairs(sorted) do
+					local childPath = {}
+					for i = 1, #path do childPath[i] = path[i] end
+					tinsert(childPath, entry.key)
+					local eOpt = entry.opt
+					local eInfo = MakeInfo(childPath, eOpt, childHandler)
+					if not IsHidden(eOpt, eInfo) then
+						if eOpt.type == "toggle" and rowCols > 1 and not eOpt.suiFullRow then
+							local widget = BuildSplitWidget(eOpt, eInfo, ResolveName(eOpt, eInfo))
+							if widget then
+								tinsert(pendingRow, widget)
+								if #pendingRow >= rowCols then
+									FlushPendingRow()
+								end
+							end
+						else
+							FlushPendingRow()
+							local widget = BuildSplitWidget(eOpt, eInfo, ResolveName(eOpt, eInfo))
+							if widget then
+								local spanW = leftInnerW
+								widget._fixedWidth = spanW
+								widget:ClearAllPoints()
+								widget:SetWidth(spanW)
+								widget:SetPoint("TOPLEFT", leftPanel, "TOPLEFT", pad, innerY)
+								innerY = innerY - (widget:GetHeight() or 24) - gap
+							end
+						end
+					end
+				end
+				FlushPendingRow()
+
+				local leftH = math.max(pad * 2, -innerY - gap + pad)
+				leftPanel:SetHeight(leftH)
+				local titleBlock = (title and (titleH + gap) or 0)
+				outer:SetHeight(leftH + titleBlock + pad * 2)
+				outer._relayoutInline = function(self)
+					if self._relayoutLock then return end
+					self._relayoutLock = true
+					LayoutSplit()
+					self._relayoutLock = nil
+				end
+				outer:SetScript("OnSizeChanged", function(self)
+					self:_relayoutInline()
+				end)
+				y = self:LayoutChild(parent, outer, y, padX)
+				LayoutSplit()
+				return y
+			end
+
 			local panel = W:Panel(parent)
 			panel:SetHeight(10)
 			panel._suiTwoCol = opt.suiTwoCol and true or false
@@ -1267,12 +1531,14 @@ function R:RenderControl(parent, key, opt, path, y, padX, handler)
 			local rendered = 0
 			local pendingRow = {}
 			local panelInnerW = math.max(80, (panel:GetWidth() or parentW or 400) - pad * 2)
-			local halfW = math.floor((panelInnerW - colGap) / 2)
+			local contentW = panelInnerW
+			local halfW = math.floor((contentW - colGap) / 2)
 			local thirdW = math.floor((panelInnerW - colGap * 2) / 3)
 			local canThreeCol = panel._suiThreeCol and thirdW >= 90
-			local canTwoCol = (not canThreeCol) and panel._suiTwoCol and halfW >= 120
+			local canTwoCol = (not canThreeCol) and panel._suiTwoCol and halfW >= 100
 			local rowCols = canThreeCol and 3 or (canTwoCol and 2 or 1)
 			local colW = canThreeCol and thirdW or halfW
+			panel._suiContentW = contentW
 
 			local function FlushPendingRow()
 				local n = #pendingRow
@@ -1296,12 +1562,29 @@ function R:RenderControl(parent, key, opt, path, y, padX, handler)
 					innerY = innerY - rowH - gap
 					rendered = rendered + rowCols
 				else
-					for _, widget in ipairs(pendingRow) do
-						widget._fixedWidth = nil
+					-- Partial last row: keep column width so the icon third stays free.
+					local rowH = 0
+					for col = 1, n do
+						local widget = pendingRow[col]
+						local x = pad + (col - 1) * (colW + colGap)
+						local w = (rowCols > 1) and colW or nil
 						widget._suiHalf = nil
 						widget._suiThird = nil
-						innerY = self:LayoutChild(panel, widget, innerY, pad)
+						if w then
+							widget._fixedWidth = w
+							widget:ClearAllPoints()
+							widget:SetWidth(w)
+							widget:SetPoint("TOPLEFT", panel, "TOPLEFT", x, innerY)
+							rowH = math.max(rowH, widget:GetHeight() or 24)
+						else
+							widget._fixedWidth = nil
+							innerY = self:LayoutChild(panel, widget, innerY, pad)
+							rowH = 0
+						end
 						rendered = rendered + 1
+					end
+					if rowH > 0 then
+						innerY = innerY - rowH - gap
 					end
 				end
 				wipe(pendingRow)
@@ -1356,6 +1639,20 @@ function R:RenderControl(parent, key, opt, path, y, padX, handler)
 							CallSet(eOpt, eInfo, value)
 						end)
 					end
+				elseif eOpt.type == "execute" then
+					widget = W:Button(panel, eName, function()
+						ApplyConfirm(eOpt, eInfo, function()
+							CallFunc(eOpt, eInfo)
+						end)
+					end, tipFn, function()
+						return ResolveName(eOpt, eInfo)
+					end)
+				elseif eOpt.type == "toggle" then
+					widget = W:Checkbox(panel, eName, function()
+						return CallGet(eOpt, eInfo)
+					end, function(value)
+						CallSet(eOpt, eInfo, value)
+					end, tipFn, eOpt.suiHelpIcon, eOpt.suiPreviewKey)
 				end
 				if widget then
 					widget._suiExternalSyncKey = eOpt.suiExternalSyncKey
@@ -1366,7 +1663,7 @@ function R:RenderControl(parent, key, opt, path, y, padX, handler)
 
 			-- Select + settings button inside the bordered panel (same level as other controls).
 			if opt.suiSelectWithButton and W.SelectWithButton then
-				local selectOpt = opt.args and (opt.args.indicatorType or opt.args.mode or opt.args.mapType or opt.args.frameType or opt.args.barMode or opt.args.select or opt.args.choose)
+				local selectOpt = opt.args and (opt.args.indicatorType or opt.args.mode or opt.args.mapType or opt.args.frameType or opt.args.select or opt.args.choose)
 				local buttonOpt = opt.args and (opt.args.openSettings or opt.args.openElvUISettings or opt.args.button or opt.args.applyProfile)
 				if selectOpt and buttonOpt then
 					local selectPath, buttonPath = {}, {}
@@ -1566,8 +1863,9 @@ function R:RenderControl(parent, key, opt, path, y, padX, handler)
 				for i = 1, #path do childPath[i] = path[i] end
 				tinsert(childPath, entry.key)
 				local eOpt = entry.opt
-				local packable = rowCols > 1 and eOpt and not eOpt.suiFullRow
-					and (eOpt.type == "range" or eOpt.type == "select" or eOpt.type == "input")
+				local packable = rowCols > 1 and eOpt and not eOpt.suiFullRow and not eOpt.suiSpanTwoCols
+					and (eOpt.type == "range" or eOpt.type == "select" or eOpt.type == "input"
+						or eOpt.type == "execute" or eOpt.type == "toggle")
 				if packable then
 					local eInfo = MakeInfo(childPath, eOpt, childHandler)
 					if not IsHidden(eOpt, eInfo) then
@@ -1577,6 +1875,28 @@ function R:RenderControl(parent, key, opt, path, y, padX, handler)
 							if #pendingRow >= rowCols then
 								FlushPendingRow()
 							end
+						end
+					end
+				elseif eOpt and eOpt.suiSpanTwoCols then
+					-- Full-row control limited to the two content columns (left 2/3).
+					FlushPendingRow()
+					local eInfo = MakeInfo(childPath, eOpt, childHandler)
+					if not IsHidden(eOpt, eInfo) then
+						local widget = BuildInlineWidget(eOpt, eInfo, ResolveName(eOpt, eInfo))
+						if not widget then
+							local before = innerY
+							innerY = self:RenderControl(panel, entry.key, entry.opt, childPath, innerY, pad, childHandler)
+							if innerY ~= before then
+								rendered = rendered + 1
+							end
+						else
+							local spanW = contentW
+							widget._fixedWidth = spanW
+							widget:ClearAllPoints()
+							widget:SetWidth(spanW)
+							widget:SetPoint("TOPLEFT", panel, "TOPLEFT", pad, innerY)
+							innerY = innerY - (widget:GetHeight() or 24) - gap
+							rendered = rendered + 1
 						end
 					end
 				else
@@ -1615,7 +1935,7 @@ function R:RenderControl(parent, key, opt, path, y, padX, handler)
 				panel:SetHeight(pad * 2)
 			end
 
-			-- Decorative icon centered in the empty right half (e.g. Profiles).
+			-- Decorative icon centered in the empty right half/third (e.g. Profiles / Transfer).
 			AttachPanelDecorIcon(panel, opt.suiPanelDecorIcon, pad)
 
 			panel:SetScript("OnSizeChanged", function(self)
@@ -1831,7 +2151,7 @@ local function CollectTwoPaneEntries(groupOpt)
 	for k, v in pairs(groupOpt.args) do
 		if type(v) == "table" and v.type then
 			-- ENP stays a separate window (/enp); bags/arena engines live in their modules.
-			if k == "ElvUI_NamePlates" or k == "BaudBag" or k == "GladiusEx" or k == "SarychUI_Bags" then
+			if k == "ElvUI_NamePlates" or k == "BaudBag" or k == "SarychUI_Bags" then
 				-- skip
 			elseif v.type == "group" and not v.inline and not v.dialogInline and not v.guiInline and not IsHidden(v, MakeInfo({ k }, v)) then
 				local info = MakeInfo({ k }, v)
@@ -2020,7 +2340,6 @@ function R:_RenderAddonDetail(detailHost, addonOpt, addonPath, addonKey)
 		enableHost:Hide()
 		RefreshTitleLayout()
 	end
-
 	local enableOpt = addonOpt and addonOpt.args and addonOpt.args.enabled
 	if enableOpt and enableOpt.type == "toggle" and enableHost then
 		local enablePath = {}
@@ -2061,17 +2380,16 @@ function R:_RenderAddonDetail(detailHost, addonOpt, addonPath, addonKey)
 			RefreshTitleLayout()
 		end
 	end
-
-	-- Shallow copy args without enabled so body doesn't duplicate the toggle.
+	-- Shallow copy args without controls moved into the title row.
 	local bodyOpt = addonOpt
-	if enableOpt and enableHost and enableHost._widget then
+	if enableHost and enableHost._widget then
 		bodyOpt = {}
 		for k, v in pairs(addonOpt) do
 			bodyOpt[k] = v
 		end
 		bodyOpt.args = {}
 		for k, v in pairs(addonOpt.args) do
-			if k ~= "enabled" then
+			if not (k == "enabled" and enableHost and enableHost._widget) then
 				bodyOpt.args[k] = v
 			end
 		end
@@ -2088,16 +2406,37 @@ function R:_RenderAddonDetail(detailHost, addonOpt, addonPath, addonKey)
 		if body._heightLock then return end
 		body._heightLock = true
 		-- Re-sync widths if right pane finally got a real size after first paint.
+		-- The scroll frame clips its child, so a host wider than the viewport
+		-- hides the numeric boxes anchored to the right edge of each slider.
 		local r = right
+		local scroll = detailHost:GetParent()
+		local viewW = scroll and scroll.GetWidth and scroll:GetWidth()
 		local liveW = r and r:GetWidth()
-		if liveW and liveW > 120 then
+		local nextHostW
+		if viewW and viewW > 80 then
+			nextHostW = viewW
+		elseif liveW and liveW > 120 then
 			local sw = (T and T.sizes and T.sizes.addonListScrollW) or 8
-			local nextHostW = math.max(160, liveW - sw - 16)
-			if math.abs((detailHost:GetWidth() or 0) - nextHostW) > 1 then
-				detailHost:SetWidth(nextHostW)
-				body:SetWidth(nextHostW)
-				hostW = nextHostW
+			nextHostW = math.max(160, liveW - sw - 16)
+		end
+		if nextHostW and math.abs((detailHost:GetWidth() or 0) - nextHostW) > 1 then
+			detailHost:SetWidth(nextHostW)
+			body:SetWidth(nextHostW)
+			hostW = nextHostW
+			local function ReleaseWide(frame)
+				if not frame or not frame.GetChildren then return end
+				local kids = { frame:GetChildren() }
+				for i = 1, #kids do
+					local child = kids[i]
+					if child and not child._suiSkipRelayout then
+						if child._fixedWidth and child._fixedWidth > nextHostW - 8 then
+							child._fixedWidth = nil
+						end
+						ReleaseWide(child)
+					end
+				end
 			end
+			ReleaseWide(body)
 		end
 		local contentPad = (T and T.sizes and T.sizes.contentPad) or 4
 		local h
@@ -2118,7 +2457,8 @@ function R:_RenderAddonDetail(detailHost, addonOpt, addonPath, addonKey)
 			h = math.max(contentPad * 2, bottom + contentPad)
 		end
 		body:SetHeight(h)
-		detailHost:SetHeight(math.max(contentPad * 2, h))
+		detailHost._fitH = math.max(contentPad * 2, h)
+		detailHost:SetHeight(detailHost._fitH)
 		if r and r._addonListSyncHeights then
 			r._addonListSyncHeights()
 		end
@@ -2196,7 +2536,11 @@ function R:_RenderAddonDetail(detailHost, addonOpt, addonPath, addonKey)
 			tinsert(tabPath, tab.key)
 			local core = SUI._activeOptionsCore or SUI.OptionsCore
 			local token = core and core.BeginHiddenCapture and core:BeginHiddenCapture()
-			self:RenderSection(inner, tab.opt, tabPath)
+			if tab.opt and tab.opt.suiTwoPane then
+				self:RenderTwoPaneAddonList(inner, tab.opt, tabPath, detailHost:GetParent())
+			else
+				self:RenderSection(inner, tab.opt, tabPath)
+			end
 			if core and core.EndHiddenCapture then
 				core:EndHiddenCapture(token)
 			end
@@ -2252,7 +2596,7 @@ function R:_RenderAddonDetail(detailHost, addonOpt, addonPath, addonKey)
 	RefreshDetailHeights()
 end
 
-function R:RenderTwoPaneAddonList(parent, groupOpt, path)
+function R:RenderTwoPaneAddonList(parent, groupOpt, path, nestedViewport)
 	if not parent then return end
 	local OC = SUI.OptionsCore
 	local OW = SUI.OptionsWindow
@@ -2276,7 +2620,7 @@ function R:RenderTwoPaneAddonList(parent, groupOpt, path)
 		yTop = yTop - 6
 	end
 
-	if #entries == 0 then
+	if #entries == 0 and not groupOpt.suiKeepEmptyTwoPane then
 		local d = W:Description(parent, TUI("Нет элементов в списке."))
 		self:LayoutChild(parent, d, yTop, contentPad)
 		parent:SetHeight(math.max(40, -yTop + 40))
@@ -2298,7 +2642,8 @@ function R:RenderTwoPaneAddonList(parent, groupOpt, path)
 		end
 	end
 	if not found then
-		found = entries[1]
+		found = entries[1] or { key = "__empty", label = TUI("Нет заклинаний"),
+			opt = { type = "group", args = {} } }
 		selected = found.key
 	end
 	OC._twoPaneSelected[pathKey] = selected
@@ -2326,7 +2671,7 @@ function R:RenderTwoPaneAddonList(parent, groupOpt, path)
 	left:EnableMouse(true)
 	T:ApplyFlat(left, T.colors.navBg, T.colors.borderSoft)
 
-	local listScroll = CreateFrame("ScrollFrame", "SarychUIAddonListScroll", left)
+	local listScroll = CreateFrame("ScrollFrame", nil, left)
 	listScroll:SetPoint("TOPLEFT", 2, -2)
 	listScroll:SetPoint("BOTTOMLEFT", 2, 2)
 	listScroll:SetPoint("RIGHT", left, "RIGHT", -(scrollW + 4), 0)
@@ -2339,7 +2684,7 @@ function R:RenderTwoPaneAddonList(parent, groupOpt, path)
 
 	local listContentH = #entries * itemH + 4
 
-	local sbTrack = CreateFrame("Button", "SarychUIAddonListScrollBar", left)
+	local sbTrack = CreateFrame("Button", nil, left)
 	sbTrack:SetWidth(scrollW)
 	sbTrack:SetPoint("TOPRIGHT", left, "TOPRIGHT", -2, -2)
 	sbTrack:SetPoint("BOTTOMRIGHT", left, "BOTTOMRIGHT", -2, 2)
@@ -2353,10 +2698,15 @@ function R:RenderTwoPaneAddonList(parent, groupOpt, path)
 	sbThumb:EnableMouse(true)
 	sbThumb:RegisterForDrag("LeftButton")
 	T:ApplyFlat(sbThumb, T.colors.scrollThumb or T.colors.buttonBg, T.colors.accent)
+	sbTrack:Hide()
+	sbThumb:Hide()
 
 	local function GetViewportH()
 		local viewportH = 200
-		if OW and OW.contentScroll then
+		if nestedViewport then
+			local vis = (nestedViewport:GetHeight() or 0) - ((T.sizes and T.sizes.tabH) or 24) - 6
+			if vis > 40 then viewportH = vis end
+		elseif OW and OW.contentScroll then
 			local vis = OW.contentScroll:GetHeight() or 0
 			if vis > 40 then
 				viewportH = vis
@@ -2365,7 +2715,7 @@ function R:RenderTwoPaneAddonList(parent, groupOpt, path)
 		-- Space already used above this two-pane (add-spell row, inline type tabs,
 		-- or shared controls rendered inside the two-pane parent).
 		local usedAbove = math.abs(yTop or 0)
-		if parent and OW and OW.contentChild and parent ~= OW.contentChild then
+		if not nestedViewport and parent and OW and OW.contentChild and parent ~= OW.contentChild then
 			local top = parent:GetTop()
 			local childTop = OW.contentChild:GetTop()
 			if top and childTop then
@@ -2383,25 +2733,44 @@ function R:RenderTwoPaneAddonList(parent, groupOpt, path)
 		return math.max(120, viewportH)
 	end
 
-	local function UpdateScrollbarThumb()
-		if listScroll.UpdateScrollChildRect then
-			listScroll:UpdateScrollChildRect()
-		end
-		local viewH = listScroll:GetHeight() or 0
+	local function ListMetrics()
+		local paneH = left:GetHeight() or 0
+		local viewH = paneH > 1 and (paneH - 4) or (listScroll:GetHeight() or 0)
 		if viewH < 1 then
-			viewH = math.max(1, (left:GetHeight() or GetViewportH()) - 4)
+			viewH = math.max(1, GetViewportH() - 4)
 		end
-		local contentH = math.max(listContentH or 0, 1)
-		local max = listScroll:GetVerticalScrollRange() or 0
-		if max <= 0 then
-			max = math.max(0, contentH - viewH)
+		-- Tracked content height, not the scroll child: on 3.3.5 the child
+		-- rect stays taller than the rows, so a bar showed with nothing to scroll.
+		local contentH = listContentH or 0
+		if contentH < 1 then
+			contentH = listChild:GetHeight() or 0
 		end
-		-- Show immediately when content exceeds viewport (don't wait for first wheel).
-		if contentH <= viewH + 1 and max <= 0 then
+		local overflow = contentH - viewH
+		if overflow < 4 then overflow = 0 end
+		return viewH, contentH, overflow
+	end
+
+	local function UpdateScrollbarThumb()
+		local viewH, contentH, overflow = ListMetrics()
+		local needs = overflow > 0
+		local inset = needs and (scrollW + 4) or 2
+		if left._scrollInset ~= inset then
+			left._scrollInset = inset
+			listScroll:SetPoint("RIGHT", left, "RIGHT", -inset, 0)
+		end
+		local childW = math.max(40, (left:GetWidth() or listW) - inset - 6)
+		if math.abs((listChild:GetWidth() or 0) - childW) > 1 then
+			listChild:SetWidth(childW)
+		end
+		if not needs then
 			sbTrack:Hide()
 			sbThumb:Hide()
+			if (listScroll:GetVerticalScroll() or 0) ~= 0 then
+				listScroll:SetVerticalScroll(0)
+			end
 			return
 		end
+		local max = overflow
 		sbTrack:Show()
 		sbThumb:Show()
 		local trackH = sbTrack:GetHeight() or viewH
@@ -2424,14 +2793,7 @@ function R:RenderTwoPaneAddonList(parent, groupOpt, path)
 	end
 
 	local function SetAddonListScroll(offset, syncThumb)
-		if listScroll.UpdateScrollChildRect then
-			listScroll:UpdateScrollChildRect()
-		end
-		local max = listScroll:GetVerticalScrollRange() or 0
-		if max <= 0 then
-			local viewH = listScroll:GetHeight() or 1
-			max = math.max(0, listContentH - viewH)
-		end
+		local _, _, max = ListMetrics()
 		if offset < 0 then offset = 0 end
 		if offset > max then offset = max end
 		listScroll:SetVerticalScroll(offset)
@@ -2458,11 +2820,7 @@ function R:RenderTwoPaneAddonList(parent, groupOpt, path)
 
 	local function ScrollAddonList(delta)
 		local cur = listScroll:GetVerticalScroll() or 0
-		local max = listScroll:GetVerticalScrollRange() or 0
-		if max <= 0 then
-			local viewH = listScroll:GetHeight() or 1
-			max = math.max(0, listContentH - viewH)
-		end
+		local _, _, max = ListMetrics()
 		if max > 0 then
 			SetAddonListScroll(cur - delta * itemH, true)
 			return true
@@ -2492,11 +2850,7 @@ function R:RenderTwoPaneAddonList(parent, groupOpt, path)
 			local trackH = sbTrack:GetHeight() or 1
 			local thumbH = thumb:GetHeight() or 18
 			local travel = math.max(0, trackH - thumbH)
-			local max = listScroll:GetVerticalScrollRange() or 0
-			if max <= 0 then
-				local viewH = listScroll:GetHeight() or 1
-				max = math.max(0, listContentH - viewH)
-			end
+			local _, _, max = ListMetrics()
 			if travel <= 0 or max <= 0 then return end
 			local scale = UIParent:GetEffectiveScale() or 1
 			local _, cursorY = GetCursorPosition()
@@ -2518,11 +2872,7 @@ function R:RenderTwoPaneAddonList(parent, groupOpt, path)
 		local trackH = self:GetHeight() or 1
 		local thumbH = sbThumb:GetHeight() or 18
 		local travel = math.max(0, trackH - thumbH)
-		local max = listScroll:GetVerticalScrollRange() or 0
-		if max <= 0 then
-			local viewH = listScroll:GetHeight() or 1
-			max = math.max(0, listContentH - viewH)
-		end
+		local _, _, max = ListMetrics()
 		if travel <= 0 or max <= 0 then return end
 		local scale = UIParent:GetEffectiveScale() or 1
 		local _, cursorY = GetCursorPosition()
@@ -2647,28 +2997,45 @@ function R:RenderTwoPaneAddonList(parent, groupOpt, path)
 	rightSbThumb:EnableMouse(true)
 	rightSbThumb:RegisterForDrag("LeftButton")
 	T:ApplyFlat(rightSbThumb, T.colors.scrollThumb or T.colors.buttonBg, T.colors.accent)
+	rightSbTrack:Hide()
+	rightSbThumb:Hide()
 
 	OC._twoPaneDetailScroll = OC._twoPaneDetailScroll or {}
 	local detailContentH = 1
 
-	local function UpdateRightScrollbarThumb()
-		if rightScroll.UpdateScrollChildRect then
-			rightScroll:UpdateScrollChildRect()
-		end
-		local viewH = rightScroll:GetHeight() or 0
+	local function RightMetrics()
+		local chrome = titleRowH + 12
+		local paneH = right:GetHeight() or 0
+		local viewH = paneH > 1 and (paneH - chrome) or (rightScroll:GetHeight() or 0)
 		if viewH < 1 then
-			viewH = math.max(1, (right:GetHeight() or GetViewportH()) - titleRowH - 12)
+			viewH = math.max(1, GetViewportH() - chrome)
 		end
-		local contentH = math.max(detailContentH or 0, 1)
-		local max = rightScroll:GetVerticalScrollRange() or 0
-		if max <= 0 then
-			max = math.max(0, contentH - viewH)
+		local contentH = detailHost._fitH or detailContentH or 0
+		if contentH < 1 then
+			contentH = detailHost:GetHeight() or 0
 		end
-		if contentH <= viewH + 1 and max <= 0 then
+		local overflow = contentH - viewH
+		if overflow < 4 then overflow = 0 end
+		return viewH, contentH, overflow
+	end
+
+	local function UpdateRightScrollbarThumb()
+		local viewH, contentH, overflow = RightMetrics()
+		local needs = overflow > 0
+		local inset = needs and (scrollW + 8) or 4
+		if right._scrollInset ~= inset then
+			right._scrollInset = inset
+			rightScroll:SetPoint("RIGHT", right, "RIGHT", -inset, 0)
+		end
+		if not needs then
 			rightSbTrack:Hide()
 			rightSbThumb:Hide()
+			if (rightScroll:GetVerticalScroll() or 0) ~= 0 then
+				rightScroll:SetVerticalScroll(0)
+			end
 			return
 		end
+		local max = overflow
 		rightSbTrack:Show()
 		rightSbThumb:Show()
 		local trackH = rightSbTrack:GetHeight() or viewH
@@ -2683,22 +3050,13 @@ function R:RenderTwoPaneAddonList(parent, groupOpt, path)
 		local yOff = 0
 		if max > 0 and travel > 0 then
 			yOff = (cur / max) * travel
-		elseif contentH > viewH and travel > 0 then
-			yOff = (cur / math.max(1, contentH - viewH)) * travel
 		end
 		rightSbThumb:ClearAllPoints()
 		rightSbThumb:SetPoint("TOP", rightSbTrack, "TOP", 0, -yOff)
 	end
 
 	local function SetRightDetailScroll(offset, syncThumb)
-		if rightScroll.UpdateScrollChildRect then
-			rightScroll:UpdateScrollChildRect()
-		end
-		local max = rightScroll:GetVerticalScrollRange() or 0
-		if max <= 0 then
-			local viewH = rightScroll:GetHeight() or 1
-			max = math.max(0, detailContentH - viewH)
-		end
+		local _, _, max = RightMetrics()
 		if offset < 0 then offset = 0 end
 		if offset > max then offset = max end
 		rightScroll:SetVerticalScroll(offset)
@@ -2711,11 +3069,7 @@ function R:RenderTwoPaneAddonList(parent, groupOpt, path)
 
 	local function ScrollRightDetail(delta)
 		local cur = rightScroll:GetVerticalScroll() or 0
-		local max = rightScroll:GetVerticalScrollRange() or 0
-		if max <= 0 then
-			local viewH = rightScroll:GetHeight() or 1
-			max = math.max(0, detailContentH - viewH)
-		end
+		local _, _, max = RightMetrics()
 		if max > 0 then
 			SetRightDetailScroll(cur - delta * 28, true)
 			return true
@@ -2745,11 +3099,7 @@ function R:RenderTwoPaneAddonList(parent, groupOpt, path)
 			local trackH = rightSbTrack:GetHeight() or 1
 			local thumbH = thumb:GetHeight() or 18
 			local travel = math.max(0, trackH - thumbH)
-			local max = rightScroll:GetVerticalScrollRange() or 0
-			if max <= 0 then
-				local viewH = rightScroll:GetHeight() or 1
-				max = math.max(0, detailContentH - viewH)
-			end
+			local _, _, max = RightMetrics()
 			if travel <= 0 or max <= 0 then return end
 			local scale = UIParent:GetEffectiveScale() or 1
 			local _, cursorY = GetCursorPosition()
@@ -2771,11 +3121,7 @@ function R:RenderTwoPaneAddonList(parent, groupOpt, path)
 		local trackH = self:GetHeight() or 1
 		local thumbH = rightSbThumb:GetHeight() or 18
 		local travel = math.max(0, trackH - thumbH)
-		local max = rightScroll:GetVerticalScrollRange() or 0
-		if max <= 0 then
-			local viewH = rightScroll:GetHeight() or 1
-			max = math.max(0, detailContentH - viewH)
-		end
+		local _, _, max = RightMetrics()
 		if travel <= 0 or max <= 0 then return end
 		local scale = UIParent:GetEffectiveScale() or 1
 		local _, cursorY = GetCursorPosition()
@@ -2828,7 +3174,7 @@ function R:RenderTwoPaneAddonList(parent, groupOpt, path)
 	end
 
 	local function SyncHeights()
-		local dh = detailHost:GetHeight() or 40
+		local dh = detailHost._fitH or detailHost:GetHeight() or 40
 		detailContentH = math.max(1, dh)
 		detailHost:SetHeight(detailContentH)
 		if rightScroll.UpdateScrollChildRect then
@@ -2838,11 +3184,11 @@ function R:RenderTwoPaneAddonList(parent, groupOpt, path)
 		-- Both panes fill remaining viewport; only their inner scrolls move.
 		local viewportH = GetViewportH()
 		shell:SetHeight(viewportH)
-		parent:SetHeight(math.max(40, -yTop + viewportH + 8))
+		parent:SetHeight(math.max(40, -yTop + viewportH))
 
 		-- Clamp the outer content child to the scroll viewport so the page
 		-- itself cannot scroll - only the spell list / detail panes do.
-		if OW and OW.contentScroll and OW.contentChild then
+		if not nestedViewport and OW and OW.contentScroll and OW.contentChild then
 			local scrollH = OW.contentScroll:GetHeight() or 0
 			if scrollH > 40 then
 				OW.contentChild:SetHeight(scrollH)
@@ -2875,8 +3221,8 @@ function R:RenderTwoPaneAddonList(parent, groupOpt, path)
 		if self._lastViewportH ~= viewportH then
 			self._lastViewportH = viewportH
 			shell:SetHeight(viewportH)
-			parent:SetHeight(math.max(40, -yTop + viewportH + 8))
-			if OW and OW.contentScroll and OW.contentChild then
+			parent:SetHeight(math.max(40, -yTop + viewportH))
+			if not nestedViewport and OW and OW.contentScroll and OW.contentChild then
 				local scrollH = OW.contentScroll:GetHeight() or 0
 				if scrollH > 40 then
 					OW.contentChild:SetHeight(scrollH)
@@ -2886,17 +3232,17 @@ function R:RenderTwoPaneAddonList(parent, groupOpt, path)
 			LayoutLeftPane()
 			LayoutRightPane()
 		end
-		if not self._scrollbarPrimed then
-			self._scrollbarPrimed = true
-			UpdateScrollbarThumb()
-			UpdateRightScrollbarThumb()
-		end
+		UpdateScrollbarThumb()
+		UpdateRightScrollbarThumb()
 	end)
 
 	local function SelectAddon(entry, force)
 		if not entry then return end
 		if not force and selected == entry.key and detailHost._body then
 			return
+		end
+		if entry.opt and type(entry.opt.suiOnSelect) == "function" then
+			Safe(entry.opt.suiOnSelect, entry.key)
 		end
 		OC._twoPaneSelected[pathKey] = entry.key
 		if isAddonPorted then
@@ -2936,6 +3282,13 @@ function R:RenderTwoPaneAddonList(parent, groupOpt, path)
 
 	local y = 0
 	local lastGroup
+	if #entries == 0 then
+		local empty = listChild:CreateFontString(nil, "OVERLAY", T.fonts.small)
+		empty:SetPoint("TOPLEFT", listChild, "TOPLEFT", 8, -8)
+		empty:SetPoint("TOPRIGHT", listChild, "TOPRIGHT", -8, -8)
+		empty:SetJustifyH("LEFT")
+		empty:SetText(TUI("Нет заклинаний"))
+	end
 	for _, entry in ipairs(entries) do
 		if entry.listGroup and entry.listGroup ~= lastGroup then
 			lastGroup = entry.listGroup

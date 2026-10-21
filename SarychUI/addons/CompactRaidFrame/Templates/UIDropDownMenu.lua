@@ -1,0 +1,5 @@
+-- UIDropDownMenu_AddButton is intentionally not hooked.
+-- ArenaEnemyFrame_OnLoad calls UIDropDownMenu_Initialize, which calls AddButton,
+-- and only then creates the right-click FocusUnit handler (Blizzard_ArenaUI.lua:128).
+-- A post-hook on AddButton taints that handler, so combat focus on the default
+-- arena frame is blocked and blamed on SarychUI.

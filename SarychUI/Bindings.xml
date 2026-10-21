@@ -1,0 +1,18 @@
+<Bindings>
+	<!--
+		Unused by default (focus uses SetOverrideBindingClick).
+		Kept so the binding name exists if a profile remaps to it.
+		Do not call CameraOrSelectOrMove* or MoveForward* from addon Lua hooks.
+	-->
+	<Binding name="SARYCHUI_FOCUSER_BUTTON1" runOnUp="true" hidden="true">
+		if ( keystate == "down" ) then
+			if ( SarychUI and SarychUI.FocuserNotifySteer and IsMouseButtonDown("RightButton") ) then
+				SarychUI:FocuserNotifySteer(true, "binding+RMB");
+			end
+		else
+			if ( SarychUI and SarychUI.FocuserBindingUp ) then
+				SarychUI:FocuserBindingUp();
+			end
+		end
+	</Binding>
+</Bindings>

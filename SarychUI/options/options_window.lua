@@ -1137,6 +1137,7 @@ function OW:ClearContent()
 		SUI.ArenaNumbersPreview,
 		SUI.ArenaGroupTitlesPreview,
 		SUI.AurasPreview,
+		SUI.PartyAbilitiesPreview,
 		SUI.MinimapPreview,
 		SUI.CombatIndicatorPreview,
 		SUI.FramePvpPreview,

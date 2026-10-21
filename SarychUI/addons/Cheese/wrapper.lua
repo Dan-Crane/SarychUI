@@ -100,6 +100,12 @@ function wrapper:Enable()
 		end
 		SarychUI.db.profile.addons[ADDON_NAME].enabled = true
 	end
+	if Cheese_RefreshActionMappings then
+		Cheese_RefreshActionMappings()
+	end
+	if CheeseActionButton_RefreshAll then
+		CheeseActionButton_RefreshAll()
+	end
 end
 
 -- Disable the addon
@@ -126,6 +132,9 @@ function wrapper:Disable()
 	-- Hide all overlays when disabled
 	if CheeseSpellActivationOverlayFrame then
 		CheeseSpellActivationOverlay_HideAllOverlays(CheeseSpellActivationOverlayFrame)
+	end
+	if CheeseActionButton_RefreshAll then
+		CheeseActionButton_RefreshAll()
 	end
 end
 

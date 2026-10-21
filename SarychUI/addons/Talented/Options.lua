@@ -3,6 +3,10 @@ local L = LibStub("AceLocale-3.0"):GetLocale("Talented")
 
 Talented.max_talent_points = 71
 
+Talented.BUILTIN_TEMPLATES = {
+	["Bonjourepta"] = "Atp2n0aZAZ0wDEcDbA3aDbra",
+}
+
 Talented.defaults = {
 	profile = {
 		confirmlearn = true,
@@ -15,9 +19,15 @@ Talented.defaults = {
 		glyph_on_talent_swap = "active",
 		restore_bars = false
 	},
-	global = {templates = {}},
+	global = {
+		templates = {},
+	},
 	char = {targets = {}}
 }
+
+for name, code in pairs(Talented.BUILTIN_TEMPLATES) do
+	Talented.defaults.global.templates[name] = code
+end
 
 function Talented:SetOption(info, value)
 	local name = info[#info]

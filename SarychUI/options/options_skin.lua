@@ -145,10 +145,16 @@ local function LinkDropdownPulloutOwner(widget)
 		return
 	end
 	widget.pullout.frame.SarychUIOwnerDropdown = widget.frame
+	if SarychUI.RegisterOptionsFrame then
+		SarychUI:RegisterOptionsFrame(widget.pullout.frame)
+	end
 end
 
 local function ClearDropdownPulloutOwner(widget)
 	if widget and widget.pullout and widget.pullout.frame then
+		if SarychUI.UnregisterOptionsFrame then
+			SarychUI:UnregisterOptionsFrame(widget.pullout.frame)
+		end
 		widget.pullout.frame.SarychUIOwnerDropdown = nil
 	end
 end
@@ -418,83 +424,11 @@ function SarychUI:InstallDropdownListSkinGuard()
 		return
 	end
 
+	-- UIDropDownMenu_AddButton is not hooked. ArenaEnemyFrame_OnLoad calls it
+	-- before the right-click FocusUnit handler exists, and a post-hook taints
+	-- that handler for every later combat click.
 	-- True only while we mutated shared DropDownList for an owned/CRF menu.
 	local skinnedOpen = false
-
-	hooksecurefunc("UIDropDownMenu_AddButton", function(info, level)
-		if not SarychUI:ShouldApplyDropdownListSkin() then
-			return
-		end
-
-		if not level then
-			level = 1
-		end
-
-		local listFrame = _G["DropDownList" .. level]
-		local index = listFrame and listFrame.numButtons or 1
-		listFrame = listFrame or _G["DropDownList" .. level]
-		if not listFrame or not listFrame.GetName then
-			return
-		end
-		local listFrameName = listFrame:GetName()
-
-		local button = _G[listFrameName .. "Button" .. index]
-		if not button then
-			return
-		end
-
-		skinnedOpen = true
-		UIDropDownMenu_CreateUnChecked(button)
-
-		if not info.notCheckable then
-			local check = _G[listFrameName .. "Button" .. index .. "Check"]
-			local uncheck = _G[listFrameName .. "Button" .. index .. "UnCheck"]
-			if info.disabled then
-				check:SetDesaturated(true)
-				check:SetAlpha(0.5)
-				uncheck:SetDesaturated(true)
-				uncheck:SetAlpha(0.5)
-			else
-				check:SetDesaturated(false)
-				check:SetAlpha(1)
-				uncheck:SetDesaturated(false)
-				uncheck:SetAlpha(1)
-			end
-
-			if info.isRadio then
-				check:SetTexCoord(0.0, 0.5, 0.5, 1.0)
-				check:SetTexture(RADIO_CHECK_TEXTURE)
-				uncheck:SetTexCoord(0.5, 1.0, 0.5, 1.0)
-				uncheck:SetTexture(RADIO_CHECK_TEXTURE)
-			else
-				check:SetTexCoord(0, 1, 0, 1)
-				check:SetTexture(DEFAULT_DROPDOWN_CHECK_TEXTURE)
-			end
-
-			local checked = info.checked
-			if type(checked) == "function" then
-				checked = checked(button)
-			end
-			if checked then
-				button:LockHighlight()
-				check:Show()
-				uncheck:Hide()
-			else
-				button:UnlockHighlight()
-				check:Hide()
-				uncheck:Show()
-			end
-		else
-			_G[listFrameName .. "Button" .. index .. "Check"]:Hide()
-			_G[listFrameName .. "Button" .. index .. "UnCheck"]:Hide()
-		end
-
-		if not info.isRadio then
-			_G[listFrameName .. "Button" .. index .. "UnCheck"]:Hide()
-		end
-
-		button.checked = info.checked
-	end)
 
 	-- Scrub only after an open we skinned - never on every random UI dropdown hide.
 	if UIDropDownMenu_OnHide then
@@ -517,6 +451,5 @@ function SarychUI:InstallSarychUIOptionsSkinLayer()
 	end
 	self._sarychOptionsSkinLayerInstalled = true
 
-	self:InstallDropdownListSkinGuard()
 	InstallAceGUIContainerAddChildDispatch()
 end

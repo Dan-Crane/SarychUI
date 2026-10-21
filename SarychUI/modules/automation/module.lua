@@ -490,34 +490,50 @@ local function IsAutoTrainAllModifierKeyDown()
     return false
 end
 
+local function BuyAllAvailableTrainerServices()
+    if not ClassTrainerFrame or not ClassTrainerFrame:IsShown() then return 0 end
+
+    local trained, lastName = 0, nil
+    for i = 1, GetNumTrainerServices() do
+        local name, second, third = GetTrainerServiceInfo(i)
+        local serviceType = third
+        if serviceType ~= "available" and serviceType ~= "used" and serviceType ~= "unavailable" and serviceType ~= "header" then
+            serviceType = second
+        end
+        if serviceType == "available" then
+            local ok = pcall(BuyTrainerService, i)
+            if ok then
+                trained = trained + 1
+                lastName = name
+            end
+        end
+    end
+    return trained, lastName
+end
+
+-- Public batch operation used by Quick Start without requiring a modifier key.
+function module:TrainAllAvailableSkillsNow()
+    return BuyAllAvailableTrainerServices()
+end
+
 -- Function to train all available skills
 local function TrainAllAvailableSkills()
     if not IsModuleEnabled() or not IsAutoTrainAllEnabled() then return end
-    
+
     -- Check if trainer frame is open
     if not ClassTrainerFrame or not ClassTrainerFrame:IsShown() then return end
-    
+
     -- Check if modifier key is down
-    if not IsAutoTrainAllModifierKeyDown() then 
+    if not IsAutoTrainAllModifierKeyDown() then
         autoTrainAllProcessed = false
-        return 
+        return
     end
-    
+
     -- Prevent multiple training calls (wait for TRAINER_UPDATE to reset)
     if autoTrainAllProcessed then return end
-    
-    -- Train all available skills
-    local trained = false
-    for i = 1, GetNumTrainerServices() do
-        local name, serviceType, isAvailable = GetTrainerServiceInfo(i)
-        if isAvailable and isAvailable == "available" then
-            BuyTrainerService(i)
-            trained = true
-        end
-    end
-    
-    -- Mark as processed if we trained something
-    if trained then
+
+    local trained = BuyAllAvailableTrainerServices()
+    if trained > 0 then
         autoTrainAllProcessed = true
     end
 end

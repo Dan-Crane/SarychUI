@@ -17,7 +17,6 @@ Coordinator._state = Coordinator._state or {
 
 local STANDALONE_EMBEDDED = {
 	Postal = true,
-	GladiusEx = true,
 }
 
 local LOOT_EXCLUSIVE_MODE = {
@@ -166,13 +165,6 @@ function Coordinator:GetActiveFeatureOwner(area)
 	end
 
 	if area == "arena" then
-		local arena = modules.arena
-		if arena and arena.frameType then
-			return arena.frameType
-		end
-		if addons and addons.GladiusEx and addons.GladiusEx.enabled == true then
-			return "gladiusex"
-		end
 		return "classic"
 	end
 
@@ -323,29 +315,12 @@ end
 
 function Coordinator:SyncArenaModeFromDB()
 	local modules = ModulesDB()
+	if not modules then return end
 	local addons = AddonsDB()
-	if not modules or not addons then return end
 
 	modules.arena = modules.arena or { enabled = true, frameType = "classic" }
-	addons.GladiusEx = addons.GladiusEx or { enabled = false }
-
-	if modules.arena.frameType == "gladiusex" then
-		addons.GladiusEx.enabled = true
-	elseif modules.arena.frameType == nil then
-		modules.arena.frameType = addons.GladiusEx.enabled == true and "gladiusex" or "classic"
-	else
-		if modules.arena.frameType == "classic" then
-			addons.GladiusEx.enabled = false
-		end
-	end
-
-	if addons.GladiusEx.enabled == true then
-		modules.arena.frameType = "gladiusex"
-	else
-		if modules.arena.frameType == "gladiusex" then
-			modules.arena.frameType = "classic"
-		end
-	end
+	modules.arena.frameType = "classic"
+	if addons then addons.GladiusEx = nil end
 end
 
 function Coordinator:SyncMapModeFromDB()
@@ -484,24 +459,9 @@ end
 function Coordinator:SyncArenaRuntime()
 	local arena = SarychUI.modules and SarychUI.modules.arena
 	if not arena then return end
-
-	local owner = self:GetActiveFeatureOwner("arena")
-	if owner == "gladiusex" then
-		if arena.Disable then
-			arena:Disable()
-		end
-		local gx = SarychUI.GetAddOn and SarychUI:GetAddOn("GladiusEx")
-		if gx and gx.SetRuntimeEnabled then
-			gx:SetRuntimeEnabled(true)
-		else
-			self:ApplyRuntimeForAddon("GladiusEx", true)
-		end
-	else
-		self:ApplyRuntimeForAddon("GladiusEx", false)
-		local modules = ModulesDB()
-		if modules and modules.arena and modules.arena.enabled and arena.Enable then
-			arena:Enable()
-		end
+	local modules = ModulesDB()
+	if modules and modules.arena and modules.arena.enabled and arena.Enable then
+		arena:Enable()
 	end
 end
 
@@ -629,7 +589,6 @@ function Coordinator:GetAddOnArea(addonName)
 	end
 	if addonName == "ElvUI_NamePlates" then return "nameplates" end
 	if addonName == "BaudBag" or addonName == "SarychUI_Bags" then return "bags" end
-	if addonName == "GladiusEx" then return "arena" end
 	if addonName == "Postal" then return "mail" end
 	return nil
 end
@@ -675,9 +634,6 @@ function SarychUI:CanEnableCoordinatedAddOn(addonName)
 		return true
 	end
 
-	if area == "arena" and addonName == "GladiusEx" then
-		return true
-	end
 
 	if area == "mail" and addonName == "Postal" then
 		if standalone.Postal then
@@ -731,9 +687,6 @@ function SarychUI:IsCoordinatedAddOnAllowed(addonName)
 	if addonName == "SarychUI_Bags" then
 		return Coordinator:GetActiveFeatureOwner("bags") == "elvui"
 	end
-	if addonName == "GladiusEx" then
-		return Coordinator:GetActiveFeatureOwner("arena") == "gladiusex"
-	end
 	if addonName == "Postal" then
 		local mailOwner = Coordinator:GetActiveFeatureOwner("mail")
 		return mailOwner == "postal_embedded"
@@ -767,14 +720,6 @@ function SarychUI:SetLootMode(mode)
 	if not modules then return end
 	modules.loot = modules.loot or {}
 	modules.loot.mode = mode or "classic"
-	self:ApplyFeatureCoordination({ refreshPlates = false })
-end
-
-function SarychUI:SetArenaMode(mode)
-	local modules = ModulesDB()
-	if not modules then return end
-	modules.arena = modules.arena or { enabled = true }
-	modules.arena.frameType = (mode == "gladiusex") and "gladiusex" or "classic"
 	self:ApplyFeatureCoordination({ refreshPlates = false })
 end
 

@@ -1,4 +1,4 @@
--- Options: Ресурсы игрока (after Action Bar, before Cooldown text).
+-- Options: Ресурсы игрока (after Castbar, before Cooldown text).
 
 local moduleName = "player_resources"
 local module = SarychUI and SarychUI.modules and SarychUI.modules[moduleName]
@@ -180,6 +180,34 @@ local function PositionControls(sub, frameId, orderBase, hiddenFn)
 				RefreshConfig()
 			end,
 			hidden = hiddenFn,
+			suiResetDefaults = function()
+				local t = Sub(sub)
+				local def = SarychUI.defaults and SarychUI.defaults.profile.modules.player_resources
+				def = def and def[sub]
+				local fallback = ({
+					plate = { 0, -133 },
+					shield = { -114, -133 },
+					runes = { 0, -294 },
+					totems = { 0, -294 },
+				})[sub] or { 0, 0 }
+				local x = (def and def.x ~= nil) and def.x or fallback[1]
+				local y = (def and def.y ~= nil) and def.y or fallback[2]
+				t.x = x
+				t.y = y
+				if def and def.point then
+					t.point = def.point
+				end
+				if def and def.relativePoint then
+					t.relativePoint = def.relativePoint
+				end
+				Apply()
+				SyncDragPosition(sub)
+				local panel = SarychUI and (SarychUI.PositionDragPanel or SarychUI.CombatTextDragPanel)
+				if panel and panel.SyncDraftIfOpen then
+					panel:SyncDraftIfOpen(frameId, x, y)
+				end
+				RefreshConfig()
+			end,
 		},
 	}
 end
@@ -190,7 +218,6 @@ function module:GetOptions()
 		type = "group",
 		name = "Ресурсы игрока",
 		desc = "Компактная панель здоровья и ресурса, руны, тотемы и индикатор щита.",
-		suiNavTip = "Новое: добавлено в версии 1.2.0",
 		childGroups = "tab",
 		args = {
 			general = {

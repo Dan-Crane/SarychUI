@@ -31,44 +31,14 @@ function module:Enable()
         return
     end
     
-    local currentDb = SarychUI.db.profile.modules.mainmenubar
-    if not currentDb or not currentDb.enabled then 
-        return 
-    end
+	local currentDb = SarychUI.db.profile.modules.mainmenubar
+	-- Keep the bar family fixed for the lifetime of the UI session.  Swapping
+	-- protected Blizzard action-bar anchors safely requires /reload.
+	self._bootBarStyle = self._bootBarStyle or ((currentDb and currentDb.barStyle) or "classic")
+	if not currentDb or not currentDb.enabled then 
+		return 
+	end
 
-    -- Bar mode is fixed for the session: FrostAtomUI bars destroy the Blizzard
-    -- bars, classic mode hooks them. Switching requires /reload.
-    local FA = SarychUI.FrostAtomBars
-    if FA then
-        FA.bootMode = FA.bootMode or currentDb.barMode or "classic"
-        if FA.bootMode == "frostatom" then
-            FA.Enable()
-            if SarychUI.AltMode then
-                SarychUI.AltMode:RegisterCallback("mainmenubar", function()
-                    if module.UpdateAllHotkeys then
-                        module:UpdateAllHotkeys(0, nil, "Frost:AltMode")
-                    end
-                end)
-            end
-            if self.InitializeTextSystem then self:InitializeTextSystem() end
-            if self.InitializeColorSystem then self:InitializeColorSystem() end
-            if self.ApplyMicroMenuStyle then self:ApplyMicroMenuStyle() end
-            if self.ApplyButtonBorderAlpha then self:ApplyButtonBorderAlpha() end
-            if self.ApplyMicroMenuAlpha then self:ApplyMicroMenuAlpha() end
-            if not module._faHotkeyEvents then
-                local f = CreateFrame("Frame")
-                module._faHotkeyEvents = f
-                f:RegisterEvent("PLAYER_TARGET_CHANGED")
-                f:SetScript("OnEvent", function()
-                    if module.UpdateAllHotkeys then
-                        module:UpdateAllHotkeys(0, nil, "Frost:PLAYER_TARGET_CHANGED")
-                    end
-                end)
-            end
-            return
-        end
-    end
-    
     -- Register Alt mode callback for all elements
     if SarychUI.AltMode then
         SarychUI.AltMode:RegisterCallback("mainmenubar", function(isAltPressed)
@@ -132,24 +102,22 @@ function module:Enable()
     end
     
     -- Initialize all subsystems (if available)
-    if self.InitializeTextSystem then self:InitializeTextSystem() end      -- panelText.lua
-    if self.InitializeColorSystem then self:InitializeColorSystem() end     -- panelColor.lua  
-    if self.InitializeVisualSystem then self:InitializeVisualSystem() end    -- panelVisual.lua
+	if self.InitializeTextSystem then self:InitializeTextSystem() end      -- panelText.lua
+	if self.InitializeColorSystem then self:InitializeColorSystem() end     -- panelColor.lua  
+	if self.InitializeVisualSystem then self:InitializeVisualSystem() end    -- panelVisual.lua
+
+	if self._bootBarStyle == "bfa" and self.BFAStyle then
+		self.BFAStyle:Enable()
+	end
 end
 
 -- Disable module - COORDINATOR FUNCTION
 function module:Disable()
-    local FA = SarychUI.FrostAtomBars
-    if FA and FA.bootMode == "frostatom" then
-        local db = SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.modules
-            and SarychUI.db.profile.modules.mainmenubar
-        if not db or not db.enabled then
-            FA.Disable()
-        end
-        return
-    end
+	if self.BFAStyle and self.BFAStyle.active then
+		self.BFAStyle:Disable()
+	end
 
-    -- Unregister Alt mode callback
+	-- Unregister Alt mode callback
     if SarychUI.AltMode then
         SarychUI.AltMode:UnregisterCallback("mainmenubar")
     end
@@ -406,17 +374,12 @@ function module:Disable()
     end
 end
 
+function module:GetBootBarStyle()
+	return self._bootBarStyle or "classic"
+end
+
 function module:RefreshConfig()
     local modDb = SarychUI.GetModuleProfile and SarychUI:GetModuleProfile(moduleName)
-    local FA = SarychUI.FrostAtomBars
-    if FA and FA.bootMode == "frostatom" then
-        if modDb and modDb.enabled then
-            FA.Enable()
-        else
-            FA.Disable()
-        end
-        return
-    end
     if not modDb or not modDb.enabled then
         if self.ForceResetAllElements then
             self:ForceResetAllElements()

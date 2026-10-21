@@ -14,6 +14,20 @@ local function IsDebuffName(name)
 	return name:find("Debuff", 1, true) or name:find("TempEnchant", 1, true)
 end
 
+local function IsPlayerAuraName(name)
+	return type(name) == "string" and (
+		string.match(name, "^BuffButton%d+$")
+		or string.match(name, "^DebuffButton%d+$")
+		or string.match(name, "^TempEnchant%d+$")
+	)
+end
+
+function L.SkipPlayerAuras()
+	local mods = SarychUI and SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.modules
+	local db = mods and mods.tools
+	return db and (db.darkModeSkipPlayerAuras == 1 or db.darkModeSkipPlayerAuras == true)
+end
+
 local function IsBossTargetName(name)
 	return type(name) == "string" and string.match(name, "^Boss%d+TargetFrame") ~= nil
 end
@@ -24,6 +38,12 @@ function L:StyleAuraButton(bu, skipBackground)
 	end
 	local name = bu.GetName and bu:GetName()
 	if not name then
+		return
+	end
+	if IsPlayerAuraName(name) and self.SkipPlayerAuras() then
+		if self.paintedAuras[name] then
+			self:RestoreAuraButton(bu)
+		end
 		return
 	end
 	local icon = _G[name .. "Icon"]
@@ -139,10 +159,27 @@ local function SkinNamed(prefix, count)
 	end
 end
 
+function L:RestorePlayerAuras()
+	local i
+	for i = 1, 40 do
+		self:RestoreAuraButton(_G["BuffButton" .. i])
+	end
+	for i = 1, 16 do
+		self:RestoreAuraButton(_G["DebuffButton" .. i])
+	end
+	for i = 1, 3 do
+		self:RestoreAuraButton(_G["TempEnchant" .. i])
+	end
+end
+
 function L:ApplyAuras()
-	SkinNamed("BuffButton", 40)
-	SkinNamed("DebuffButton", 16)
-	SkinNamed("TempEnchant", 3)
+	if self.SkipPlayerAuras() then
+		self:RestorePlayerAuras()
+	else
+		SkinNamed("BuffButton", 40)
+		SkinNamed("DebuffButton", 16)
+		SkinNamed("TempEnchant", 3)
+	end
 	SkinNamed("TargetFrameBuff", 32)
 	SkinNamed("TargetFrameDebuff", 16)
 	SkinNamed("FocusFrameBuff", 32)
@@ -197,18 +234,33 @@ function L:InstallAuraHooks()
 			SkinNamed("FocusFrameToTDebuff", 4)
 		end)
 	end
-	if RefreshDebuffs then
-		hooksecurefunc("RefreshDebuffs", function(frame)
-			if not L.enabled or not frame then
+	-- Do not hook RefreshDebuffs. PartyMemberFrame_UpdateMember calls it and
+	-- then PartyMemberFrame_OnEvent still has to SetAttribute/Show/SetPoint.
+	-- On this client the post-hook taints that remainder in combat.
+	if not self.auraEventFrame then
+		local frame = CreateFrame("Frame")
+		self.auraEventFrame = frame
+		frame:RegisterEvent("UNIT_AURA")
+		frame:SetScript("OnEvent", function(_, _, unit)
+			if not L.enabled or type(unit) ~= "string" then
 				return
 			end
-			local fname = frame.GetName and frame:GetName()
-			if not fname or IsBossTargetName(fname) then
-				return
-			end
-			local i
-			for i = 1, 8 do
-				L:StyleAuraButton(_G[fname .. "Debuff" .. i])
+			local party = unit:match("^party(%d+)$")
+			local partyPet = unit:match("^partypet(%d+)$")
+			if party then
+				SkinNamed("PartyMemberFrame" .. party .. "Debuff", 4)
+			elseif partyPet then
+				SkinNamed("PartyMemberFrame" .. partyPet .. "PetFrameDebuff", 4)
+			elseif unit == "target" then
+				SkinNamed("TargetFrameDebuff", 16)
+			elseif unit == "focus" then
+				SkinNamed("FocusFrameDebuff", 16)
+			elseif unit == "pet" then
+				SkinNamed("PetFrameDebuff", 4)
+			elseif unit == "targettarget" then
+				SkinNamed("TargetFrameToTDebuff", 4)
+			elseif unit == "focustarget" then
+				SkinNamed("FocusFrameToTDebuff", 4)
 			end
 		end)
 	end

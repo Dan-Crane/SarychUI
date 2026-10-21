@@ -26,25 +26,14 @@ local function GetSetting(key, default)
 	return default
 end
 
-local GLADIUS_ADDON = "GladiusEx"
-
-function module:IsGladiusExMode()
-	if SarychUI and SarychUI.GetActiveFeatureOwner then
-		return SarychUI:GetActiveFeatureOwner("arena") == "gladiusex"
-	end
-	if SarychUI and SarychUI.IsAddOnEnabled then
-		return SarychUI:IsAddOnEnabled(GLADIUS_ADDON)
-	end
-	local addons = SarychUI and SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.addons
-	return addons and addons[GLADIUS_ADDON] and addons[GLADIUS_ADDON].enabled == true
-end
-
 -- Internal state
 local arenaContainer
 local eventFrame
 local arenaDefaultPosition = nil
 local firstArenaFramePosition = nil
 local distanceAlphaUpdateFrame = nil
+local arenaTestContainer = nil
+local arenaTestFrames = {}
 -- Cache for nameplate lookups by GUID
 local nameplateCache = {}
 local nameplateCacheTime = {}
@@ -54,6 +43,7 @@ local nameplateCacheTime = {}
 -- ============================================
 
 module.Trinkets = CreateFrame("Frame")
+local trinketSuffixes = {"Trinket1", "Trinket2", "Trinket3", "Trinket4"}
 
 local Alliance = {
     ["Human"] = "Human",
@@ -139,7 +129,13 @@ end
 
 function module.Trinkets:CreateTrinketIcon(frame, texture, anchorFrame)
     local db = GetDB(); local tr = db and db.Trinkets or {}
-    local trinket = CreateFrame("Cooldown", nil, frame)
+    -- ArenaEnemyFrame is a protected SecureUnitButton.  Even an otherwise
+    -- harmless visual child makes its secure click path inherit addon taint on
+    -- this client, so FocusUnit from Blizzard's right-click handler is denied.
+    -- Keep the cooldown in our own UIParent hierarchy and use the arena frame
+    -- only as an anchor.  SetPoint reads its position without modifying it.
+    local trinket = CreateFrame("Frame", nil, UIParent)
+    trinket._arenaFrame = frame
     trinket:SetFrameLevel(frame:GetFrameLevel() + 3)
     trinket:SetSize(26, 26)
     trinket:SetScale(tr.scale or 1)
@@ -163,69 +159,106 @@ function module.Trinkets:CreateTrinketIcon(frame, texture, anchorFrame)
     trinket.Icon.Texture:SetTexture(texture)
     trinket.Icon.Texture:SetTexCoord(0, 1, 0, 1)
 
-    if not tr.enabled then
-        trinket.Icon:Hide()
-    end
-
-    -- AlwaysShow behavior
-    if tr.alwaysShow then
-        trinket.Icon:SetParent(trinket:GetParent())
-        trinket.Icon:SetScale(tr.scale or 1)
-        trinket.Icon:SetFrameLevel(trinket:GetFrameLevel() - 1)
-    else
-        trinket.Icon:SetParent(trinket)
-        trinket.Icon:SetScale(1)
-        trinket.Icon:SetFrameLevel(trinket:GetFrameLevel() - 1)
-    end
-
-    UIFrameFadeIn(trinket.Icon, 0.2, 0, 1)
+    -- Keep the artwork attached to its cooldown. Reparenting an all-points
+    -- child to UIParent makes it fill UIParent instead of the 26px icon.
+    trinket.Icon:SetAlpha(1)
     trinket:Show()
-    -- Enable edge draw for cooldown sweep border
-    if trinket.SetDrawEdge then trinket:SetDrawEdge(true) end
+
+    -- CooldownFrame_SetTimer hides a Cooldown with no active timer. Keep that
+    -- sweep separate from the always-visible icon and its UIParent holder.
+    trinket.Cooldown = CreateFrame("Cooldown", nil, trinket)
+    trinket.Cooldown:SetAllPoints(trinket)
+    trinket.Cooldown:SetFrameLevel(trinket:GetFrameLevel() + 1)
+    if trinket.Cooldown.SetDrawEdge then trinket.Cooldown:SetDrawEdge(true) end
+    trinket.Cooldown:Hide()
     return trinket
 end
 
 function module.Trinkets:CreateNonHumanIcons(frame, id, race)
     if not racialSpells[race] then race = "None" end
-    local trinket1Texture = self:GetTrinketTextureByRaceAndFaction(race)
-    local trinket1 = self:CreateTrinketIcon(frame, trinket1Texture)
-    local trinket2 = self:CreateTrinketIcon(frame, racialSpells[race].icon, trinket1)
-    self["arena" .. id .. "Trinket1"] = trinket1
-    self["arena" .. id .. "Trinket2"] = trinket2
+    local db = GetDB()
+    local tr = db and db.Trinkets or {}
+    local trinket1
+    if tr.enabled then
+        trinket1 = self:CreateTrinketIcon(frame, self:GetTrinketTextureByRaceAndFaction(race))
+        self["arena" .. id .. "Trinket1"] = trinket1
+    end
+    if tr.racialEnabled then
+        self["arena" .. id .. "Trinket2"] = self:CreateTrinketIcon(frame, racialSpells[race].icon, trinket1)
+    end
 end
 
 function module.Trinkets:CreateHumanIcon(frame, id)
-    local trinket4 = self:CreateTrinketIcon(frame, racialSpells["Human"].icon)
-    self["arena" .. id .. "Trinket4"] = trinket4
+    local db = GetDB()
+    local tr = db and db.Trinkets or {}
+    if tr.racialEnabled then
+        self["arena" .. id .. "Trinket4"] = self:CreateTrinketIcon(frame, racialSpells["Human"].icon)
+    end
 end
 
 function module.Trinkets:CreateIcon(frame)
+    if not frame or not frame.GetID then return end
     local id = frame:GetID()
-    local function setupIcons()
-        local race = ResolveArenaRace(frame.unit)
+    if not id then return end
+    local unit = "arena" .. id
+    local race = ResolveArenaRace(unit)
+    if not racialSpells[race] then race = "None" end
+    local previous = self._iconRace and self._iconRace[id]
+    local guid = UnitGUID(unit)
+    local priorGUID = self._iconGUID and self._iconGUID[id]
+    local existing = self[unit .. "Trinket1"] or self[unit .. "Trinket2"] or self[unit .. "Trinket4"]
+
+    -- A disappearing unit can make UnitRace unavailable. Keep the known
+    -- race and existing cooldown until a genuine replacement is identified.
+    if race == "None" and previous then race = previous end
+    if previous == race and existing and (not guid or not priorGUID or guid == priorGUID) then
+        if guid and not priorGUID then self._iconGUID[id] = guid end
+        for _, suffix in ipairs(trinketSuffixes) do
+            local icon = self[unit .. suffix]
+            if icon and not icon:IsShown() then icon:Show() end
+        end
+        return
+    end
+
+    if guid and priorGUID and guid ~= priorGUID then
         self:DeleteTrinketIcons(id)
+        previous = nil
+    end
+
+    if previous and previous ~= "Human" and race ~= "Human" then
+        local trinket = self[unit .. "Trinket1"]
+        local racial = self[unit .. "Trinket2"]
+        if trinket then trinket.Icon.Texture:SetTexture(self:GetTrinketTextureByRaceAndFaction(race)) end
+        if racial then racial.Icon.Texture:SetTexture(racialSpells[race].icon) end
+    else
+        if previous then self:DeleteTrinketIcons(id) end
         if race == "Human" then
             self:CreateHumanIcon(frame, id)
         else
             self:CreateNonHumanIcons(frame, id, race)
         end
     end
-    frame:SetScript("OnUpdate", function(self, elapsed)
-        self.updateTime = (self.updateTime or 0) + elapsed
-        if self.updateTime >= 0.3 then
-            setupIcons()
-            self:SetScript("OnUpdate", nil)
-        end
-    end)
+
+    self._iconRace = self._iconRace or {}
+    self._iconGUID = self._iconGUID or {}
+    self._iconRace[id] = race
+    self._iconGUID[id] = guid or priorGUID
+    if self._debug then
+        print("[SUI arena] slot=" .. id .. " icons=" .. race .. " guid=" .. tostring(guid))
+    end
 end
 
 function module.Trinkets:DeleteTrinketIcons(id)
     if id then
-        for _, suffix in ipairs({"Trinket1", "Trinket2", "Trinket3", "Trinket4"}) do
+        if self._debug and self._iconRace and self._iconRace[id] then
+            print("[SUI arena] remove arena" .. id .. " race=" .. tostring(self._iconRace[id]))
+        end
+        if self._iconRace then self._iconRace[id] = nil end
+        if self._iconGUID then self._iconGUID[id] = nil end
+        for _, suffix in ipairs(trinketSuffixes) do
             local name = "arena" .. id .. suffix
             if self[name] then
                 local trinket = self[name]
-                trinket:SetScript("OnUpdate", nil)
                 trinket:Hide()
                 trinket:ClearAllPoints()
                 trinket:SetParent(nil)
@@ -238,18 +271,58 @@ function module.Trinkets:DeleteTrinketIcons(id)
             end
         end
     else
-        if MAX_ARENA_ENEMIES then
-            for i = 1, MAX_ARENA_ENEMIES do self:DeleteTrinketIcons(i) end
-        end
+        for i = 1, (MAX_ARENA_ENEMIES or 5) do self:DeleteTrinketIcons(i) end
     end
 end
 
 function module.Trinkets:Initialize()
-    local db = GetDB(); db.Trinkets = db.Trinkets or { enabled = true, scale = 1, alwaysShow = true }
-    if not MAX_ARENA_ENEMIES then return end
-    for i = 1, MAX_ARENA_ENEMIES do
-        local ArenaFrame = _G["ArenaEnemyFrame" .. i]
-        if ArenaFrame then self:CreateIcon(ArenaFrame) end
+    local db = GetDB()
+    if not db then return end
+    db.Trinkets = db.Trinkets or { enabled = true, racialEnabled = true, scale = 1 }
+    self:RefreshIcons()
+end
+
+function module.Trinkets:RefreshIcons()
+    if self._debug then print("[SUI arena] RefreshIcons instance=" .. tostring(select(2, IsInInstance()))) end
+    self._lastReset = "RefreshIcons"
+    self:DeleteTrinketIcons()
+    local db = GetDB()
+    local tr = db and db.Trinkets or {}
+    if select(2, IsInInstance()) ~= "arena" or not (tr.enabled or tr.racialEnabled) then
+        self:UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+        self:UnregisterEvent("UNIT_NAME_UPDATE")
+        return
+    end
+    self:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+    self:RegisterEvent("UNIT_NAME_UPDATE")
+    local opponentCount = (type(GetNumArenaOpponents) == "function" and GetNumArenaOpponents()) or 0
+    for i = 1, (MAX_ARENA_ENEMIES or 5) do
+        if i <= opponentCount or UnitExists("arena" .. i) then
+            self:CreateIcon(_G["ArenaEnemyFrame" .. i])
+        end
+    end
+end
+
+function module.Trinkets:ARENA_OPPONENT_UPDATE(unit, updateReason)
+    local id = type(unit) == "string" and tonumber(unit:match("^arena(%d+)$"))
+    if not id then return end
+    self._lastUpdateReason = self._lastUpdateReason or {}
+    self._lastUpdateReason[id] = updateReason
+    if self._debug then
+        print("[SUI arena] event " .. unit .. " " .. tostring(updateReason)
+            .. " exists=" .. tostring(UnitExists(unit)) .. " guid=" .. tostring(UnitGUID(unit)))
+    end
+    local db = GetDB()
+    local tr = db and db.Trinkets or {}
+    if select(2, IsInInstance()) == "arena" and (tr.enabled or tr.racialEnabled) then
+        self:CreateIcon(_G["ArenaEnemyFrame" .. id])
+    end
+end
+
+function module.Trinkets:UNIT_NAME_UPDATE(unit)
+    local id = type(unit) == "string" and tonumber(unit:match("^arena(%d+)$"))
+    if id and select(2, IsInInstance()) == "arena" then
+        self:CreateIcon(_G["ArenaEnemyFrame" .. id])
     end
 end
 
@@ -259,6 +332,8 @@ end)
 
 function module.Trinkets:UNIT_SPELLCAST_SUCCEEDED(unitID, spell)
     if not unitID or not unitID:match("^arena%d+$") then return end
+    local id = tonumber(unitID:match("^arena(%d+)$"))
+    if id then self:CreateIcon(_G["ArenaEnemyFrame" .. id]) end
     local race = ResolveArenaRace(unitID)
     local trinketSpellInfo = GetSpellInfo(42292)
     local humanSpellInfo = GetSpellInfo(59752)
@@ -266,42 +341,81 @@ function module.Trinkets:UNIT_SPELLCAST_SUCCEEDED(unitID, spell)
     if spell == trinketSpellInfo then
         if self[unitID .. "Trinket1"] then
             local trinket = self[unitID .. "Trinket1"]
-            if trinket.SetDrawEdge then trinket:SetDrawEdge(true) end
-            CooldownFrame_SetTimer(trinket, GetTime(), 120, 1)
+            if trinket.Cooldown.SetDrawEdge then trinket.Cooldown:SetDrawEdge(true) end
+            CooldownFrame_SetTimer(trinket.Cooldown, GetTime(), 120, 1)
+            if SarychUI_NotifyCooldown then SarychUI_NotifyCooldown(trinket.Cooldown, GetTime(), 120, 1) end
         end
     end
     if race == "Human" and spell == humanSpellInfo then
         if self[unitID .. "Trinket4"] then
             local trinket = self[unitID .. "Trinket4"]
-            if trinket.SetDrawEdge then trinket:SetDrawEdge(true) end
-            CooldownFrame_SetTimer(trinket, GetTime(), 120, 1)
+            if trinket.Cooldown.SetDrawEdge then trinket.Cooldown:SetDrawEdge(true) end
+            CooldownFrame_SetTimer(trinket.Cooldown, GetTime(), 120, 1)
+            if SarychUI_NotifyCooldown then SarychUI_NotifyCooldown(trinket.Cooldown, GetTime(), 120, 1) end
         end
     end
     if racialSpells[race] and racialSpells[race].id and spell == GetSpellInfo(racialSpells[race].id) then
         if self[unitID .. "Trinket2"] then
             local trinket = self[unitID .. "Trinket2"]
-            if trinket.SetDrawEdge then trinket:SetDrawEdge(true) end
-            CooldownFrame_SetTimer(trinket, GetTime(), racialSpells[race].cd, 1)
+            if trinket.Cooldown.SetDrawEdge then trinket.Cooldown:SetDrawEdge(true) end
+            CooldownFrame_SetTimer(trinket.Cooldown, GetTime(), racialSpells[race].cd, 1)
+            if SarychUI_NotifyCooldown then SarychUI_NotifyCooldown(trinket.Cooldown, GetTime(), racialSpells[race].cd, 1) end
         end
     end
 end
 
 function module.Trinkets:PLAYER_ENTERING_WORLD()
-    local instanceType = select(2, IsInInstance())
-    local db = GetDB(); local tr = db and db.Trinkets or {}
-    if tr.enabled and instanceType == "arena" then
-        self:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
-        self:DeleteTrinketIcons()
-        for i = 1, MAX_ARENA_ENEMIES do
-            self:CreateIcon(_G["ArenaEnemyFrame" .. i])
-        end
-    elseif self:IsEventRegistered("UNIT_SPELLCAST_SUCCEEDED") then
-        self:UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED")
-    end
+    if self._debug then print("[SUI arena] PLAYER_ENTERING_WORLD") end
+    self:RefreshIcons()
 end
 
 function module.Trinkets:PLAYER_LEAVING_WORLD()
+    if self._debug then print("[SUI arena] PLAYER_LEAVING_WORLD") end
+    self._lastReset = "PLAYER_LEAVING_WORLD"
     self:DeleteTrinketIcons()
+end
+
+SLASH_SARYCHUIARENATRINKETS1 = "/atrinkets"
+SlashCmdList.SARYCHUIARENATRINKETS = function(message)
+    local trinkets = module.Trinkets
+    if message == "debug" then
+        trinkets._debug = not trinkets._debug
+        print("[SUI arena] debug=" .. tostring(trinkets._debug))
+    end
+
+    local function IconState(icon)
+        if not icon then return "missing" end
+        local texture = icon.Icon and icon.Icon.Texture and icon.Icon.Texture:GetTexture()
+        local file = type(texture) == "string" and texture:match("([^\\/]+)$") or tostring(texture)
+        local visible = type(icon.IsVisible) == "function" and icon:IsVisible()
+        return (icon:IsShown() and "shown" or "hidden") .. "/vis=" .. tostring(visible)
+            .. "/a=" .. tostring(icon:GetAlpha()) .. "/ui=" .. tostring(icon:GetParent() == UIParent)
+            .. "/cd=" .. tostring(icon.Cooldown and icon.Cooldown:IsShown())
+            .. "/" .. tostring(file)
+    end
+
+    local db = GetDB()
+    local config = db and db.Trinkets
+    print("[SUI arena] instance=" .. tostring(select(2, IsInInstance()))
+        .. " trinket=" .. tostring(config and config.enabled)
+        .. " racial=" .. tostring(config and config.racialEnabled)
+        .. " reset=" .. tostring(trinkets._lastReset)
+        .. " opponents=" .. tostring(type(GetNumArenaOpponents) == "function" and GetNumArenaOpponents() or "?"))
+    for id = 1, (MAX_ARENA_ENEMIES or 5) do
+        local unit = "arena" .. id
+        local frame = _G["ArenaEnemyFrame" .. id]
+        local localizedRace, raceFile = UnitRace(unit)
+        print("[SUI arena] " .. unit
+            .. " exists=" .. tostring(UnitExists(unit))
+            .. " frame=" .. tostring(frame and frame:IsShown())
+            .. " apiRace=" .. tostring(raceFile or localizedRace)
+            .. " race=" .. tostring(trinkets._iconRace and trinkets._iconRace[id])
+            .. " guid=" .. tostring(trinkets._iconGUID and trinkets._iconGUID[id])
+            .. " event=" .. tostring(trinkets._lastUpdateReason and trinkets._lastUpdateReason[id])
+            .. " tr=" .. IconState(trinkets[unit .. "Trinket1"])
+            .. " racial=" .. IconState(trinkets[unit .. "Trinket2"])
+            .. " human=" .. IconState(trinkets[unit .. "Trinket4"]))
+    end
 end
 
 -- Class color for arena healthbars (ported from sArena)
@@ -315,35 +429,17 @@ local function ColorArenaHealthByClass(frame)
 	if not class then return end
 	local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
 	if not color then return end
-	frame.healthbar.lockColor = true
 	frame.healthbar:SetStatusBarColor(color.r, color.g, color.b)
 end
 
 local function TrySetupHooks()
-	if module._hooksDone then return end
-	if not hooksecurefunc then return end
-	local updated = false
-	if type(_G.ArenaEnemyFrame_UpdatePlayer) == "function" and not module._hookedArenaUpdate then
-		hooksecurefunc("ArenaEnemyFrame_UpdatePlayer", function(frame)
-			ColorArenaHealthByClass(frame)
-		end)
-		module._hookedArenaUpdate = true
-		updated = true
+	-- Do not hooksecurefunc ArenaEnemyFrame_UpdatePlayer. On this client the
+	-- C wrapper taints the original body, so Show() at Blizzard_ArenaUI.lua:144
+	-- and ArenaEnemyFrames:Show() inside it are blocked in combat.
+	if module.ScheduleSecureFramePaint then
+		module:ScheduleSecureFramePaint()
 	end
-	if type(_G.UnitFrameHealthBar_Update) == "function" and not module._hookedUFHB then
-		hooksecurefunc("UnitFrameHealthBar_Update", function(bar)
-			if not bar then return end
-			local owner = bar:GetParent()
-			if not owner or not owner.GetName then return end
-			local name = owner:GetName()
-			if name and name:match("^ArenaEnemyFrame%d+$") then
-				ColorArenaHealthByClass(owner)
-			end
-		end)
-		module._hookedUFHB = true
-		updated = true
-	end
-	if updated then module._hooksDone = true end
+	module._hooksDone = true
 end
 
 -- Apply or reset class coloring on all arena frames based on setting
@@ -357,7 +453,6 @@ function module:ApplyClassColoring()
 			if enabled then
 				ColorArenaHealthByClass(frame)
 			else
-				frame.healthbar.lockColor = nil
 				if UnitFrameHealthBar_Update then
 					UnitFrameHealthBar_Update(frame.healthbar, frame.unit)
 				end
@@ -427,11 +522,32 @@ function module:CalculateDefaultContainerPosition()
 	end
 end
 
+-- Keep Blizzard's secure buttons anchored only to Blizzard's UIParent.
+-- The movable SarychUI frame is a position editor, never an anchor in the
+-- ArenaEnemyFrame click hierarchy.
+function module:PlaceFirstArenaFrame()
+	if not arenaContainer or (InCombatLockdown and InCombatLockdown()) then return end
+	local frame = _G["ArenaEnemyFrame1"]
+	if not frame then return end
+	local x = arenaContainer:GetCenter()
+	local y = arenaContainer:GetBottom()
+	if not x or not y then return end
+	frame:ClearAllPoints()
+	frame:SetPoint("TOP", UIParent, "BOTTOMLEFT", x, y - 8)
+end
+
 -- Create/ensure Blizzard_ArenaUI and attach frames under our container
 function module:InitializeContainer()
-	if not IsAddOnLoaded("Blizzard_ArenaUI") then
-		pcall(LoadAddOn, "Blizzard_ArenaUI")
-	end
+	-- ArenaEnemyFrame* and ArenaEnemyFrames are protected.  Never rebuild their
+	-- hierarchy from combat (for example when PLAYER_ENTERING_WORLD fires after
+	-- reconnecting to an arena).
+	if InCombatLockdown and InCombatLockdown() then return end
+
+	-- Do not LoadAddOn("Blizzard_ArenaUI") here.  Frame OnLoad calls
+	-- UnitFrame_Initialize, which SetScript's OnEvent.  Doing that from addon
+	-- code leaves the handler tainted, so Blizzard's later Show/Hide in combat
+	-- is reported as ADDON_ACTION_BLOCKED on SarychUI.  The client loads the
+	-- addon itself; we only anchor frames after they already exist.
 
 	-- Сохраняем оригинальную позицию первого фрейма ДО того, как мы его изменим
 	if MAX_ARENA_ENEMIES then
@@ -442,6 +558,7 @@ function module:InitializeContainer()
 	end
 
 	if not arenaContainer then
+		-- This frame is only the movable editor for the position.
 		arenaContainer = CreateFrame("Frame", "SarychUIArenaContainer", UIParent)
 		arenaContainer:SetSize(200, 1)
 		
@@ -476,24 +593,18 @@ function module:InitializeContainer()
 		end
 	end
 
-	arenaContainer:SetScale(GetSetting('scale', 1.0))
+	if ArenaEnemyFrames then
+		ArenaEnemyFrames:SetScale(GetSetting('scale', 1.0))
+	end
 
-	-- Parent Blizzard arena frames to our container and position first frame like sArena
+	-- Keep Blizzard's protected hierarchy intact. Frames 2-5 and all pets
+	-- retain their original relative anchors and visibility parent.
+	self:PlaceFirstArenaFrame()
 	if MAX_ARENA_ENEMIES then
 		for i = 1, MAX_ARENA_ENEMIES do
 			local frame = _G["ArenaEnemyFrame" .. i]
-			local pet = _G["ArenaEnemyFrame" .. i .. "PetFrame"]
 			if frame then
-				frame:SetParent(arenaContainer)
-				if i == 1 then
-					frame:ClearAllPoints()
-					frame:SetPoint("TOP", arenaContainer, "BOTTOM", 0, -8)
-				end
-				ArenaEnemyFrame_UpdatePlayer(frame, true)
 				ColorArenaHealthByClass(frame)
-			end
-			if pet then
-				pet:SetParent(arenaContainer)
 			end
 		end
 	end
@@ -505,6 +616,7 @@ end
 function module:ApplyContainerPosition()
     local db = GetDB(); if not db then return end
     if not arenaContainer then return end
+    if InCombatLockdown and InCombatLockdown() then return end
     
     -- Проверяем, не происходит ли сейчас drag или только что был drag - если да, не применяем позицию
     -- Это предотвращает перезапись позиции во время drag и сразу после него
@@ -561,22 +673,15 @@ function module:ApplyContainerPosition()
         arenaContainer:ClearAllPoints()
         arenaContainer:SetPoint(point, UIParent, relativePoint, xOfs, yOfs)
     end
+	self:PlaceFirstArenaFrame()
 end
 
 function module:DeleteArenaFrames()
-	if not MAX_ARENA_ENEMIES then return end
-	for i = 1, MAX_ARENA_ENEMIES do
-		local frame = _G["ArenaEnemyFrame" .. i]
-		local pet = _G["ArenaEnemyFrame" .. i .. "PetFrame"]
-		if frame then
-			frame:Hide()
-			frame:SetParent(nil)
-		end
-		if pet then
-			pet:Hide()
-			pet:SetParent(nil)
-		end
-	end
+	-- Deliberately empty.  These are Blizzard protected unit buttons.  The old
+	-- implementation called Hide() here on every world transition and therefore
+	-- tainted their visibility.  Blizzard_ArenaUI later calls Show() in combat
+	-- from ArenaEnemyFrame_UpdatePlayer, which produced ADDON_ACTION_BLOCKED.
+	-- Blizzard owns their visibility; SarychUI only positions them out of combat.
 end
 
 -- Restore arena frames to default Blizzard state
@@ -588,24 +693,8 @@ function module:RestoreArenaFrames()
 		return
 	end
 	
-	-- Ensure Blizzard_ArenaUI is loaded
-	if not IsAddOnLoaded("Blizzard_ArenaUI") then
-		pcall(LoadAddOn, "Blizzard_ArenaUI")
-	end
-	
-	-- Restore all frames to UIParent first
-	for i = 1, MAX_ARENA_ENEMIES do
-		local frame = _G["ArenaEnemyFrame" .. i]
-		local pet = _G["ArenaEnemyFrame" .. i .. "PetFrame"]
-		if frame then
-			frame:SetParent(UIParent)
-		end
-		if pet then
-			pet:SetParent(UIParent)
-		end
-	end
-	
-	-- Restore first frame to original position if we saved it
+	-- Restore first frame to original position if we saved it.  Never force-load
+	-- Blizzard_ArenaUI: that taints ArenaEnemyFrame OnEvent for the whole session.
 	if firstArenaFramePosition then
 		local firstFrame = _G["ArenaEnemyFrame1"]
 		if firstFrame then
@@ -619,12 +708,14 @@ function module:RestoreArenaFrames()
 			)
 		end
 	end
+	if ArenaEnemyFrames then
+		ArenaEnemyFrames:SetScale(1)
+	end
 	
 	-- Remove class color lock from healthbars and let Blizzard update them
 	for i = 1, MAX_ARENA_ENEMIES do
 		local frame = _G["ArenaEnemyFrame" .. i]
 		if frame and frame.healthbar then
-			frame.healthbar.lockColor = nil
 			-- Let Blizzard update healthbar
 			if UnitFrameHealthBar_Update then
 				UnitFrameHealthBar_Update(frame.healthbar, frame.unit)
@@ -636,68 +727,83 @@ function module:RestoreArenaFrames()
 	-- Blizzard will show/hide frames based on arena status
 end
 
-function module:HideArenaEnemyFrames()
-	if InCombatLockdown() then return end
-	if ArenaEnemyBackground then ArenaEnemyBackground:Hide() end
-	if not MAX_ARENA_ENEMIES then return end
-	for i = 1, MAX_ARENA_ENEMIES do
-		local frame = _G["ArenaEnemyFrame" .. i]
-		if frame then
-			ArenaEnemyFrame_OnEvent(frame, "ARENA_OPPONENT_UPDATE", frame.unit, "cleared")
-			local pet = _G["ArenaEnemyFrame" .. i .. "PetFrame"]
-			if pet then pet:Hide() end
-			ArenaEnemyFrame_UpdatePlayer(frame)
+local function EnsureArenaTestFrames()
+	if arenaTestContainer then return end
+	arenaTestContainer = CreateFrame("Frame", "SarychUIArenaTestContainer", UIParent)
+	arenaTestContainer:SetSize(180, 252)
+
+	for i = 1, 5 do
+		local frame = CreateFrame("Frame", "SarychUIArenaTestFrame" .. i, arenaTestContainer)
+		frame:SetSize(102, 32)
+		if i == 1 then
+			frame:SetPoint("TOP", arenaTestContainer, "TOP", 0, 0)
+		else
+			frame:SetPoint("TOP", arenaTestFrames[i - 1], "BOTTOM", 0, -20)
 		end
-		
-		-- Hide test trinket icons
-		for _, suffix in ipairs({"Trinket1", "Racial"}) do
-			local trinketName = "SarychUIArenaTestTrinket" .. i .. suffix
-			local trinket = _G[trinketName]
-			if trinket then
-				trinket:Hide()
-				if trinket.Icon then
-					trinket.Icon:Hide()
-				end
-			end
-		end
+
+		local portrait = frame:CreateTexture(nil, "BACKGROUND")
+		portrait:SetSize(30, 30)
+		portrait:SetPoint("TOPRIGHT", -1, -4)
+		portrait:SetTexture("Interface\\TargetingFrame\\UI-Classes-Circles")
+		local coords = CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS.WARRIOR
+		if coords then portrait:SetTexCoord(unpack(coords)) end
+
+		local health = CreateFrame("StatusBar", nil, frame)
+		health:SetSize(70, 8)
+		health:SetPoint("TOPLEFT", 3, -11)
+		health:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+		health:SetMinMaxValues(0, 1)
+		health:SetValue(0.82)
+		health:SetStatusBarColor(0.78, 0.61, 0.43)
+
+		local mana = CreateFrame("StatusBar", nil, frame)
+		mana:SetSize(70, 7)
+		mana:SetPoint("TOPLEFT", 3, -19)
+		mana:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+		mana:SetMinMaxValues(0, 1)
+		mana:SetValue(0.65)
+		mana:SetStatusBarColor(0.2, 0.35, 0.95)
+
+		local chrome = frame:CreateTexture(nil, "ARTWORK")
+		chrome:SetSize(102, 32)
+		chrome:SetPoint("TOPLEFT", 0, -2)
+		chrome:SetTexture("Interface\\ArenaEnemyFrame\\UI-ArenaTargetingFrame")
+		chrome:SetTexCoord(0.0, 0.796, 0.0, 0.5)
+
+		local name = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+		name:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 3, 24)
+		name:SetText("Arena " .. i)
+
+		frame:Hide()
+		arenaTestFrames[i] = frame
 	end
+	arenaTestContainer:Hide()
+end
+
+function module:HideArenaEnemyFrames()
+	-- This function now hides only SarychUI's unprotected preview.  Calling
+	-- Hide() or Blizzard event/update functions on ArenaEnemyFrame* taints the
+	-- visibility that Blizzard must change during combat.
+	if arenaTestContainer then arenaTestContainer:Hide() end
 end
 
 function module:Test(numOpponents)
-	if self:IsGladiusExMode() then return end
-	if InCombatLockdown() then return end
 	numOpponents = tonumber(numOpponents)
 	if not numOpponents or numOpponents < 1 or numOpponents > 5 then return end
-    -- Ensure container is at the latest saved position before visualizing tests
-    self:ApplyContainerPosition()
-	self:HideArenaEnemyFrames()
-	local showPets = (SHOW_ARENA_ENEMY_PETS == "1")
-	local instanceType = select(2, IsInInstance())
-	for i = 1, numOpponents do
-		local frame = _G["ArenaEnemyFrame" .. i]
-		if frame then
-			if instanceType ~= "pvp" then
-				frame:SetPoint("RIGHT", frame:GetParent(), "RIGHT", -2, 0)
-			else
-				frame:SetPoint("RIGHT", frame:GetParent(), "RIGHT", -18, 0)
-			end
-			ArenaEnemyFrame_SetMysteryPlayer(frame)
-		end
-		if showPets then
-			local pet = _G["ArenaEnemyFrame" .. i .. "PetFrame"]
-			if pet then
-				pet:Show()
-				local tex = _G["ArenaEnemyFrame" .. i .. "PetFramePortrait"]
-				if tex then tex:SetTexture("Interface\\CharacterFrame\\TempPortrait") end
-			end
-		end
+
+	self:ApplyContainerPosition()
+	EnsureArenaTestFrames()
+	arenaTestContainer:ClearAllPoints()
+	if arenaContainer then
+		arenaTestContainer:SetPoint("TOP", arenaContainer, "BOTTOM", 0, -8)
+	else
+		arenaTestContainer:SetPoint("RIGHT", UIParent, "RIGHT", -311, 131)
 	end
-	if (GetCVarBool and GetCVarBool("showPartyBackground")) or SHOW_PARTY_BACKGROUND == "1" then
-		if ArenaEnemyBackground and _G["ArenaEnemyFrame" .. numOpponents .. "PetFrame"] then
-			ArenaEnemyBackground:Show()
-			ArenaEnemyBackground:SetPoint("BOTTOMLEFT", "ArenaEnemyFrame" .. numOpponents .. "PetFrame", "BOTTOMLEFT", -15, -10)
-		end
+	arenaTestContainer:SetScale(GetSetting("scale", 1.0))
+	for i = 1, 5 do
+		if i <= numOpponents then arenaTestFrames[i]:Show() else arenaTestFrames[i]:Hide() end
 	end
+	arenaTestContainer:Show()
 	
 	-- Show trinket and racial icons in test mode (with delay to ensure frames are set up)
 	local db = GetDB()
@@ -731,7 +837,7 @@ function module:ShowTestTrinkets(numOpponents, trinketsDB)
 	local racialTexture = "Interface\\Icons\\racial_orc_berserkerstrength" -- Orc racial
 	
 	for i = 1, numOpponents do
-		local frame = _G["ArenaEnemyFrame" .. i]
+		local frame = arenaTestFrames[i]
 		if not frame then break end
 		
 		-- Handle trinket icon
@@ -1064,8 +1170,11 @@ local arenaNameToUnit = {}
 local arenaPlateChildCount = -1
 local arenaNameScanElapsed = 0
 local enpNameHooked = false
-local arenaFrameNameHooked = false
 local arenaNumbersModuleActive = false
+-- Never store addon state on Blizzard's protected arena unit buttons.  Even an
+-- otherwise harmless custom field can taint a later combat-time visibility
+-- update in Blizzard_ArenaUI.  Keep state in our own weak-key table instead.
+local blizzardArenaNameState = setmetatable({}, { __mode = "k" })
 
 local function ArenaNumbersOn()
 	if not arenaNumbersModuleActive then return false end
@@ -1382,6 +1491,11 @@ local function ApplyBlizzardArenaFrameName(frame)
 	if not frame then return end
 	local name = GetBlizzardArenaName(frame)
 	if not name then return end
+	local state = blizzardArenaNameState[frame]
+	if not state then
+		state = {}
+		blizzardArenaNameState[frame] = state
+	end
 	local frameName = frame.GetName and frame:GetName()
 	local unit = frame.unit
 	local num = type(unit) == "string" and unit:match("^arena(%d+)$")
@@ -1396,15 +1510,15 @@ local function ApplyBlizzardArenaFrameName(frame)
 	if shouldNumber then
 		local current = name:GetText()
 		if current and current ~= "" and current ~= num then
-			frame._suiArenaOriginalName = current
+			state.originalName = current
 		end
 		name:SetText(num)
-		frame._suiArenaNumberApplied = true
-	elseif frame._suiArenaNumberApplied then
-		local original = (unit and UnitName(unit)) or frame._suiArenaOriginalName
+		state.numberApplied = true
+	elseif state.numberApplied then
+		local original = (unit and UnitName(unit)) or state.originalName
 		if original then name:SetText(original) end
-		frame._suiArenaNumberApplied = nil
-		frame._suiArenaOriginalName = nil
+		state.numberApplied = nil
+		state.originalName = nil
 	end
 end
 
@@ -1415,31 +1529,39 @@ local function RefreshBlizzardArenaFrameNames()
 end
 
 local function HookBlizzardArenaFrameNames()
-	if arenaFrameNameHooked or type(_G.ArenaEnemyFrame_UpdatePlayer) ~= "function" then return end
-	arenaFrameNameHooked = true
-	hooksecurefunc("ArenaEnemyFrame_UpdatePlayer", function(frame)
-		ApplyBlizzardArenaFrameName(frame)
-	end)
+	-- Names are applied on our own frame, one tick after Blizzard writes them.
+	-- A hook on ArenaEnemyFrame_UpdatePlayer taints its combat Show().
+	if module.ScheduleSecureFramePaint then
+		module:ScheduleSecureFramePaint()
+	end
 end
 
-local function RefreshGladiusArenaFrameNames()
-	local GX = _G.GladiusEx
-	if not GX or not GX.GetModule then return end
-	local Tags = GX:GetModule("Tags", true)
-	if not Tags or not Tags.Refresh or not Tags.frame then return end
-	for i = 1, 5 do
-		local unit = "arena" .. i
-		if Tags.frame[unit] then
-			Tags:Refresh(unit)
-		end
+function module:ScheduleSecureFramePaint()
+	if not self._securePaintFrame then
+		local paint = CreateFrame("Frame")
+		paint:Hide()
+		paint:SetScript("OnUpdate", function(frame)
+			frame:Hide()
+			if not MAX_ARENA_ENEMIES then return end
+			local db = GetDB()
+			local colorOn = (db == nil or db.classColorHP == nil or db.classColorHP == true)
+			if colorOn then
+				local i
+				for i = 1, MAX_ARENA_ENEMIES do
+					ColorArenaHealthByClass(_G["ArenaEnemyFrame" .. i])
+				end
+			end
+			RefreshBlizzardArenaFrameNames()
+		end)
+		self._securePaintFrame = paint
 	end
+	self._securePaintFrame:Show()
 end
 
 local function RefreshAllArenaNumberTargets()
 	RefreshENPArenaNames()
 	UpdateAwesomePlates()
 	RefreshBlizzardArenaFrameNames()
-	RefreshGladiusArenaFrameNames()
 end
 
 --------------------------------------------------------------------
@@ -1635,7 +1757,6 @@ function module:ApplySettings()
 	self:UpdateArenaNameplates()
 	self:UpdateGroupTitles()
 	self:UpdateRetab()
-	if self:IsGladiusExMode() then return end
 	local db = GetDB()
 	if not db or not db.enabled then return end
 	
@@ -1653,8 +1774,8 @@ function module:ApplySettings()
 		self:ApplyContainerPosition()
 	end
 	
-	if arenaContainer then
-		arenaContainer:SetScale(db.scale or 1.0)
+	if ArenaEnemyFrames and not (InCombatLockdown and InCombatLockdown()) then
+		ArenaEnemyFrames:SetScale(db.scale or 1.0)
 	end
 
 	-- Apply class coloring immediately according to setting
@@ -1712,6 +1833,7 @@ function module:ApplySettings()
 				db.arenaR = relativePoint
 				db.arenaX = xOfs
 				db.arenaY = yOfs
+				module:PlaceFirstArenaFrame()
 				
 				-- If test mode is active, re-run to reflect new anchor instantly
 				if db.testMode and db.testMode > 0 then
@@ -1760,8 +1882,8 @@ function module:SetScale(value)
 	local db = GetDB(); if not db then return end
 	value = tonumber(value) or 1.0
 	db.scale = value
-	if arenaContainer then
-		arenaContainer:SetScale(value)
+	if ArenaEnemyFrames and not (InCombatLockdown and InCombatLockdown()) then
+		ArenaEnemyFrames:SetScale(value)
 	end
 end
 
@@ -1772,16 +1894,14 @@ function module:Enable()
 	self:UpdateArenaNameplates()
 	self:UpdateGroupTitles()
 	self:UpdateRetab()
-	if self:IsGladiusExMode() then return end
 	local db = GetDB(); if not db or not db.enabled then return end
 	
 	-- Сбрасываем тестовый режим при загрузке/перезагрузке
 	if db.testMode and db.testMode > 0 then
 		db.testMode = 0
-		-- Скрываем тестовые фреймы
-		if self.HideArenaEnemyFrames then
-			self:HideArenaEnemyFrames()
-		end
+		-- Do not call Hide() on Blizzard arena unit buttons here.  A reload clears
+		-- the preview by itself, while touching protected visibility would taint
+		-- the first combat update.
 	end
 	
     self:InitializeContainer()
@@ -1791,6 +1911,7 @@ function module:Enable()
     -- sArena-like trinkets lifecycle
     module.Trinkets:RegisterEvent("PLAYER_ENTERING_WORLD")
     module.Trinkets:RegisterEvent("PLAYER_LEAVING_WORLD")
+    module.Trinkets:RegisterEvent("ARENA_OPPONENT_UPDATE")
     module.Trinkets:Initialize()
 
 	if not eventFrame then
@@ -1798,27 +1919,41 @@ function module:Enable()
 		eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 		eventFrame:RegisterEvent("PLAYER_LEAVING_WORLD")
 		eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-		eventFrame:SetScript("OnEvent", function(_, event)
+		eventFrame:RegisterEvent("ADDON_LOADED")
+		eventFrame:RegisterEvent("ARENA_OPPONENT_UPDATE")
+		eventFrame:RegisterEvent("UNIT_NAME_UPDATE")
+		eventFrame:SetScript("OnEvent", function(_, event, addonName)
+			if event == "ARENA_OPPONENT_UPDATE"
+				or (event == "UNIT_NAME_UPDATE" and type(addonName) == "string" and addonName:match("^arena%d+$")) then
+				self:ScheduleSecureFramePaint()
+				return
+			end
+			if event == "ADDON_LOADED" then
+				if addonName == "Blizzard_ArenaUI" then
+					self:InitializeContainer()
+					self:ScheduleSecureFramePaint()
+					module.Trinkets:RefreshIcons()
+				end
+				return
+			end
 			if event == "PLAYER_ENTERING_WORLD" then
 				-- Сбрасываем тестовый режим при входе в мир
 				local db = GetDB()
 				if db and db.testMode and db.testMode > 0 then
 					db.testMode = 0
-					if module.HideArenaEnemyFrames then
-						module:HideArenaEnemyFrames()
-					end
 				end
 				
 				local instanceType = select(2, IsInInstance())
 				if instanceType == "arena" then
-					self:DeleteArenaFrames()
+					-- Frames survive zoning.  Re-apply only the out-of-combat hierarchy
+					-- and position; never Hide/Show them or call Blizzard's updater.
 					self:InitializeContainer()
 				else
 					-- Cleanup distance alpha when leaving arena
 					CleanupDistanceAlphaUpdate()
 				end
 			elseif event == "PLAYER_LEAVING_WORLD" then
-				self:DeleteArenaFrames()
+				-- Blizzard_ArenaUI owns protected frame visibility across zoning.
 				CleanupDistanceAlphaUpdate()
 			elseif event == "ZONE_CHANGED_NEW_AREA" then
 				-- Check if we're still in arena
@@ -1836,6 +1971,9 @@ end
 
 function module:Disable()
 	arenaNumbersModuleActive = false
+	if arenaTestContainer then
+		arenaTestContainer:Hide()
+	end
 	-- DragMode cleanup (локальный ArenaDragMode)
 	if ArenaDragMode and arenaContainer then
 		ArenaDragMode:Disable(arenaContainer)
@@ -1864,6 +2002,7 @@ function module:Disable()
 	
 	-- Trinkets cleanup
 	if module.Trinkets then
+		module.Trinkets._lastReset = "Disable"
 		module.Trinkets:DeleteTrinketIcons()
 		module.Trinkets:UnregisterAllEvents()
 	end

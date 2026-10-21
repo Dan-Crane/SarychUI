@@ -73,10 +73,11 @@ local function UpdatePower()
 	if not power then return end
 	local cur, maxP = UnitPower("player"), UnitPowerMax("player")
 	power:SetMinMaxValues(0, maxP > 0 and maxP or 1)
-	local ptype = UnitPowerType("player")
-	if ptype ~= power._ptype then
+	local ptype, ptoken = UnitPowerType("player")
+	if ptype ~= power._ptype or ptoken ~= power._ptoken then
 		power._ptype = ptype
-		module:SetBarColor(power, module:PowerRGB(ptype))
+		power._ptoken = ptoken
+		module:SetBarColor(power, module:PowerRGB(ptype, ptoken))
 	end
 	power:SetValue(cur)
 	power.text:SetText(module:FormatValue(cur))
@@ -170,7 +171,9 @@ local function Ensure()
 		elseif health and health.AnimatedLossBar and health.AnimatedLossBar.animationStartTime then
 			health.AnimatedLossBar:UpdateLossAnimation(curH)
 		end
-		if curP ~= self._p then
+		local ptype = power and power._ptype
+		local liveType = UnitPowerType("player")
+		if curP ~= self._p or liveType ~= ptype then
 			self._p = curP
 			UpdatePower()
 		end
@@ -265,9 +268,7 @@ function module:RefreshPlate()
 		self._plateEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
 		self._plateEvents:RegisterEvent("UNIT_HEALTH")
 		self._plateEvents:RegisterEvent("UNIT_MAXHEALTH")
-		if IS_DRUID then
-			self._plateEvents:RegisterEvent("UNIT_DISPLAYPOWER")
-		end
+		self._plateEvents:RegisterEvent("UNIT_DISPLAYPOWER")
 		self._plateEvents:SetScript("OnEvent", function(_, event, unit)
 			if event == "PLAYER_REGEN_DISABLED" then
 				ShowIfWanted()

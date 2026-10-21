@@ -278,6 +278,25 @@ function Preview:Create(parent)
 	clockFs:SetPoint("CENTER", 0, 0)
 	clockFs:SetText("12:34")
 
+	-- MiniMapInstanceDifficulty: FrameXML Minimap.xml, sibling of Minimap.
+	-- Keep the stock size, anchor, texture crop and text offset. The live frame
+	-- changes the crop for normal/heroic modes; the preview uses its base state.
+	local instanceDifficulty = CreateFrame("Frame", nil, cluster)
+	instanceDifficulty:SetSize(38, 46)
+	instanceDifficulty:SetPoint("TOPLEFT", cluster, "TOPLEFT", 22, -17)
+	instanceDifficulty:SetFrameLevel(map:GetFrameLevel() + 10)
+
+	local difficultyTexture = instanceDifficulty:CreateTexture(nil, "ARTWORK")
+	difficultyTexture:SetSize(64, 46)
+	difficultyTexture:SetPoint("CENTER", instanceDifficulty, "CENTER", 0, 0)
+	difficultyTexture:SetTexture("Interface\\Minimap\\UI-DungeonDifficulty-Button")
+	difficultyTexture:SetTexCoord(0.0, 0.25, 0.0703125, 0.4140625)
+
+	local difficultyText = instanceDifficulty:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+	difficultyText:SetPoint("CENTER", instanceDifficulty, "CENTER", -1, -7)
+	difficultyText:SetJustifyH("CENTER")
+	difficultyText:SetText("25")
+
 	host._borderTop = borderTop
 	host._zoomIn = zoomIn
 	host._zoomOut = zoomOut
@@ -285,6 +304,7 @@ function Preview:Create(parent)
 	host._calendar = calendar
 	host._worldMap = worldMap
 	host._clock = clock
+	host._instanceDifficulty = instanceDifficulty
 
 	local function Layout()
 		-- Fallbacks match core/defaults.lua (SarychUI profile defaults).
@@ -294,6 +314,7 @@ function Preview:Create(parent)
 		local hideClock = LiveFlag("hideClock", false)
 		local hideTrack = LiveFlag("hideTracking", true)
 		local hideCal = LiveFlag("hideCalendar", true)
+		local hideDifficulty = LiveFlag("hideInstanceDifficulty", false)
 
 		-- Module hides MinimapBorderTop only (zone strip), not the circular ring.
 		SetShown(borderTop, not hideBorder)
@@ -303,6 +324,7 @@ function Preview:Create(parent)
 		SetShown(clock, not hideClock)
 		SetShown(tracking, not hideTrack)
 		SetShown(calendar, not hideCal)
+		SetShown(instanceDifficulty, not hideDifficulty)
 	end
 
 	host.Refresh = Layout

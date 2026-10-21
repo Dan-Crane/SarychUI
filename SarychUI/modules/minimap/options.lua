@@ -80,6 +80,15 @@ local function isOn(key)
 	return v == 1 or v == true
 end
 
+local function EnsureMinimapVisibilityDb()
+	local db = module.addon.db.profile.modules[moduleName]
+	if type(db.minimapVisibility) ~= "table" then
+		local defaults = SarychUI.defaults.profile.modules.minimap.minimapVisibility
+		db.minimapVisibility = defaults and CopyTable(defaults) or {}
+	end
+	return db.minimapVisibility
+end
+
 local function WriteMinimapOffset(axis, value)
 	local mdb = module.addon.db.profile.modules[moduleName]
 	if not mdb then return end
@@ -452,6 +461,16 @@ function module:GetOptions()
 									end
 									RefreshConfig()
 								end,
+								suiResetDefaults = function()
+									local def = SarychUI.defaults and SarychUI.defaults.profile.modules.minimap
+									WriteMinimapOffset("x", (def and def.offsetX) or -5)
+									WriteMinimapOffset("y", (def and def.offsetY) or -5)
+									local panel = SarychUI and (SarychUI.PositionDragPanel or SarychUI.CombatTextDragPanel)
+									if panel and panel.SyncDraftIfOpen then
+										panel:SyncDraftIfOpen("minimap", (def and def.offsetX) or -5, (def and def.offsetY) or -5)
+									end
+									RefreshConfig()
+								end,
 								hidden = function() return not isOn("positioningEnabled") end,
 							},
 						},
@@ -578,6 +597,19 @@ function module:GetOptions()
 									NotifyMinimapPreview("hideCalendar", value and 1 or 0)
 								end,
 							},
+							hideInstanceDifficulty = {
+								type = "toggle",
+								name = "Скрыть флажок сложности подземелья/рейда",
+								desc = "Скрыть стандартный флажок, показывающий размер группы (10/25) и обычный или героический режим.",
+								order = 7,
+								width = "full",
+								get = function() return self.addon.db.profile.modules[moduleName].hideInstanceDifficulty == 1 end,
+								set = function(_, value)
+									self.addon.db.profile.modules[moduleName].hideInstanceDifficulty = value and 1 or 0
+									if self.ApplySettings then self:ApplySettings() end
+									NotifyMinimapPreview("hideInstanceDifficulty", value and 1 or 0)
+								end,
+							},
 						},
 					},
 				},
@@ -651,6 +683,68 @@ function module:GetOptions()
 									self.addon.db.profile.modules[moduleName].wheelZoomSound = value and 1 or 0
 									if self.ApplySettings then self:ApplySettings() end
 								end,
+							},
+						},
+					},
+				},
+			},
+			visibility = {
+				type = "group",
+				name = "Видимость",
+				order = 6,
+				disabled = function() return not self.addon.db.profile.modules[moduleName].enabled end,
+				args = {
+					visibilityBox = {
+						type = "group",
+						name = " ",
+						order = 1,
+						inline = true,
+						args = {
+							minimap_visibility_enabled = {
+								type = "toggle",
+								name = "Включить управление видимостью",
+								desc = "Разрешает скрывать и показывать миникарту назначенной кнопкой.",
+								order = 1,
+								width = "full",
+								get = function()
+									local visibility = self.addon.db.profile.modules[moduleName].minimapVisibility
+									return visibility and (visibility.enabled == 1 or visibility.enabled == true)
+								end,
+								set = function(_, value)
+									local visibility = EnsureMinimapVisibilityDb()
+									visibility.enabled = value and 1 or 0
+									if module.ApplyVisibilitySettings then
+										module:ApplyVisibilitySettings()
+									end
+								end,
+							},
+							minimap_visibility_key = {
+								type = "keybinding",
+								name = "Кнопка видимости миникарты",
+								desc = "Одно нажатие скрывает миникарту, повторное показывает её.",
+								order = 2,
+								width = "full",
+								disabled = function()
+									local visibility = self.addon.db.profile.modules[moduleName].minimapVisibility
+									return not visibility or (visibility.enabled ~= 1 and visibility.enabled ~= true)
+								end,
+								get = function()
+									local visibility = self.addon.db.profile.modules[moduleName].minimapVisibility
+									return visibility and visibility.key or nil
+								end,
+								set = function(_, value)
+									local visibility = EnsureMinimapVisibilityDb()
+									visibility.key = value
+									if module.ApplyVisibilitySettings then
+										module:ApplyVisibilitySettings()
+									end
+								end,
+							},
+							minimap_visibility_desc = {
+								type = "description",
+								name = "|cFFFFD700Пометка:|r Можно назначить ту же кнопку, что и для видимости чата — тогда они будут скрываться и появляться вместе.",
+								order = 3,
+								fontSize = "medium",
 							},
 						},
 					},

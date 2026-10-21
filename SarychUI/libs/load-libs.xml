@@ -14,7 +14,7 @@
 	<!-- CompactRaidFrame Libraries -->
 	<Include file="LibTalentQuery-1.0\LibTalentQuery-1.0.xml"/>
 	<Include file="LibGroupTalents-1.0\LibGroupTalents-1.0.xml"/>
-	<!-- Single absorb engine, shared by CompactRaidFrame, UnitFrameLayers and GladiusEx -->
+	<!-- Single absorb engine, shared by CompactRaidFrame and UnitFrameLayers -->
 	<Include file="SpecializedAbsorbs-1.0\SpecializedAbsorbs-1.0.xml"/>
 	<Include file="LibCUFAuras-1.0\lib.xml"/>
 	<Include file="LibResComm-1.0\LibResComm-1.0.xml"/>
@@ -84,4 +84,7 @@
 	
 	<!-- LibWindow-1.1 -->
 	<Script file="LibWindow-1.1\LibWindow-1.1.lua"/>
+
+	<!-- ClassicAPI: LibStub library. Does not write methods onto Blizzard widget metatables. -->
+	<Include file="ClassicAPI\ClassicAPI.xml"/>
 </Ui>

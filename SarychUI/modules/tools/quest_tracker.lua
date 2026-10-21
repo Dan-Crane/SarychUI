@@ -9,7 +9,7 @@ local pcall = pcall
 local IsAddOnLoaded = IsAddOnLoaded
 local hooksecurefunc = hooksecurefunc
 
-local HEADER_TEXTURE = [[Interface\AddOns\SarychUI\media\textures\questtracker\QuestTracker.BLP]]
+local HEADER_TEXTURE = [[Interface\AddOns\SarychUI\media\textures\questtracker\QuestTracker]]
 local HEADER_TEX_W, HEADER_TEX_H = 1024, 512
 local HEADER_LEFT, HEADER_RIGHT, HEADER_TOP, HEADER_BOTTOM = 11, 571, 247, 317
 

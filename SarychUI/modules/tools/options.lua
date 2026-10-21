@@ -32,17 +32,6 @@ local function IsModuleEnabled()
 		and SarychUI.db.profile.modules.tools.enabled == true
 end
 
-local function IsOmniCDEnabled()
-	local wrapper = SarychUI and SarychUI.GetAddOn and SarychUI:GetAddOn("OmniCD")
-	if wrapper and wrapper.IsRuntimeEnabled then
-		return wrapper:IsRuntimeEnabled() and true or false
-	end
-	if SarychUI and SarychUI.IsAddOnEnabled then
-		return SarychUI:IsAddOnEnabled("OmniCD") and true or false
-	end
-	return OmniCDEnabled == true
-end
-
 local function Refresh()
 	if SarychUI.NotifySarychUIOptionsChange then
 		SarychUI:NotifySarychUIOptionsChange()
@@ -65,7 +54,7 @@ local ALT_ANNOUNCE_CHANNEL_VALUES = {
 local function AltAnnounceAnyEnabled()
 	if not IsModuleEnabled() then return false end
 	return isOn("enableAltCD") or isOn("enableAltUnitBars")
-		or isOn("enableAltAuras") or isOn("enableAltOmniCD")
+		or isOn("enableAltAuras")
 end
 
 local function MakeAltAnnounceChannelSelect(dbKey, name, desc, order, defaultMode)
@@ -245,29 +234,6 @@ function module:GetOptions()
 									db.enableAltAuras = val and 1 or 0
 									if module and module.ApplyAltAuras then module:ApplyAltAuras() end
 									Refresh()
-								end,
-							},
-							enableAltOmniCD = {
-								type = "toggle",
-								name = "Объявлять OmniCD",
-								desc = function()
-									if not IsOmniCDEnabled() then
-										return "Сначала включите OmniCD в |cff1784d1Настройки -> Аддоны|r."
-									end
-									return "При |cFFFFD700Alt|r + ЛКМ по иконке OmniCD отправляет в чат статус способности: готова / перезаряжается, и имя игрока. Чтобы иконки были кликабельны, в OmniCD включите всплывающие подсказки. Только клик мышью, не бинды."
-								end,
-								order = 4,
-								width = "full",
-								suiHelpIcon = SarychUI.DOTA_ALT_HELP_ICON,
-								get = toggleGetter,
-								set = function(info, val)
-									local db = DB(); if not db then return end
-									db.enableAltOmniCD = val and 1 or 0
-									if module and module.ApplyAltOmniCD then module:ApplyAltOmniCD() end
-									Refresh()
-								end,
-								disabled = function()
-									return not IsOmniCDEnabled()
 								end,
 							},
 							altAnnounceChannelHeader = {
@@ -585,33 +551,7 @@ function module:GetOptions()
 							},
 						},
 					},
-
-					keyEchoBox = {
-						type = "group",
-						name = "Двойное нажатие клавиш",
-						order = 7,
-						inline = true,
-						args = {
-							enableKeyEcho = {
-								type = "toggle",
-								name = "Включить",
-								desc = "Дублирует нажатия клавиш, как AHK. Работает со стандартными панелями, Dominos и Bartender4.",
-								order = 1,
-								width = "full",
-								get = toggleGetter,
-								set = function(_, val)
-									local db = DB(); if not db then return end
-									db.enableKeyEcho = val and 1 or 0
-									if module and module.ApplyKeyEcho then
-										module:ApplyKeyEcho()
-									end
-								end,
-							},
-						},
-					},
-
-
-									},
+				},
 			},
 
 			-- QoL / UI helpers
@@ -644,6 +584,48 @@ function module:GetOptions()
 							},
 						},
 					},
+					glyphIconsBox = {
+						type = "group",
+						name = L and (L["EasyGlyph"] or "Иконки символов") or "Иконки символов",
+						order = 1.2,
+						inline = true,
+						args = {
+							enableEasyGlyph = {
+								type = "toggle",
+								name = L and (L["EasyGlyph_Enable"] or "Заменять иконки символов") or "Заменять иконки символов",
+								desc = L and (L["EasyGlyph_Desc"] or "Подменяет стандартные иконки символов в окне символов, сумках, у торговцев и в других окнах предметов на более наглядные.") or "Подменяет стандартные иконки символов в окне символов, сумках, у торговцев и в других окнах предметов на более наглядные.",
+								order = 1,
+								width = "full",
+								get = toggleGetter,
+								set = function(info, val)
+									local db = DB(); if not db then return end
+									db.enableEasyGlyph = val and 1 or 0
+									if module and module.ApplyEasyGlyph then
+										module:ApplyEasyGlyph()
+									end
+									Refresh()
+								end,
+							},
+							easyGlyphSkipItems = {
+								type = "toggle",
+								name = L and (L["EasyGlyph_SkipItems"] or "Не изменять на предметах") or "Не изменять на предметах",
+								desc = L and (L["EasyGlyph_SkipItems_Desc"] or "Оставляет стандартные иконки на предметах в сумках, у торговцев и в других окнах. В окне символов замена сохраняется.") or "Оставляет стандартные иконки на предметах в сумках, у торговцев и в других окнах. В окне символов замена сохраняется.",
+								order = 2,
+								width = "full",
+								get = toggleGetter,
+								set = function(info, val)
+									local db = DB(); if not db then return end
+									db.easyGlyphSkipItems = val and 1 or 0
+									if module and module.ApplyEasyGlyph then
+										module:ApplyEasyGlyph()
+									end
+									Refresh()
+								end,
+								disabled = function() return not isOn("enableEasyGlyph") end,
+							},
+						},
+					},
+
 					interfaceBox = {
 						type = "group",
 						name = "Интерфейс",
@@ -826,6 +808,7 @@ function module:GetOptions()
 								desc = "Показать рамку и окошко для перетаскивания трекера (как у миникарты / фреймов).",
 								order = 6,
 								width = "full",
+								suiFullRow = true,
 								hidden = function()
 									local db = DB()
 									return not db or db.questTrackerStyle ~= "dragonflight" or db.questTrackerDragonflightPosition == false
@@ -848,6 +831,23 @@ function module:GetOptions()
 										module:RefreshQuestTracker()
 									elseif _G.SarychUI_QuestTracker and _G.SarychUI_QuestTracker.Refresh then
 										_G.SarychUI_QuestTracker.Refresh()
+									end
+									Refresh()
+								end,
+								suiResetDefaults = function()
+									local db = DB(); if not db then return end
+									local def = SarychUI.defaults and SarychUI.defaults.profile.modules.tools
+									local x = (def and def.questTrackerX) or 0
+									local y = (def and def.questTrackerY) or -260
+									db.questTrackerX = x
+									db.questTrackerY = y
+									local panel = SarychUI and (SarychUI.PositionDragPanel or SarychUI.CombatTextDragPanel)
+									if not (panel and panel.SyncDraftIfOpen and panel:SyncDraftIfOpen("questTracker", x, y)) then
+										if module and module.RefreshQuestTracker then
+											module:RefreshQuestTracker()
+										elseif _G.SarychUI_QuestTracker and _G.SarychUI_QuestTracker.Refresh then
+											_G.SarychUI_QuestTracker.Refresh()
+										end
 									end
 									Refresh()
 								end,
@@ -891,11 +891,6 @@ function module:GetOptions()
 						inline = true,
 						suiTwoCol = true,
 						suiHelpIcon = SarychUI.DOTA_ALT_HELP_ICON,
-						hidden = function()
-							local mm = SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.modules
-								and SarychUI.db.profile.modules.mainmenubar
-							return mm ~= nil and mm.barMode == "frostatom"
-						end,
 						args = {
 							enableAltFPS = {
 								type = "toggle",
@@ -1065,6 +1060,23 @@ function module:GetOptions()
 									db.darkModeColor.b = b
 									db.darkModeColor.a = a or 1
 									if module and module.ApplyDarkMode then module:ApplyDarkMode() end
+									Refresh()
+								end,
+								hidden = function() return not isOn("enableDarkMode") end,
+							},
+							darkModeSkipPlayerAuras = {
+								type = "toggle",
+								name = "Убрать затенение в баффах/дебаффах персонажа",
+								desc = "Не затемнять обводку аур персонажа (SUI → Ауры → Ауры персонажа). Ауры цели, фокуса и рейда не меняются.",
+								order = 3,
+								width = "full",
+								get = toggleGetter,
+								set = function(_, val)
+									local db = DB(); if not db then return end
+									db.darkModeSkipPlayerAuras = val and 1 or 0
+									if module and module.ApplyDarkMode then
+										module:ApplyDarkMode()
+									end
 									Refresh()
 								end,
 								hidden = function() return not isOn("enableDarkMode") end,

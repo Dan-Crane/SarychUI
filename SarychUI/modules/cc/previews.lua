@@ -51,8 +51,19 @@ local function GetCcDB()
 	return modules and modules.cc
 end
 
+local function GetCastbarDB()
+	local modules = SarychUI and SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.modules
+	return modules and modules.castbar
+end
+
 local function GetSetting(key, default)
 	local db = GetCcDB()
+	if db and db[key] ~= nil then return db[key] end
+	return default
+end
+
+local function GetCastbarSetting(key, default)
+	local db = GetCastbarDB()
 	if db and db[key] ~= nil then return db[key] end
 	return default
 end
@@ -534,6 +545,11 @@ local function IsCcFlagOn(key)
 	return v == 1 or v == true
 end
 
+local function IsCastbarFlagOn(key)
+	local v = GetCastbarSetting(key, 1)
+	return v == 1 or v == true
+end
+
 -- style: "player" | "target" - matches FrameXML CastingBarFrame / SetTargetSpellbarAspect
 local function MakeBlizzardCastBar(parent, style, spellName, iconPath)
 	local isTarget = style == "target"
@@ -664,13 +680,13 @@ function CastPreview:Create(parent)
 	host._targetTimer = targetTimer
 
 	local function Layout()
-		local master = IsCcFlagOn("enableCastbarTimers")
-		if master and IsCcFlagOn("enableCastbarPlayer") then
+		local master = IsCastbarFlagOn("enableCastbarTimers")
+		if master and IsCastbarFlagOn("enableCastbarPlayer") then
 			playerTimer:Show()
 		else
 			playerTimer:Hide()
 		end
-		if master and IsCcFlagOn("enableCastbarTarget") then
+		if master and IsCastbarFlagOn("enableCastbarTarget") then
 			targetTimer:Show()
 		else
 			targetTimer:Hide()

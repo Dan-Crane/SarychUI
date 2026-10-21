@@ -13,6 +13,12 @@ end
 
 local addonName, addon = ...
 
+-- XML templates cannot access the addon's private table directly.  Keep the
+-- atlas backport explicit so no shared Texture metatable has to be modified.
+function OmniBar_SetTextureAtlas(texture, atlasName, useAtlasSize)
+	return addon.WidgetAPI.TextureBase.SetAtlas(texture, atlasName, useAtlasSize)
+end
+
 local COMBATLOG_FILTER_STRING_UNKNOWN_UNITS = COMBATLOG_FILTER_STRING_UNKNOWN_UNITS
 local COMBATLOG_OBJECT_REACTION_HOSTILE = COMBATLOG_OBJECT_REACTION_HOSTILE
 local COMBATLOG_OBJECT_TYPE_PLAYER = COMBATLOG_OBJECT_TYPE_PLAYER
@@ -764,7 +770,7 @@ function OmniBar_UpdateBorder(self, icon)
 
 	-- Set dim
 	icon:SetAlpha(self.settings.unusedAlpha and
-		icon.cooldown:GetCooldownTimes() == 0 and
+		(not icon.cooldown.finish or icon.cooldown.finish <= GetTime()) and
 		(not border) and
 		self.settings.unusedAlpha or 1)
 end
@@ -1303,7 +1309,7 @@ end
 
 function OmniBar_CooldownFinish(self, force)
 	local icon = self:GetParent()
-	if icon.cooldown and icon.cooldown:GetCooldownTimes() > 0 and (not force) then return end -- not complete
+	if icon.cooldown and icon.cooldown.finish and icon.cooldown.finish > GetTime() and (not force) then return end -- not complete
 	local charges = icon.charges
 	if charges then
 		charges = charges - 1
@@ -1413,7 +1419,7 @@ function OmniBar_StartCooldown(self, icon, start)
 	icon.cooldown:SetCooldown(start, icon.duration)
 	icon.cooldown_hider:SetCooldown(start, icon.duration - 1)
 	icon.cooldown.finish = start + icon.duration
-	icon.cooldown:SetSwipeColor(0, 0, 0, self.settings.swipeAlpha or 0.65)
+	icon.cooldown:SetAlpha(self.settings.swipeAlpha or 0.65)
 	icon:SetAlpha(1)
 end
 
@@ -1476,7 +1482,6 @@ function OmniBar_AddIcon(self, info)
 	icon.added = now
 
 	if icon.charges and info.charges and icon:IsVisible() then
-		local start, duration = icon.cooldown:GetCooldownTimes()
 		if icon.cooldown.finish and icon.cooldown.finish - GetTime() > 1 then
 			-- add a charge
 			local charges = icon.charges + 1
@@ -1534,11 +1539,10 @@ end
 function OmniBar_UpdateIcons(self)
 	for i = 1, self.numIcons do
 		-- Set show text
-		self.icons[i].cooldown:SetHideCountdownNumbers(not self.settings.cooldownCount and true or false)
 		self.icons[i].cooldown.noCooldownCount = (not self.settings.cooldownCount)
 
 		-- Set swipe alpha
-		self.icons[i].cooldown:SetSwipeColor(0, 0, 0, self.settings.swipeAlpha or 0.65)
+		self.icons[i].cooldown:SetAlpha(self.settings.swipeAlpha or 0.65)
 
 		-- Set border
 		if self.settings.border then
@@ -1548,7 +1552,8 @@ function OmniBar_UpdateIcons(self)
 		end
 
 		-- Set dim
-		self.icons[i]:SetAlpha(self.settings.unusedAlpha and self.icons[i].cooldown:GetCooldownTimes() == 0 and
+		self.icons[i]:SetAlpha(self.settings.unusedAlpha and
+			(not self.icons[i].cooldown.finish or self.icons[i].cooldown.finish <= GetTime()) and
 			self.settings.unusedAlpha or 1)
 
 		-- Masque

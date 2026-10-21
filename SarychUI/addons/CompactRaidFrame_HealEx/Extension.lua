@@ -8,6 +8,9 @@ local HEALCOMM
 local ABSORBCOMM
 
 local function Handler(Self, Event, Arg1, Arg2, Arg3, Arg4, Arg5, ...)
+	if CompactRaidFrame_HealExEnabled == false or CompactRaidFrameEnabled == false then
+		return
+	end
 	local Unit = Self.unit or Self.displayedUnit
 	if ( not (Unit and UnitExists(Unit)) ) then return end
 
@@ -89,6 +92,7 @@ if ( CompactUnitFrame_OnLoad ) then
 end
 
 function CompactRaidFrame_HealEx_Apply(enable)
+	CompactRaidFrame_HealExEnabled = enable and true or false
 	if enable then
 		if DefaultCompactUnitFrameOptions then
 			DefaultCompactUnitFrameOptions.displayHealPrediction = true

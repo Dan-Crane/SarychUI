@@ -31,6 +31,10 @@ local function getSetting(key, default)
     return default
 end
 
+local function PartyAbilityExempt(frame)
+    return frame and frame.__sary_partyAbility and getSetting("partyAbilitiesExempt", true)
+end
+
 local function ResolveFontPath(fontNameOrPath)
     if type(fontNameOrPath) == "string" and fontNameOrPath:find("\\") then
         return fontNameOrPath
@@ -69,40 +73,58 @@ local function formatCooldownText(seconds)
     end
 end
 
+-- State stays off the cooldown widget. Writing fields, children or scripts onto
+-- a Blizzard cooldown taints the parent action button, and combat Show/Hide is
+-- then blocked as SarychUI.
+local ccState = setmetatable({}, { __mode = "k" })
+
+local function State(frame)
+    local state = ccState[frame]
+    if not state then
+        state = {}
+        ccState[frame] = state
+    end
+    return state
+end
+
 -- Per-frame update
 local function cooldown_OnUpdate(frame, elapsed)
+    local state = ccState[frame]
+    local textObj = state and state.text
 	-- Проверяем, включен ли модуль
-	if not isEnabledFlag then 
-		local textObj = frame.SarychUI_ccText
+	if not isEnabledFlag then
 		if textObj then textObj:Hide() end
-		return 
+        if state and state.host then state.host:Hide() end
+		return
 	end
-    
-    local textObj = frame.SarychUI_ccText
+
     if not textObj or not textObj:IsShown() then return end
 
-    frame.__sary_cc_nextUpdate = (frame.__sary_cc_nextUpdate or 0) - elapsed
-    if frame.__sary_cc_nextUpdate > 0 then return end
+    state.nextUpdate = (state.nextUpdate or 0) - elapsed
+    if state.nextUpdate > 0 then return end
 
-    local minIconSize = getSetting("minIconSize", 23)
-    if frame:GetWidth() < minIconSize or frame:GetHeight() < minIconSize then
-        textObj:SetText("")
-        textObj:Hide()
-        return
+    if not PartyAbilityExempt(frame) then
+        local minIconSize = getSetting("minIconSize", 23)
+        if frame:GetWidth() < minIconSize or frame:GetHeight() < minIconSize then
+            textObj:SetText("")
+            textObj:Hide()
+            return
+        end
+
+        local minScale = getSetting("minScale", 0.5)
+        if (frame:GetEffectiveScale() / UIParent:GetEffectiveScale()) < minScale then
+            textObj:SetText("")
+            state.nextUpdate = 1
+            return
+        end
     end
 
-    local minScale = getSetting("minScale", 0.5)
-    if (frame:GetEffectiveScale() / UIParent:GetEffectiveScale()) < minScale then
-        textObj:SetText("")
-        frame.__sary_cc_nextUpdate = 1
-        return
-    end
-
-    local start = frame.__sary_cc_start or 0
-    local duration = frame.__sary_cc_duration or 0
+    local start = state.start or 0
+    local duration = state.duration or 0
     local remain = duration - ((GetTime and GetTime() or 0) - start)
     if floor(remain + 0.5) <= 0 then
         textObj:Hide()
+        if state.host then state.host:Hide() end
         return
     end
 
@@ -118,23 +140,33 @@ local function cooldown_OnUpdate(frame, elapsed)
     textObj:SetWidth(50)
     textObj:SetJustifyH("CENTER")
 
-    frame.__sary_cc_nextUpdate = interval
+    state.nextUpdate = interval
 end
 
 local function ensureText(frame)
-    if frame.SarychUI_ccCreated then return frame.SarychUI_ccText end
+    local state = State(frame)
+    if state.text then return state.text end
+    if frame.__sary_cc_noCount or state.noCount then return nil end
 
     local minScale = getSetting("minScale", 0.5)
     local parent = frame:GetParent()
     local pWidth = parent and parent:GetWidth() or 36
     local scale = min(pWidth / 36, 1)
-    if scale < minScale then
-        frame.__sary_cc_noCount = true
+    if not PartyAbilityExempt(frame) and scale < minScale then
+        state.noCount = true
         return nil
     end
+    state.noCount = nil
 
-    local text = frame:CreateFontString(nil, "OVERLAY")
-    text:SetPoint("CENTER", 0, 1)
+    local host = CreateFrame("Frame", nil, UIParent)
+    host:SetAllPoints(frame)
+    host:SetFrameStrata(frame:GetFrameStrata() or "MEDIUM")
+    host:SetFrameLevel((frame:GetFrameLevel() or 0) + 5)
+    host:EnableMouse(false)
+    state.host = host
+
+    local text = host:CreateFontString(nil, "OVERLAY")
+    text:SetPoint("CENTER", host, "CENTER", 0, 1)
 
     local fontPath = ResolveFontPath(getSetting("font", "Friz Quadrata TT"))
     local fontFlags = getSetting("fontFlags", "OUTLINE")
@@ -147,9 +179,7 @@ local function ensureText(frame)
     text:SetWidth(50)
     text:SetJustifyH("CENTER")
 
-    frame.SarychUI_ccText = text
-    frame.SarychUI_ccCreated = true
-    frame:SetScript("OnUpdate", cooldown_OnUpdate)
+    state.text = text
     return text
 end
 
@@ -159,49 +189,121 @@ local function handleSetCooldown(frame, start, duration)
 	if not frame then return end
 
 	local minDuration = getSetting("minDuration", 3)
+    local state = State(frame)
+    if PartyAbilityExempt(frame) then
+        state.noCount = nil
+    end
+    if frame.__sary_cc_noCount then
+        state.noCount = true
+    end
     if start and start > 0 and duration and duration > minDuration then
-        frame.__sary_cc_start = start
-        frame.__sary_cc_duration = duration
-        frame.__sary_cc_nextUpdate = 0
-        if not frame.__sary_cc_noCount then
-            local text = frame.SarychUI_ccText or ensureText(frame)
-            if text then text:Show() end
+        state.start = start
+        state.duration = duration
+        state.nextUpdate = 0
+        if not state.noCount and not frame.__sary_cc_noCount then
+            local text = state.text or ensureText(frame)
+            if text then
+                if state.host then
+                    state.host:SetAllPoints(frame)
+                    state.host:SetFrameStrata(frame:GetFrameStrata() or "MEDIUM")
+                    state.host:SetFrameLevel((frame:GetFrameLevel() or 0) + 5)
+                    state.host:Show()
+                end
+                text:Show()
+            end
         end
     else
-        local text = frame.SarychUI_ccText
-        if text then text:Hide() end
+        if state.text then state.text:Hide() end
+        if state.host then state.host:Hide() end
     end
 end
 
--- Install hooks once
-local function installHooks()
-    if hooksInstalled then return end
+local BAR_PREFIXES = {
+    "ActionButton",
+    "MultiBarBottomLeftButton",
+    "MultiBarBottomRightButton",
+    "MultiBarLeftButton",
+    "MultiBarRightButton",
+    "BonusActionButton",
+}
 
-    if ActionButton1Cooldown then
-        local mt = getmetatable(ActionButton1Cooldown)
-        local idx = mt and mt.__index
-        if idx and idx.SetCooldown and not module._hookedSetMethod then
-            hooksecurefunc(idx, "SetCooldown", handleSetCooldown)
-            module._hookedSetMethod = true
+local function PollBars()
+    if not isEnabledFlag then return end
+    for p = 1, #BAR_PREFIXES do
+        local prefix = BAR_PREFIXES[p]
+        for i = 1, 12 do
+            local button = _G[prefix .. i]
+            local cooldown = _G[prefix .. i .. "Cooldown"]
+            if button and cooldown and button.action and button.action > 0 and GetActionCooldown then
+                local start, duration = GetActionCooldown(button.action)
+                handleSetCooldown(cooldown, start, duration)
+            end
         end
     end
-
-    if type(CooldownFrame_SetTimer) == "function" and not module._hookedSetTimer then
-        hooksecurefunc("CooldownFrame_SetTimer", function(frame, start, duration)
-            handleSetCooldown(frame, start, duration)
-        end)
-        module._hookedSetTimer = true
+    for i = 1, 10 do
+        local petCooldown = _G["PetActionButton" .. i .. "Cooldown"]
+        if petCooldown and GetPetActionCooldown then
+            local start, duration = GetPetActionCooldown(i)
+            handleSetCooldown(petCooldown, start, duration)
+        end
+        local formCooldown = _G["ShapeshiftButton" .. i .. "Cooldown"]
+        if formCooldown and GetShapeshiftFormCooldown then
+            local start, duration = GetShapeshiftFormCooldown(i)
+            handleSetCooldown(formCooldown, start, duration)
+        end
     end
+end
 
+local driver = CreateFrame("Frame")
+driver:Hide()
+local pollAcc = 0
+driver:SetScript("OnUpdate", function(_, elapsed)
+    pollAcc = pollAcc + elapsed
+    if pollAcc >= 0.1 then
+        pollAcc = 0
+        PollBars()
+    end
+    for frame, state in pairs(ccState) do
+        -- The countdown sits on its own frame. Hide it with the source icon,
+        -- including options previews whose parent window just closed.
+        if not frame:IsVisible() then
+            if state.text then state.text:Hide() end
+            if state.host and state.host:IsShown() then state.host:Hide() end
+        elseif state.text and state.text:IsShown() then
+            cooldown_OnUpdate(frame, elapsed)
+        elseif state.start and state.duration and state.duration > 0
+            and not state.noCount and not frame.__sary_cc_noCount then
+            local remain = state.duration - ((GetTime and GetTime() or 0) - state.start)
+            if remain > 0 then
+                handleSetCooldown(frame, state.start, state.duration)
+            end
+        end
+    end
+end)
+
+-- Blizzard calls CooldownFrame_SetTimer from PetActionBar_UpdateCooldowns and
+-- ShapeshiftBar_UpdateState, before the protected button Show/Hide. A
+-- hooksecurefunc there taints the rest of that update. Bar numbers are polled
+-- from this frame. Our own frames call SarychUI_NotifyCooldown.
+function SarychUI_NotifyCooldown(frame, start, duration, enable)
+    if enable == 0 then
+        handleSetCooldown(frame, 0, 0)
+    else
+        handleSetCooldown(frame, start, duration)
+    end
+end
+
+local function installHooks()
+    if hooksInstalled then return end
     hooksInstalled = true
+    driver:Show()
 end
 
 function module:ApplySettings()
     isEnabledFlag = DB() and DB().enabled ~= false
-    -- Timers tab (castbar / invite / arena) is hosted here; runtime stays in tools.
+    -- Invite / arena countdown UI lives here; runtime stays in tools.
     local tools = SarychUI and SarychUI.modules and SarychUI.modules.tools
     if tools then
-        if tools.ApplyCastbarTimers then tools:ApplyCastbarTimers() end
         if tools.ApplyInviteCountdown then tools:ApplyInviteCountdown() end
         if tools.ApplyArenaCountdown then tools:ApplyArenaCountdown() end
     end
@@ -210,108 +312,21 @@ end
 function module:Enable()
     isEnabledFlag = true
     installHooks()
+    driver:Show()
     self:ApplySettings()
-    
-    -- Восстанавливаем OnUpdate скрипты и перезапускаем активные кулдауны
-    for i = 1, 120 do -- Проверяем все возможные кнопки действий
-        local button = _G["ActionButton" .. i]
-        if button and button.cooldown then
-            local cooldownFrame = button.cooldown
-            if cooldownFrame.SarychUI_ccCreated then
-                cooldownFrame:SetScript("OnUpdate", cooldown_OnUpdate)
-                -- Перезапускаем кулдаун если он активен
-                local start = cooldownFrame.__sary_cc_start
-                local duration = cooldownFrame.__sary_cc_duration
-                if start and duration and start > 0 and duration > 0 then
-                    local remain = duration - ((GetTime and GetTime() or 0) - start)
-                    if remain > 0 then
-                        cooldownFrame.__sary_cc_nextUpdate = 0
-                        local text = cooldownFrame.SarychUI_ccText
-                        if text then text:Show() end
-                    end
-                end
-            end
-        end
-    end
-    
-    -- Также восстанавливаем на других возможных фреймах кулдаунов
-    local function restoreCooldownScripts(frame)
-        if frame.SarychUI_ccCreated then
-            frame:SetScript("OnUpdate", cooldown_OnUpdate)
-            -- Перезапускаем кулдаун если он активен
-            local start = frame.__sary_cc_start
-            local duration = frame.__sary_cc_duration
-            if start and duration and start > 0 and duration > 0 then
-                local remain = duration - ((GetTime and GetTime() or 0) - start)
-                if remain > 0 then
-                    frame.__sary_cc_nextUpdate = 0
-                    local text = frame.SarychUI_ccText
-                    if text then text:Show() end
-                end
-            end
-        end
-    end
-    
-    -- Проходим по всем дочерним фреймам UIParent
-    local function traverseFrames(parent)
-        local children = {parent:GetChildren()}
-        for i = 1, #children do
-            local child = children[i]
-            restoreCooldownScripts(child)
-            traverseFrames(child)
-        end
-    end
-    
-    if UIParent then
-        traverseFrames(UIParent)
-    end
 end
 
 function module:Disable()
     isEnabledFlag = false
-    
-    -- Скрываем все тексты кулдаунов и останавливаем OnUpdate
-    for i = 1, 120 do -- Проверяем все возможные кнопки действий
-        local button = _G["ActionButton" .. i]
-        if button and button.cooldown then
-            local cooldownFrame = button.cooldown
-            if cooldownFrame.SarychUI_ccText then
-                cooldownFrame.SarychUI_ccText:Hide()
-            end
-            if cooldownFrame:GetScript("OnUpdate") == cooldown_OnUpdate then
-                cooldownFrame:SetScript("OnUpdate", nil)
-            end
-        end
-    end
-    
-    -- Также проверяем другие возможные фреймы кулдаунов
-    local function hideAllCooldownTexts(frame)
-        if frame.SarychUI_ccText then
-            frame.SarychUI_ccText:Hide()
-        end
-        if frame:GetScript("OnUpdate") == cooldown_OnUpdate then
-            frame:SetScript("OnUpdate", nil)
-        end
-    end
-    
-    -- Проходим по всем дочерним фреймам UIParent
-    local function traverseFrames(parent)
-        local children = {parent:GetChildren()}
-        for i = 1, #children do
-            local child = children[i]
-            hideAllCooldownTexts(child)
-            traverseFrames(child)
-        end
-    end
-    
-    if UIParent then
-        traverseFrames(UIParent)
+    driver:Hide()
+    for _, state in pairs(ccState) do
+        if state.text then state.text:Hide() end
+        if state.host then state.host:Hide() end
     end
 
-    -- Timers tab also follows cc enable state.
+    -- Invite / arena countdown follow cc enable state.
     local tools = SarychUI and SarychUI.modules and SarychUI.modules.tools
     if tools then
-        if tools.DisableCastbarTimers then tools:DisableCastbarTimers() end
         if tools.DisableInviteCountdown then tools:DisableInviteCountdown() end
         if tools.DisableArenaCountdown then tools:DisableArenaCountdown() end
     end

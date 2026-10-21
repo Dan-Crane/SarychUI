@@ -222,12 +222,14 @@ function module:ApplyElvUIBagLayoutSettings()
 	local E = self:GetElvUIEngine()
 	local B = E and E.GetModule and E:GetModule("Bags", true)
 	if not (B and B.Layout) then return end
-	-- Layout() already reapplies SarychUI chrome when embedded.
 	if B.BagFrame then
 		B:Layout()
 	end
 	if B.BankFrame then
 		B:Layout(true)
+	end
+	if B.ApplySarychUIBagChrome then
+		B:ApplySarychUIBagChrome()
 	end
 end
 
@@ -579,6 +581,8 @@ end
 local CUSTOM_CATEGORY_RESERVED_NAMES = {
 	["новое"] = true,
 	["Новое"] = true,
+	["новые"] = true,
+	["Новые"] = true,
 	["задания"] = true,
 	["Задания"] = true,
 	["экипировка"] = true,

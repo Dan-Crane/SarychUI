@@ -32,9 +32,11 @@ function EnhancedRaidFrames:OnInitialize()
 	-- Run our database migration if necessary
 	self:MigrateDatabase()
 
-	-- Embedded in SarychUI: defer Blizzard category until the wrapper enables us.
+	-- Embedded in SarychUI: the wrapper registers the Blizzard category when enabled.
 	if not SarychUI then
 		self:InitializeConfigPanels()
+	else
+		self:SetEnabledState(false)
 	end
 
 	-- Register callbacks for profile switching
@@ -50,18 +52,6 @@ function EnhancedRaidFrames:OnInitialize()
 		self:MigrateDatabase()
 		self:RefreshConfig()
 	end)
-
-	if SarychUI then
-		self:SetEnabledState(false)
-	end
-end
-
-function EnhancedRaidFrames:RegisterInterfaceOptions()
-	if self._suiBlizRegistered then
-		return
-	end
-	self:InitializeConfigPanels()
-	self._suiBlizRegistered = true
 end
 
 --- Called during the PLAYER_LOGIN event when most of the data provided by the game is already present.
@@ -148,6 +138,14 @@ function EnhancedRaidFrames:InitializeDatabase()
 end
 
 --- Set up our configuration panels and add them to the Blizzard interface options
+function EnhancedRaidFrames:RegisterInterfaceOptions()
+	if self._suiBlizRegistered then
+		return
+	end
+	self:InitializeConfigPanels()
+	self._suiBlizRegistered = true
+end
+
 function EnhancedRaidFrames:InitializeConfigPanels()
 	-- Build our config panels
 	AceConfigRegistry:RegisterOptionsTable("Enhanced Raid Frames", self:CreateGeneralOptions())

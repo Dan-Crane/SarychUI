@@ -857,7 +857,8 @@ function Glow.Install(frame)
 	end
 	frame._sarychGlowInstalled = true
 	frame.ShowGlowEffect = function(spellId)
-		local data = spellId and _G.SPELL_DATA and _G.SPELL_DATA[spellId]
+		local data = (_G.sarPlatesAuras_GetSpellData and _G.sarPlatesAuras_GetSpellData(spellId))
+			or (spellId and _G.SPELL_DATA and _G.SPELL_DATA[spellId])
 		Glow.Start(frame, data)
 	end
 	frame.HideGlowEffect = function()

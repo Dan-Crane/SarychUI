@@ -17,6 +17,18 @@ local tinsert = table.insert
 local sort = table.sort
 local UIParent = UIParent
 
+-- EditBox has no :Enable()/:Disable() methods on the 3.3.5 client.  Those
+-- methods previously came from LootClicker's global widget-metatable patch,
+-- which cannot be loaded without tainting Blizzard protected unit frames.
+local function SetEditBoxEnabled(edit, enabled)
+	if not edit then return end
+	edit:ClearFocus()
+	edit:EnableMouse(enabled and true or false)
+	if edit.EnableKeyboard then
+		edit:EnableKeyboard(enabled and true or false)
+	end
+end
+
 local function SafeCall(fn, ...)
 	if type(fn) ~= "function" then
 		return nil
@@ -377,7 +389,8 @@ local function PreviewNameForKey(key)
 		return "PlatesAurasLayoutPreview"
 	end
 	if key:find("PVP") or key:find("^pvp") or key:find("^classIcon") or key == "portrait3D"
-		or key == "hideFrameLevel" or key:find("^nameBackground") or key:find("^classColored") then
+		or key == "hideFrameLevel" or key == "hidePlayerRestState" or key == "hideLeaderIcon"
+		or key:find("^nameBackground") or key:find("^classColored") then
 		return "FramePvpPreview"
 	end
 	if key == "hideFocusAuras" or key == "hideTargetAuras" or key == "hideTargetOfTargetAuras" or key == "enableDispelHighlight"
@@ -644,6 +657,184 @@ function W:Description(parent, text)
 	return f
 end
 
+-- Description with a SUI-framed icon and a single-line caption on the right.
+local function ResolveIconSpec(spec)
+	if type(spec) == "table" then
+		return spec.texture or spec.path or spec[1], spec.coords or spec.texCoord
+	end
+	if type(spec) == "string" and spec ~= "" then
+		return spec, nil
+	end
+	return nil, nil
+end
+
+local function ApplyIconTexture(tex, frame, spec)
+	local path, coords = ResolveIconSpec(spec)
+	if path then
+		tex:SetTexture(path)
+		if coords then
+			tex:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
+		else
+			tex:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+		end
+		tex:SetVertexColor(1, 1, 1, 1)
+		frame:Show()
+		return true
+	end
+	tex:SetTexture(nil)
+	frame:Hide()
+	return false
+end
+
+-- text + optional right-side button / icons (1–2) / label.
+-- Layout (right → left): [button?] [primary icon] [secondary icon] [right text?] … [name]
+-- iconPath / icon2Path may be a texture string or { texture = "...", coords = {l,r,t,b} }.
+-- rightButton = { text=, onClick=, tooltipFn= } — width fits label.
+function W:DescriptionRightIcon(parent, text, iconPath, iconSize, rightText, icon2Path, rightButton)
+	local f = CreateFrame("Frame", nil, parent)
+	iconSize = tonumber(iconSize) or 24
+	local GAP = 8
+	local BTN_H = 24
+
+	local function MakeIconSlot()
+		local frame = CreateFrame("Frame", nil, f)
+		frame:SetSize(iconSize, iconSize)
+		T:ApplyFlat(frame, T.colors.inputBg, T.colors.borderSoft)
+		local tex = frame:CreateTexture(nil, "ARTWORK")
+		tex:SetPoint("TOPLEFT", frame, "TOPLEFT", 1, -1)
+		tex:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -1, 1)
+		tex:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+		return frame, tex
+	end
+
+	local actionBtn
+	if type(rightButton) == "table" and (rightButton.text or rightButton.name) then
+		actionBtn = W:Button(f, rightButton.text or rightButton.name, rightButton.onClick, rightButton.tooltipFn)
+		actionBtn:SetHeight(BTN_H)
+	end
+
+	local iconFrame, icon = MakeIconSlot()
+	local icon2Frame, icon2 = MakeIconSlot()
+	icon2Frame:Hide()
+
+	local rightLabel = MakeLabel(f, rightText, T.fonts.normal)
+	rightLabel:SetJustifyH("RIGHT")
+	rightLabel:SetJustifyV("MIDDLE")
+
+	local fs = MakeLabel(f, text, T.fonts.normal)
+	fs:SetJustifyH("LEFT")
+	fs:SetJustifyV("MIDDLE")
+
+	local function FitButtonWidth()
+		if not actionBtn then
+			return 0
+		end
+		local tw = 0
+		if actionBtn.label and actionBtn.label.GetStringWidth then
+			tw = actionBtn.label:GetStringWidth() or 0
+		end
+		local w = math.max(48, math.ceil(tw + 18))
+		actionBtn:SetWidth(w)
+		return w
+	end
+
+	local function LayoutSideText()
+		local reserve = 0
+		local rightAnchor = f
+		local rightPoint = "RIGHT"
+		local rightOffset = 0
+
+		if actionBtn then
+			local bw = FitButtonWidth()
+			actionBtn:ClearAllPoints()
+			actionBtn:SetPoint("RIGHT", f, "RIGHT", 0, 0)
+			reserve = reserve + bw + GAP
+			rightAnchor = actionBtn
+			rightPoint = "LEFT"
+			rightOffset = -GAP
+		end
+
+		local hasPrimary = iconFrame:IsShown()
+		local hasSecondary = icon2Frame:IsShown()
+		if hasPrimary then
+			iconFrame:ClearAllPoints()
+			iconFrame:SetPoint("RIGHT", rightAnchor, rightPoint, rightOffset, 0)
+			reserve = reserve + iconSize + GAP
+			rightAnchor = iconFrame
+			rightPoint = "LEFT"
+			rightOffset = -GAP
+		end
+		if hasSecondary then
+			icon2Frame:ClearAllPoints()
+			icon2Frame:SetPoint("RIGHT", rightAnchor, rightPoint, rightOffset, 0)
+			reserve = reserve + iconSize + GAP
+			rightAnchor = icon2Frame
+			rightPoint = "LEFT"
+			rightOffset = -GAP
+		end
+
+		local txt = rightLabel:GetText() or ""
+		if txt ~= "" then
+			rightLabel:Show()
+			rightLabel:ClearAllPoints()
+			rightLabel:SetPoint("RIGHT", rightAnchor, rightPoint, rightOffset, 0)
+			rightLabel:SetWidth(1000)
+			local rightW = rightLabel:GetStringWidth() or 0
+			if rightW < 1 then
+				rightW = 1
+			end
+			rightLabel:SetWidth(rightW)
+			reserve = reserve + rightW + GAP
+		else
+			rightLabel:Hide()
+		end
+
+		fs:ClearAllPoints()
+		fs:SetPoint("TOPLEFT", f, "TOPLEFT", 0, -3)
+		fs:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -reserve, 3)
+	end
+
+	f.label = fs
+	f.rightLabel = rightLabel
+	f.iconFrame = iconFrame
+	f.icon = icon
+	f.icon2Frame = icon2Frame
+	f.icon2 = icon2
+	f.actionBtn = actionBtn
+
+	f.SetDynamicText = function(self, value)
+		fs:SetText(value or "")
+		LayoutSideText()
+	end
+	f.SetDynamicRightText = function(self, value)
+		rightLabel:SetText(value or "")
+		LayoutSideText()
+	end
+	f.SetDynamicIcon = function(self, path)
+		ApplyIconTexture(icon, iconFrame, path)
+		LayoutSideText()
+	end
+	f.SetDynamicIcon2 = function(self, path)
+		ApplyIconTexture(icon2, icon2Frame, path)
+		LayoutSideText()
+	end
+	f.MeasureHeight = function(self)
+		LayoutSideText()
+		local textH = (fs:GetStringHeight() or 12) + 6
+		local sideH = iconSize + 2
+		if actionBtn then
+			sideH = math.max(sideH, BTN_H)
+		end
+		self:SetHeight(math.max(sideH, textH))
+		return self:GetHeight()
+	end
+	f:SetHeight(math.max(iconSize + 2, actionBtn and BTN_H or 0))
+	f:SetDynamicIcon(iconPath)
+	f:SetDynamicIcon2(icon2Path)
+	LayoutSideText()
+	return f
+end
+
 function W:Panel(parent)
 	local f = CreateFrame("Frame", nil, parent)
 	T:ApplyFlat(f, T.colors.panelBg, T.colors.borderSoft)
@@ -900,6 +1091,57 @@ function W:Button(parent, text, onClick, tooltipFn, nameFn)
 		end
 	end
 	return btn
+end
+
+-- Left button fills leftover width; right button sizes to its label.
+function W:ButtonPair(parent, leftText, leftClick, leftTooltip, leftNameFn, rightText, rightClick, rightTooltip)
+	local row = CreateFrame("Frame", nil, parent)
+	row:SetHeight(24)
+	local gap = 8
+	local left = W:Button(row, leftText, leftClick, leftTooltip, leftNameFn)
+	local right = W:Button(row, rightText, rightClick, rightTooltip)
+	left:SetPoint("LEFT", row, "LEFT", 0, 0)
+	right:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+	row.left = left
+	row.right = right
+	row._suiValueWidget = true
+
+	local function FitRightWidth()
+		local tw = 0
+		if right.label and right.label.GetStringWidth then
+			tw = right.label:GetStringWidth() or 0
+		end
+		return math.max(72, math.ceil(tw + 18))
+	end
+
+	row.MeasureHeight = function(self, width)
+		width = width or self:GetWidth() or 200
+		local rw = FitRightWidth()
+		if rw > width - 88 then
+			rw = math.max(72, width - 88)
+		end
+		right:SetWidth(rw)
+		left:SetWidth(math.max(80, width - rw - gap))
+		self:SetHeight(24)
+		return 24
+	end
+
+	row.Refresh = function(self)
+		if left.Refresh then
+			left:Refresh()
+		end
+	end
+
+	row.SetDisabled = function(self, disabled)
+		if left.SetDisabled then
+			left:SetDisabled(disabled)
+		end
+		if right.SetDisabled then
+			right:SetDisabled(disabled)
+		end
+	end
+
+	return row
 end
 
 function W:Checkbox(parent, text, get, set, tooltipFn, helpIcon, previewKey)
@@ -1303,27 +1545,45 @@ function W:Slider(parent, text, minV, maxV, step, get, set, previewKey, tooltipF
 		row.help = help
 	end
 
-	-- Editable numeric value (type + Enter / focus loss).
-	local editW = 52
-	local edit = CreateFrame("EditBox", nil, row)
+	-- Editable numeric value. The EditBox lives in a scroll frame, and on 3.3.5
+	-- that frame does not paint EditBox text. A FontString on a plain frame does.
+	local editW = 56
+	local ac = T.colors.accent
+	local box = CreateFrame("Frame", nil, row)
+	box:SetSize(editW, 16)
+	box:SetPoint("TOPRIGHT", row, "TOPRIGHT", 0, 0)
+	box:SetFrameLevel((row:GetFrameLevel() or 0) + 6)
+	T:ApplyFlat(box, T.colors.inputBg, T.colors.borderSoft)
+	local valueFS = box:CreateFontString(nil, "OVERLAY", T.fonts.small)
+	valueFS:SetPoint("LEFT", box, "LEFT", 2, 0)
+	valueFS:SetPoint("RIGHT", box, "RIGHT", -4, 0)
+	valueFS:SetJustifyH("RIGHT")
+	valueFS:SetWordWrap(false)
+	valueFS:SetTextColor(ac[1], ac[2], ac[3], 1)
+	row.valueText = valueFS
+
+	label:SetPoint("RIGHT", box, "LEFT", -6, 0)
+	label:SetJustifyH("LEFT")
+	label:SetWordWrap(false)
+
+	local edit = CreateFrame("EditBox", nil, box)
 	row.edit = edit
+	edit:SetAllPoints(box)
 	edit:SetAutoFocus(false)
-	edit:SetHeight(16)
-	edit:SetWidth(editW)
-	edit:SetPoint("TOPRIGHT", row, "TOPRIGHT", 0, 0)
 	edit:SetFontObject(T.fonts.small)
 	edit:SetJustifyH("RIGHT")
-	edit:SetTextInsets(4, 4, 0, 0)
+	edit:SetTextInsets(2, 4, 0, 0)
 	edit:SetNumeric(false)
-	T:ApplyFlat(edit, T.colors.inputBg, T.colors.borderSoft)
-	local ac = T.colors.accent
-	edit:SetTextColor(ac[1], ac[2], ac[3], 1)
+	edit:SetTextColor(ac[1], ac[2], ac[3], 0)
+	edit:SetScript("OnTextChanged", function(self)
+		valueFS:SetText(self:GetText() or "")
+	end)
 
 	-- Visual Slider only - native thumb drag on 3.3.5 snaps back when capture
 	-- is lost (scroll/parent). All interaction goes through an overlay hit button.
 	local slider = CreateFrame("Slider", nil, row)
 	slider:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 0, -2)
-	slider:SetPoint("RIGHT", edit, "LEFT", -6, 0)
+	slider:SetPoint("RIGHT", box, "LEFT", -6, 0)
 	slider:SetHeight(12)
 	slider:SetOrientation("HORIZONTAL")
 	slider:SetMinMaxValues(minV, maxV)
@@ -1567,17 +1827,32 @@ function W:Slider(parent, text, minV, maxV, step, get, set, previewKey, tooltipF
 				StopDrag()
 			end
 			hit:Disable()
-			edit:Disable()
+			SetEditBoxEnabled(edit, false)
 			T:SetTextColor(label, "disabled")
-			edit:SetTextColor(0.45, 0.45, 0.45, 1)
+			valueFS:SetTextColor(0.45, 0.45, 0.45, 1)
+			edit:SetTextColor(0.45, 0.45, 0.45, 0)
 		else
 			hit:Enable()
-			edit:Enable()
+			SetEditBoxEnabled(edit, true)
 			T:SetTextColor(label, "text")
-			edit:SetTextColor(ac[1], ac[2], ac[3], 1)
+			valueFS:SetTextColor(ac[1], ac[2], ac[3], 1)
+			edit:SetTextColor(ac[1], ac[2], ac[3], 0)
 		end
 	end
 
+	local function RefreshShownValue()
+		if row._dragging or edit:HasFocus() or row._sizing then return end
+		row._sizing = true
+		row:Refresh()
+		row._sizing = nil
+	end
+	-- SetText while the row is still being placed does not draw. Reapply once
+	-- the edit box is actually on screen (glow-type changes rebuild this page).
+	edit:SetScript("OnShow", RefreshShownValue)
+	row:SetScript("OnSizeChanged", function(_, width)
+		if not width or width < 20 then return end
+		RefreshShownValue()
+	end)
 	row:Refresh()
 	return row
 end
@@ -1624,7 +1899,7 @@ function W:Input(parent, text, get, set)
 	end)
 
 	row.SetDisabled = function(self, disabled)
-		if disabled then edit:Disable() else edit:Enable() end
+		SetEditBoxEnabled(edit, not disabled)
 		T:SetTextColor(label, disabled and "disabled" or "text")
 	end
 
@@ -1721,11 +1996,11 @@ function W:InputWithButton(parent, text, buttonText, get, set, clearOnSave)
 
 	row.SetDisabled = function(self, disabled)
 		if disabled then
-			edit:Disable()
+			SetEditBoxEnabled(edit, false)
 			btn._disabled = true
 			T:SetTextColor(btn.label, "disabled")
 		else
-			edit:Enable()
+			SetEditBoxEnabled(edit, true)
 			btn._disabled = false
 			T:SetTextColor(btn.label, "text")
 		end
@@ -1773,7 +2048,7 @@ local function FlushDeferredOptionsRefresh()
 end
 
 local function OpenDropdownList(row, list, anchor)
-	W:CloseOpenDropdown()
+	W:CloseOpenDropdown({ suppressRefresh = true })
 	if not list or not anchor then
 		return false
 	end
@@ -1781,8 +2056,14 @@ local function OpenDropdownList(row, list, anchor)
 	list:SetFrameStrata("FULLSCREEN_DIALOG")
 	list:SetFrameLevel(500)
 	list:ClearAllPoints()
-	-- Relative anchor (not GetLeft): follows the button without per-frame ClearAllPoints.
-	list:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -2)
+	-- Open upwards when there is not enough room below the anchor.
+	local bottom = anchor:GetBottom()
+	local scale = anchor:GetEffectiveScale() / UIParent:GetEffectiveScale()
+	if bottom and bottom * scale < list:GetHeight() + 8 then
+		list:SetPoint("BOTTOMLEFT", anchor, "TOPLEFT", 0, 2)
+	else
+		list:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -2)
+	end
 	local w = anchor:GetWidth() or 0
 	if w < 40 then
 		w = (T.sizes and T.sizes.controlMaxW) or 320
@@ -1810,6 +2091,7 @@ function W:CloseOpenDropdown(opts)
 		end
 		return
 	end
+	if opts.suppressRefresh then return end
 	FlushDeferredOptionsRefresh()
 end
 
@@ -1867,7 +2149,7 @@ function W:SelectInputButton(parent, selectLabel, valuesFn, getType, setType, in
 	list:SetFrameStrata("FULLSCREEN_DIALOG")
 	list:SetFrameLevel(60)
 	list:SetWidth(typeW)
-	T:ApplyFlat(list, T.colors.navBg, T.colors.accent)
+	T:ApplyFlat(list, T.colors.dropdownBg or T.colors.navBg, T.colors.accent)
 	list:Hide()
 	list:EnableMouse(true)
 
@@ -1907,34 +2189,50 @@ function W:SelectInputButton(parent, selectLabel, valuesFn, getType, setType, in
 		end
 		local map = ResolveValues()
 		local keys = {}
-		for k in pairs(map) do
-			tinsert(keys, k)
+		local seen = {}
+		if type(map.__order) == "table" then
+			for _, key in ipairs(map.__order) do
+				if map[key] ~= nil then tinsert(keys, key); seen[key] = true end
+			end
 		end
-		sort(keys, function(a, b)
+		local rest = {}
+		for key in pairs(map) do
+			if key ~= "__order" and not seen[key] then tinsert(rest, key) end
+		end
+		sort(rest, function(a, b)
 			return tostring(LabelFor(a, map)) < tostring(LabelFor(b, map))
 		end)
+		for _, key in ipairs(rest) do tinsert(keys, key) end
 		local y = -4
-		local children = { list:GetChildren() }
-		for _, c in ipairs(children) do
-			c:Hide()
-			c:SetParent(nil)
+		list._items = list._items or {}
+		for _, item in ipairs(list._items) do
+			item:Hide()
 		end
-		for _, key in ipairs(keys) do
-			local item = CreateFrame("Button", nil, list)
-			item:SetHeight(20)
+		for i, key in ipairs(keys) do
+			local item = list._items[i]
+			if not item then
+				item = CreateFrame("Button", nil, list)
+				item:SetHeight(20)
+				local fs = MakeLabel(item, "", T.fonts.small)
+				fs:SetPoint("LEFT", 4, 0)
+				fs:SetPoint("RIGHT", -4, 0)
+				item.label = fs
+				list._items[i] = item
+			end
+			item:ClearAllPoints()
 			item:SetPoint("TOPLEFT", 4, y)
 			item:SetPoint("TOPRIGHT", -4, y)
-			local fs = MakeLabel(item, LabelFor(key, map), T.fonts.small)
-			fs:SetPoint("LEFT", 4, 0)
-			fs:SetPoint("RIGHT", -4, 0)
+			item.label:SetText(LabelFor(key, map))
+			item._value = key
 			EnsureDropdownItemHighlight(item):Hide()
 			item:SetScript("OnEnter", DropdownItem_OnEnter)
 			item:SetScript("OnLeave", DropdownItem_OnLeave)
-			item:SetScript("OnClick", function()
-				SafeCall(setType, key)
+			item:SetScript("OnClick", function(self)
+				SafeCall(setType, self._value)
 				RefreshType()
 				CloseList()
 			end)
+			item:Show()
 			y = y - 20
 		end
 		list:SetHeight(math.max(28, -y + 4))
@@ -2021,12 +2319,12 @@ function W:SelectInputButton(parent, selectLabel, valuesFn, getType, setType, in
 	row.SetDisabled = function(self, disabled)
 		self._disabled = disabled and true or false
 		if disabled then
-			edit:Disable()
+			SetEditBoxEnabled(edit, false)
 			addBtn._disabled = true
 			T:SetTextColor(addLabel, "disabled")
 			T:SetTextColor(typeText, "disabled")
 		else
-			edit:Enable()
+			SetEditBoxEnabled(edit, true)
 			addBtn._disabled = false
 			T:SetTextColor(addLabel, "text")
 			T:SetTextColor(typeText, "text")
@@ -2325,7 +2623,7 @@ function W:Dropdown(parent, text, values, get, set, placeholder, flagPathFn, inl
 	list:SetFrameStrata("FULLSCREEN_DIALOG")
 	list:SetFrameLevel(60)
 	list:SetWidth((T.sizes and T.sizes.controlMaxW) or 320)
-	T:ApplyFlat(list, T.colors.navBg, T.colors.accent)
+	T:ApplyFlat(list, T.colors.dropdownBg or T.colors.navBg, T.colors.accent)
 	list:Hide()
 	list:EnableMouse(true)
 	row.list = list

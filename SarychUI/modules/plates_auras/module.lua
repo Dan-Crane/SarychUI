@@ -428,10 +428,13 @@ function module:SyncSpellDataFromDB(spellID)
     if not db or not db.spells or not _G["SPELL_DATA"] then return end
     if spellID then
         SyncSpellEntry(spellID, db.spells[spellID])
-        return
+    else
+        for id, spellSettings in pairs(db.spells) do
+            SyncSpellEntry(id, spellSettings)
+        end
     end
-    for id, spellSettings in pairs(db.spells) do
-        SyncSpellEntry(id, spellSettings)
+    if _G.sarPlatesAuras_RebuildSpellNameIndex then
+        _G.sarPlatesAuras_RebuildSpellNameIndex()
     end
 end
 

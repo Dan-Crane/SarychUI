@@ -343,6 +343,12 @@ function module:GetOptions()
 				},
 				},
 			},
+			quickstart = (SarychUI.BuildQuickStartOptionsGroup and SarychUI:BuildQuickStartOptionsGroup()) or {
+				type = "group",
+				name = "Быстрый старт",
+				order = 2,
+				args = {},
+			},
 		},
 	}
 end

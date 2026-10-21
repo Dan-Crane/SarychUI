@@ -99,11 +99,17 @@ end
 function module:RefreshConfig()
 	self:EnsureAutolosProfiles()
 	self:ApplyAutolosSettings()
+	if self.ApplyNameplateScale then
+		self:ApplyNameplateScale()
+	end
 end
 
 function module:Initialize()
 	self:EnsureAutolosProfiles()
 	self:ApplyAutolosSettings()
+	if self.InitializeNameplateScale then
+		self:InitializeNameplateScale()
+	end
 end
 
 function module:Enable() end

@@ -186,6 +186,7 @@ local BLIZZARD_MINIMAP_BUTTONS = {
 	MiniMapBattlefieldFrame = true,
 	MiniMapLFGFrame = true,
 	MiniMapVoiceChatFrame = true,
+	MiniMapInstanceDifficulty = true,
 	MinimapZoomIn = true,
 	MinimapZoomOut = true,
 	GameTimeFrame = true,
@@ -211,6 +212,7 @@ local originalGameTimeFrameShow = nil
 local originalTimeManagerClockButtonShow = nil
 local originalMiniMapTrackingShow = nil
 local originalMiniMapWorldMapButtonShow = nil
+local originalMiniMapInstanceDifficultyShow = nil
 local worldMapButtonHookInstalled = false
 local carboniteMBSUHookInstalled = false
 local worldMapButtonReapplyTimer
@@ -1080,6 +1082,52 @@ local function StoreOriginalFunctions()
 	if MiniMapTracking and not originalMiniMapTrackingShow then
 		originalMiniMapTrackingShow = MiniMapTracking.Show
 	end
+
+	-- FrameXML updates this frame on PLAYER_DIFFICULTY_CHANGED and
+	-- UPDATE_INSTANCE_INFO. Preserve Show so SUI can return ownership without
+	-- forcing the flag to appear outside an instance.
+	local difficulty = _G["MiniMapInstanceDifficulty"]
+	if difficulty and not originalMiniMapInstanceDifficultyShow then
+		originalMiniMapInstanceDifficultyShow = difficulty.Show
+	end
+end
+
+local function RefreshBlizzardInstanceDifficulty(frame)
+	if not frame then return end
+
+	-- Use the FrameXML event script so the client remains responsible for the
+	-- 10/25 text and normal/heroic texture coordinates.
+	local onEvent = frame.GetScript and frame:GetScript("OnEvent")
+	if onEvent then
+		pcall(onEvent, frame, "UPDATE_INSTANCE_INFO")
+	elseif type(MiniMapInstanceDifficulty_OnEvent) == "function" then
+		pcall(MiniMapInstanceDifficulty_OnEvent, frame, "UPDATE_INSTANCE_INFO")
+	end
+end
+
+local function RestoreInstanceDifficultyVisibility()
+	local difficulty = _G["MiniMapInstanceDifficulty"]
+	if not difficulty then return end
+
+	if originalMiniMapInstanceDifficultyShow then
+		difficulty.Show = originalMiniMapInstanceDifficultyShow
+	else
+		difficulty.Show = nil
+	end
+	RefreshBlizzardInstanceDifficulty(difficulty)
+end
+
+local function ApplyInstanceDifficultySettings()
+	local difficulty = _G["MiniMapInstanceDifficulty"]
+	if not difficulty then return end
+
+	StoreOriginalFunctions()
+	if GetSetting("hideInstanceDifficulty", 0) == 1 then
+		difficulty:Hide()
+		difficulty.Show = function() end
+	else
+		RestoreInstanceDifficultyVisibility()
+	end
 end
 
 local function ApplyCalendarSettings()
@@ -1106,7 +1154,6 @@ local function ApplyCalendarSettings()
 		-- Force show the frame multiple times to ensure it appears
 		GameTimeFrame:Show()
 		GameTimeFrame:SetAlpha(1)
-		GameTimeFrame:SetShown(true)
 	end
 end
 
@@ -1392,6 +1439,10 @@ local function SetupMinimap()
 	
 	-- Hide calendar
 	ApplyCalendarSettings()
+
+	-- Standard FrameXML dungeon/raid difficulty flag. Its own event handler
+	-- decides whether it should currently be visible and which mode to display.
+	ApplyInstanceDifficultySettings()
 	
 	-- Mouse wheel zoom (FrostAtomUI: click the Blizzard zoom buttons so they play their sound)
 	if GetSetting('wheelEnabled', 1) == 1 then
@@ -2023,10 +2074,13 @@ function module:Enable()
 	else
 		ApplyCalendarSettings()
 	end
+
+	self:ApplyVisibilitySettings()
 end
 
 -- Disable module
 function module:Disable()
+	self:DisableVisibility()
 	StopMouseWatch()
 	StopZoneRefreshListener()
 	isAnimatingShow = false
@@ -2075,6 +2129,8 @@ function module:Disable()
 		end
 		GameTimeFrame:Show()
 	end
+
+	RestoreInstanceDifficultyVisibility()
 	
 	Minimap:EnableMouseWheel(false)
 	Minimap:SetScript("OnMouseWheel", nil)
@@ -2164,7 +2220,21 @@ function module:ApplySettings()
             SaveCurrentCustomPosition()
             -- Restore to our defined defaults immediately
             ResetMinimapToDefaults()
-        end
+		end
+	end
+
+	self:ApplyVisibilitySettings()
+end
+
+function module:ApplyVisibilitySettings()
+	if _G.SarychUI_MinimapVisibility and _G.SarychUI_MinimapVisibility.ApplySettings then
+		_G.SarychUI_MinimapVisibility.ApplySettings()
+	end
+end
+
+function module:DisableVisibility()
+	if _G.SarychUI_MinimapVisibility and _G.SarychUI_MinimapVisibility.Disable then
+		_G.SarychUI_MinimapVisibility.Disable()
 	end
 end
 

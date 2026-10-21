@@ -8,6 +8,9 @@ local EMBEDDED_ACE_MAJORS = {
 	["AceConfigRegistry-3.0"] = true,
 	["AceConfigCmd-3.0"] = true,
 	["AceDBOptions-3.0"] = true,
+	-- HealEx and EnhancedRaidFrames ship AceTimer 1071. It calls IsCancelled
+	-- on C_Timer handles. Details' timer objects do not have that method.
+	["AceTimer-3.0"] = true,
 }
 
 local EMBEDDED_PATH_MARKERS = {

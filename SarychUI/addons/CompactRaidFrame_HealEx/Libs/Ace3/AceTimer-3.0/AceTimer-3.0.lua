@@ -15,9 +15,12 @@
 -- make into AceTimer.
 -- @class file
 -- @name AceTimer-3.0
--- @release $Id: AceTimer-3.0.lua 0000 2026-09-15 04:25:00Z tsoukie $
+-- @release $Id: AceTimer-3.0.lua 0000 2026-10-17 22:00:00Z tsoukie $
 
-local MAJOR, MINOR = "AceTimer-3.0", 1070 -- Bump minor on changes
+-- This copy replaces SarychUI's AceTimer and calls :IsCancelled. Details timers do not have that method.
+if true then return end
+
+local MAJOR, MINOR = "AceTimer-3.0", 1071 -- Bump minor on changes
 local AceTimer, oldminor = LibStub:NewLibrary(MAJOR, MINOR)
 
 if not AceTimer then return end -- No upgrade needed
@@ -30,12 +33,17 @@ local type, unpack, next, error, select = type, unpack, next, error, select
 local GetTime, C_TimerNewTimer, C_TimerNewTicker = GetTime, C_Timer.NewTimer, C_Timer.NewTicker
 
 local function dispatch(timer)
-	if not activeTimers[timer] or timer:IsCancelled() then return end
+	local timerHandle = timer.handle
+	local timerKey = timerHandle or timer
+	if not activeTimers[timerKey] or timer:IsCancelled() then return end
 
 	if timer.looping then
 		timer.ends = GetTime() + timer.delay
+
+		-- Update legacy handler ends
+		if timerHandle then timerHandle.ends = timer.ends end
 	else
-		activeTimers[timer] = nil
+		activeTimers[timerKey] = nil
 	end
 
 	if type(timer.func) == "string" then
@@ -240,10 +248,16 @@ if oldminor and oldminor < MINOR then
 						newTimer = AceTimer.ScheduleTimer(timer.object, callback, delay, unpack(args, 1, argsCount))
 					end
 
-					-- Forward legacy table handle calls to C_Timer method
-					if type(handle) == "table" then
-						handle.cancelled = true
-						handle.Cancel = function() AceTimer:CancelTimer(newTimer) end
+					-- Forward legacy table handle calls to C_Timer
+					if type(handle) == "table" and handle ~= newTimer then
+						activeTimers[newTimer] = nil
+
+						handle.object = timer.object
+						handle.Cancel = function() activeTimers[handle] = nil newTimer:Cancel() end
+						handle.IsCancelled = function() return newTimer:IsCancelled() end
+
+						newTimer.handle = handle
+						activeTimers[handle] = true
 					end
 				end
 			end

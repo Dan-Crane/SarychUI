@@ -359,7 +359,7 @@ end
 --- Clear all animations and hide the indicator frame
 --- @param indicatorFrame table @The indicator frame to process
 function EnhancedRaidFrames:ClearIndicator(indicatorFrame)
-	indicatorFrame.Cooldown:Clear()
+	indicatorFrame.Cooldown:SetCooldown(0, 0)
 	self:StopUpdateTicker(indicatorFrame)
 	self:UpdateOverlayGlow(indicatorFrame)
 	self:UpdateCountdownText(indicatorFrame)
@@ -512,11 +512,11 @@ function EnhancedRaidFrames:UpdateIndicatorColor(indicatorFrame, remainingTime)
 			-- Color by remaining time
 			if remainingTime and self.db.profile["indicator-" .. i].colorIndicatorByTime_low ~= 0
 					and remainingTime <= self.db.profile["indicator-" .. i].colorIndicatorByTime_low then
-				indicatorFrame.Icon:SetColorTexture(self.RED_COLOR:GetRGB())
+				indicatorFrame.Icon:SetTexture(self.RED_COLOR:GetRGB())
 				return
 			elseif remainingTime and self.db.profile["indicator-" .. i].colorIndicatorByTime_high ~= 0
 					and remainingTime <= self.db.profile["indicator-" .. i].colorIndicatorByTime_high then
-				indicatorFrame.Icon:SetColorTexture(self.YELLOW_COLOR:GetRGB())
+				indicatorFrame.Icon:SetTexture(self.YELLOW_COLOR:GetRGB())
 				return
 			end
 		end
@@ -524,23 +524,23 @@ function EnhancedRaidFrames:UpdateIndicatorColor(indicatorFrame, remainingTime)
 		-- Set the color by debuff type
 		if self.db.profile["indicator-" .. i].colorIndicatorByDebuff and thisAura.isHarmful and thisAura.dispelName then
 			if thisAura.dispelName == "poison" then
-				indicatorFrame.Icon:SetColorTexture(self.GREEN_COLOR:GetRGB())
+				indicatorFrame.Icon:SetTexture(self.GREEN_COLOR:GetRGB())
 				return
 			elseif thisAura.dispelName == "curse" then
-				indicatorFrame.Icon:SetColorTexture(self.PURPLE_COLOR:GetRGB())
+				indicatorFrame.Icon:SetTexture(self.PURPLE_COLOR:GetRGB())
 				return
 			elseif thisAura.dispelName == "disease" then
-				indicatorFrame.Icon:SetColorTexture(self.BROWN_COLOR:GetRGB())
+				indicatorFrame.Icon:SetTexture(self.BROWN_COLOR:GetRGB())
 				return
 			elseif thisAura.dispelName == "magic" then
-				indicatorFrame.Icon:SetColorTexture(self.BLUE_COLOR:GetRGB())
+				indicatorFrame.Icon:SetTexture(self.BLUE_COLOR:GetRGB())
 				return
 			end
 		end
 	end
 
 	-- Set the color to the user select choice
-	indicatorFrame.Icon:SetColorTexture(unpack(self.db.profile["indicator-" .. i].indicatorColor))
+	indicatorFrame.Icon:SetTexture(unpack(self.db.profile["indicator-" .. i].indicatorColor))
 end
 
 --- Update the indicator countdown text color

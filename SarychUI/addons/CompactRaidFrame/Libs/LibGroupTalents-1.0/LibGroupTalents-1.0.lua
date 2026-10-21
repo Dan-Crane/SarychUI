@@ -1,6 +1,6 @@
 --[[
 Name: LibGroupTalents-1.0
-Revision: $Rev: 56 $
+Revision: $Rev: 55 $
 Author: Zek
 Documentation: http://wowace.com/wiki/LibGroupTalents-1.0
 SVN: svn://svn.wowace.com/wow/libgrouptalents-1-0/mainline/trunk
@@ -57,10 +57,10 @@ Convenience Functions (Similar to Blizzard API functions, but callable with a un
 Events:
 	LibGroupTalents_Update(guid, unit, newSpec, n1, n2, n3 [, oldSpec, o1, o2, o3])	-- Received updated talents. If it's a respec, or old set is know, it passes the old info also (this is not sent if new talent scan is same as previous)
 	LibGroupTalents_UpdateComplete(guid1, guid2[, ...])	-- Sent when there are no more pending talent reads due (passes all GUIDs that were updated since last time this event was fired)
-	LibGroupTalents_Add(guid, unit, name, realm)	-- Unit added to talent roster (Talents not necessarily available yet, but this is the mod's chance to feed talents using SetStorageString)
-	LibGroupTalents_Remove(guid, name, realm)										-- Unit removed from talent roster (This is your last chance to store talents if required using GetUnitStorageString)
-	LibGroupTalents_RoleChange(guid, unit, newrole, oldrole)		-- Roles are: "melee", "caster", "healer", "tank"
-	LibGroupTalents_GlyphUpdate(guid, unit)			-- Fired when a player's glyphs change (Note: For the moment, we can only see the glyphs of players running LibGroupTalents-1.0)
+	LibGroupTalents_Add(guid, unit, name, realm) -- Unit added to talent roster (Talents not necessarily available yet, but this is the mod's chance to feed talents using SetStorageString)
+	LibGroupTalents_Remove(guid, name, realm) -- Unit removed from talent roster (This is your last chance to store talents if required using GetUnitStorageString)
+	LibGroupTalents_RoleChange(guid, unit, newrole, oldrole) -- Roles are: "melee", "caster", "healer", "tank"
+	LibGroupTalents_GlyphUpdate(guid, unit)	-- Fired when a player's glyphs change (Note: For the moment, we can only see the glyphs of players running LibGroupTalents-1.0)
 
 ]]
 
@@ -306,10 +306,11 @@ end
 -- UNIT_AURA
 function lib:UNIT_AURA(unit)
 	if not unit then
-		return
+		return;
 	end
+
 	local guid = UnitGUID(unit)
-	if (not UnitIsVisible(unit) or (self.wasOffline and self.wasOffline[guid or ""])) then
+	if (not UnitIsVisible(unit) or (self.wasOffline and self.wasOffline[guid])) then
 		if (not self.outOfSight) then
 			self.outOfSight = {}
 		end
@@ -429,7 +430,7 @@ end
 
 -- ValidateUnit
 local function ValidateUnit(r, guid)
-	local unit = r.unit
+	local unit = r.unit	
 	if (UnitGUID(unit) ~= guid) then
 		local name = r.name .. (r.realm and "-" or "") .. (r.realm or "")
 		local index = UnitInRaid(name)
@@ -751,6 +752,10 @@ local function ReadTalentGroup(isnotplayer, group, class)
 	local numTabs = GetNumTalentTabs(isnotplayer)
 	if (numTabs and numTabs >= 3 and GetNumTalents(1, isnotplayer) > 0) then
 		local ctd = lib.classTalentData[class]
+--[===[@debug@
+assert(ctd and ctd[1] and ctd[2] and ctd[3])
+assert(ctd[1].list and ctd[2].list and ctd[3].list)
+--@end-debug@]===]
 
 		local n = new()
 		for tab = 1, numTabs do
@@ -1214,7 +1219,7 @@ do
 				if (class == "PRIEST") then
 					role = ((t1 + t2) > t3) and "healer" or "caster"
 				elseif (class == "WARRIOR") then
-					role = ((t1 + t2) > t3) and "melee" or "tank"
+					role = ((t1 + t2) > t3) and "melee" or "tank" 
 				else
 					local heavy = (t1 > t2 and t1 > t3 and 1) or (t2 > t1 and t2 > t3 and 2) or (t3 > t1 and t3 > t2 and 3) or 0
 					if (class == "PALADIN") then
@@ -1298,11 +1303,10 @@ function lib:GetGUIDTalents(guid, refetch)
 
 		elseif ((UnitInRaid(unit) or UnitInParty(unit)) and UnitIsConnected(unit)) then
 			TalentQuery:Query(unit)
-
+			local skipGlyphs
 			local namerealm = UnitFullName(unit)
 			if (not r.talents and not r.requested) then
 				-- Don't need to query on a 'refetch' because they'll send changes anyway via comms
-				local skipGlyphs
 				if (not UnitIsVisible(unit) or not CanInspect(unit)) then
 					if (r.version) then
 						if (CanCommQuery(guid)) then
@@ -1399,14 +1403,14 @@ function lib:CHAT_MSG_ADDON(prefix, msg, channel, sender)
 			end
 
 		elseif (cmd == "GLYPHS") then
-			local invalid
+			local invalid = false
 			local pages = new(strsplit(";", str))
 			local glyphs = new()
 			for page,info in ipairs(pages) do
 				local list = new(strsplit(",", info))
-				local tab = tonumber(tremove(list, 1))
-				if (tab) then
-					glyphs[tab] = table.concat(list, ",")
+				local number = tonumber(tremove(list, 1))
+				if (number) then
+					glyphs[number] = table.concat(list, ",")
 					del(list)
 				else
 					invalid = true
@@ -1489,10 +1493,11 @@ function lib:SendMyGlyphs(sender)
 	if (sender or self:UserCount() > 0) then
 		local r = self.roster[UnitGUID("player")]
 		if (r and r.glyphs) then
+			-- for k, v in pairs(r.glyphs) do print(1501, k, v) end
 			local str = "GLYPHS "
 			local i = 1
-			for tab,g in pairs(r.glyphs) do
-				local temp = format("%d,%s", tab, g)
+			for it,g in pairs(r.glyphs) do
+				local temp = format("%d,%s", it, g)
 				str = str .. (i > 1 and ";" or "") .. temp
 				i = i + 1
 			end

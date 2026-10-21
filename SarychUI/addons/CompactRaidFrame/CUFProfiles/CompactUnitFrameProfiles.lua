@@ -1,23 +1,33 @@
-local PLAYER_REGEN_ENABLED_AWAIT;
-local GetInstanceInfo = C_GetInstanceInfo;
-
-function CompactUnitFrameProfiles_RegisterInterfaceOptions()
-	local self = CompactUnitFrameProfiles;
-	if not self or self._suiBlizRegistered then
-		return;
+local pendingArenaDropdowns = {}
+local arenaDropdownLoader
+local function InitializeProfileDropdown(frame, initialize)
+	if IsAddOnLoaded("Blizzard_ArenaUI") then
+		UIDropDownMenu_Initialize(frame, initialize)
+		return
 	end
-	if CompactRaidFrameEnabled == false then
-		return;
-	end
-	InterfaceOptions_AddCategory(self);
-	self._suiBlizRegistered = true;
+	frame.initialize = initialize
+	pendingArenaDropdowns[frame] = true
+	if arenaDropdownLoader then return end
+	arenaDropdownLoader = CreateFrame("Frame")
+	arenaDropdownLoader:RegisterEvent("ADDON_LOADED")
+	arenaDropdownLoader:SetScript("OnEvent", function(self, _, addon)
+		if addon ~= "Blizzard_ArenaUI" then return end
+		self:UnregisterAllEvents()
+		for dropdown in pairs(pendingArenaDropdowns) do
+			UIDropDownMenu_Initialize(dropdown, dropdown.initialize)
+		end
+		pendingArenaDropdowns = {}
+	end)
 end
 
 function CompactUnitFrameProfiles_OnLoad(self)
 	self:RegisterEvent("VARIABLES_LOADED");
 	self:RegisterEvent("COMPACT_UNIT_FRAME_PROFILES_LOADED");
-	self:RegisterEvent("GROUP_ROSTER_UPDATE");
+	self:RegisterEvent("PLAYER_ENTERING_WORLD");
+	self:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED");
+	self:RegisterEvent("PARTY_MEMBERS_CHANGED");
 	self:RegisterEvent("PLAYER_REGEN_ENABLED");
+	self:RegisterEvent("RAID_ROSTER_UPDATE");
 
 	--Get this working with the InterfaceOptions panel.
 	self.name = COMPACT_UNIT_FRAME_PROFILES_LABEL;
@@ -26,12 +36,12 @@ function CompactUnitFrameProfiles_OnLoad(self)
 	}
 
 	BlizzardOptionsPanel_OnLoad(self, CompactUnitFrameProfiles_SaveChanges, CompactUnitFrameProfiles_CancelCallback, CompactUnitFrameProfiles_DefaultCallback, CompactUnitFrameProfiles_UpdateCurrentPanel);
-	CompactUnitFrameProfiles_RegisterInterfaceOptions();
-
-	self:SetScript("OnEvent", CompactUnitFrameProfiles_OnEvent);
+	InterfaceOptions_AddCategory(self);
 end
 
 function CompactUnitFrameProfiles_OnEvent(self, event, ...)
+	--Do normal BlizzardOptionsPanel code too.
+	--BlizzardOptionsPanel_OnEvent(self, event, ...);
 	if ( event == "COMPACT_UNIT_FRAME_PROFILES_LOADED" ) then
 		--HasLoadedCUFProfiles will now return true.
 		self:UnregisterEvent(event);
@@ -41,27 +51,11 @@ function CompactUnitFrameProfiles_OnEvent(self, event, ...)
 		self:UnregisterEvent(event);
 		CompactUnitFrameProfiles_ValidateProfilesLoaded(self);
 	elseif ( event == "PLAYER_ENTERING_WORLD" ) then	--Check for zoning
-		if ( not self.BlizzardOptionsPanel_OnEvent ) then
-			--Do normal BlizzardOptionsPanel code too.
-			BlizzardOptionsPanel_OnEvent(self, event, ...);
-
-			--BlizzardOptionsPanel_OnEvent: Re-register
-			self:RegisterEvent("PLAYER_ENTERING_WORLD");
-			self.BlizzardOptionsPanel_OnEvent = true;
-		end
-
 		CompactUnitFrameProfiles_CheckAutoActivation();
-	elseif ( event == "PLAYER_REGEN_ENABLED" ) then
-		if ( PLAYER_REGEN_ENABLED_AWAIT ) then
-			PLAYER_REGEN_ENABLED_AWAIT = nil;
-			CompactUnitFrameProfiles_OnEvent(self, "GROUP_ROSTER_UPDATE");
-		end
-	else
-		if ( InCombatLockdown() ) then
-			PLAYER_REGEN_ENABLED_AWAIT = true;
-		elseif ( event == "GROUP_ROSTER_UPDATE" ) then
-			CompactUnitFrameProfiles_CheckAutoActivation();
-		end
+	elseif ( event == "PLAYER_SPECIALIZATION_CHANGED" ) then	--Check for changing specs
+		CompactUnitFrameProfiles_CheckAutoActivation();
+	elseif ( event == "PARTY_MEMBERS_CHANGED" or event == "RAID_ROSTER_UPDATE" or event == "PLAYER_REGEN_ENABLED" ) then
+		CompactUnitFrameProfiles_CheckAutoActivation();
 	end
 end
 
@@ -109,12 +103,12 @@ function CompactUnitFrameProfiles_CancelChanges(self)
 end
 
 function CompactUnitFrameProfilesNewProfileDialogBaseProfileSelector_SetUp(self)
-	C_UIDropDownMenu_SetWidth(self, 190);
-	C_UIDropDownMenu_Initialize(self, CompactUnitFrameProfilesNewProfileDialogBaseProfileSelector_Initialize);
+	UIDropDownMenu_SetWidth(self, 190);
+	InitializeProfileDropdown(self, CompactUnitFrameProfilesNewProfileDialogBaseProfileSelector_Initialize);
 end
 
 function CompactUnitFrameProfilesNewProfileDialogBaseProfileSelector_Initialize()
-	local info = C_UIDropDownMenu_CreateInfo();
+	local info = UIDropDownMenu_CreateInfo();
 
 	info.text = DEFAULTS;
 	info.disabled  = UnitAffectingCombat("player");
@@ -122,7 +116,7 @@ function CompactUnitFrameProfilesNewProfileDialogBaseProfileSelector_Initialize(
 	info.func = CompactUnitFrameProfilesNewProfileDialogBaseProfileSelectorButton_OnClick;
 	info.checked = CompactUnitFrameProfiles.newProfileDialog.baseProfile == info.value;
 	info.isRadio = true;
-	C_UIDropDownMenu_AddButton(info);
+	UIDropDownMenu_AddButton(info);
 
 	for i=1, GetNumRaidProfiles() do
 		local name = GetRaidProfileName(i);
@@ -131,23 +125,23 @@ function CompactUnitFrameProfilesNewProfileDialogBaseProfileSelector_Initialize(
 		info.value = name;
 		info.func = CompactUnitFrameProfilesNewProfileDialogBaseProfileSelectorButton_OnClick;
 		info.checked = CompactUnitFrameProfiles.newProfileDialog.baseProfile == info.value;
-		C_UIDropDownMenu_AddButton(info);
+		UIDropDownMenu_AddButton(info);
 	end
 end
 
 function CompactUnitFrameProfilesNewProfileDialogBaseProfileSelectorButton_OnClick(self)
 	CompactUnitFrameProfiles.newProfileDialog.baseProfile = self.value;
-	C_UIDropDownMenu_SetSelectedValue(CompactUnitFrameProfilesNewProfileDialogBaseProfileSelector, self.value);
+	UIDropDownMenu_SetSelectedValue(CompactUnitFrameProfilesNewProfileDialogBaseProfileSelector, self.value);
 end
 
 function CompactUnitFrameProfilesProfileSelector_SetUp(self)
-	C_UIDropDownMenu_SetWidth(self, 190);
-	C_UIDropDownMenu_Initialize(self, CompactUnitFrameProfilesProfileSelector_Initialize);
-	--C_UIDropDownMenu_SetSelectedValue(self, GetActiveRaidProfile());
+	UIDropDownMenu_SetWidth(self, 190);
+	InitializeProfileDropdown(self, CompactUnitFrameProfilesProfileSelector_Initialize);
+	--UIDropDownMenu_SetSelectedValue(self, GetActiveRaidProfile());
 end
 
 function CompactUnitFrameProfilesProfileSelector_Initialize()
-	local info = C_UIDropDownMenu_CreateInfo();
+	local info = UIDropDownMenu_CreateInfo();
 	for i=1, GetNumRaidProfiles() do 
 		local name = GetRaidProfileName(i);
 		info.text = name;
@@ -156,7 +150,7 @@ function CompactUnitFrameProfilesProfileSelector_Initialize()
 		info.value = name;
 		info.checked = CompactUnitFrameProfiles.selectedProfile == name;
 		info.isRadio = true;
-		C_UIDropDownMenu_AddButton(info);
+		UIDropDownMenu_AddButton(info);
 	end
 
 	info.text = NEW_COMPACT_UNIT_FRAME_PROFILE;
@@ -167,7 +161,7 @@ function CompactUnitFrameProfilesProfileSelector_Initialize()
 	info.notCheckable = true;
 	info.disabled = GetNumRaidProfiles() >= GetMaxNumCUFProfiles();
 	info.isRadio = true;
-	C_UIDropDownMenu_AddButton(info);
+	UIDropDownMenu_AddButton(info);
 end
 
 function CompactUnitFrameProfilesProfileSelectorButton_OnClick(self)
@@ -190,10 +184,10 @@ function CompactUnitFrameProfiles_ActivateRaidProfile(profile)
 	CompactUnitFrameProfiles.selectedProfile = profile;
 	SaveRaidProfileCopy(profile);	--Save off the current version in case we cancel.
 	SetActiveRaidProfile(profile);
-	C_UIDropDownMenu_SetSelectedValue(CompactUnitFrameProfilesProfileSelector, profile);
-	C_UIDropDownMenu_SetText(CompactUnitFrameProfilesProfileSelector, profile);
-	C_UIDropDownMenu_SetSelectedValue(CompactRaidFrameManagerDisplayFrameProfileSelector, profile);
-	C_UIDropDownMenu_SetText(CompactRaidFrameManagerDisplayFrameProfileSelector, profile);
+	UIDropDownMenu_SetSelectedValue(CompactUnitFrameProfilesProfileSelector, profile);
+	UIDropDownMenu_SetText(CompactUnitFrameProfilesProfileSelector, profile);
+	UIDropDownMenu_SetSelectedValue(CompactRaidFrameManagerDisplayFrameProfileSelector, profile);
+	UIDropDownMenu_SetText(CompactRaidFrameManagerDisplayFrameProfileSelector, profile);
 
 	CompactUnitFrameProfiles_HidePopups();
 	CompactUnitFrameProfiles_UpdateCurrentPanel();
@@ -202,6 +196,47 @@ end
 
 function CompactUnitFrameProfiles_ApplyCurrentSettings()
 	CompactUnitFrameProfiles_ApplyProfile(GetActiveRaidProfile());
+end
+
+local compactProfileApplyPending = false
+local compactProfileApplyRunner = CreateFrame("Frame")
+compactProfileApplyRunner:SetScript("OnEvent", function(self)
+	self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+	if InCombatLockdown() then
+		self:RegisterEvent("PLAYER_REGEN_ENABLED")
+		return
+	end
+	if not compactProfileApplyPending then
+		return
+	end
+	compactProfileApplyPending = false
+	CompactUnitFrameProfiles_ApplyProfile(GetActiveRaidProfile())
+end)
+
+local function CompactUnitFrameProfiles_ApplyProfileNow(profile)
+	local settings = GetRaidProfileFlattenedOptions(profile);
+	for settingName, value in pairs(settings) do
+		local func = CUFProfileActionTable[settingName];
+		if ( func ) then
+			func(value);
+		end
+	end
+
+	--Refresh all frames to make sure the changes stick.
+	CompactRaidFrameContainer_ApplyToFrames(CompactRaidFrameContainer, "normal", DefaultCompactUnitFrameSetup);
+	CompactRaidFrameContainer_ApplyToFrames(CompactRaidFrameContainer, "normal", CompactUnitFrame_UpdateAll);
+	CompactRaidFrameContainer_ApplyToFrames(CompactRaidFrameContainer, "mini", DefaultCompactMiniFrameSetup);
+	CompactRaidFrameContainer_ApplyToFrames(CompactRaidFrameContainer, "mini", CompactUnitFrame_UpdateAll);
+	--CompactRaidFrameContainer_ApplyToFrames(CompactRaidFrameContainer, "group", CompactRaidGroup_UpdateLayout);	--UpdateBorder calls UpdateLayout.
+
+	--Update the borders on the group frames.
+	CompactRaidFrameContainer_ApplyToFrames(CompactRaidFrameContainer, "group", CompactRaidGroup_UpdateBorder);
+
+	--Update the position of the container.
+	CompactRaidFrameManager_ResizeFrame_LoadPosition(CompactRaidFrameManager);
+
+	--Update the container in case sizes and such changed.
+	CompactRaidFrameContainer_TryUpdate(CompactRaidFrameContainer);
 end
 
 function CompactUnitFrameProfiles_UpdateCurrentPanel()
@@ -234,8 +269,8 @@ function CompactUnitFrameProfiles_HideNewProfileDialog()
 end
 
 function CompactUnitFrameProfiles_ShowNewProfileDialog()
-	C_UIDropDownMenu_SetSelectedValue(CompactUnitFrameProfilesNewProfileDialogBaseProfileSelector, nil);
-	C_UIDropDownMenu_SetText(CompactUnitFrameProfilesNewProfileDialogBaseProfileSelector, DEFAULTS);
+	UIDropDownMenu_SetSelectedValue(CompactUnitFrameProfilesNewProfileDialogBaseProfileSelector, nil);
+	UIDropDownMenu_SetText(CompactUnitFrameProfilesNewProfileDialogBaseProfileSelector, DEFAULTS);
 	CompactUnitFrameProfiles.newProfileDialog.baseProfile = nil;
 	CompactUnitFrameProfiles.newProfileDialog:Show();
 	CompactUnitFrameProfiles.newProfileDialog.editBox:SetText("");
@@ -313,7 +348,12 @@ function CompactUnitFrameProfiles_GetAutoActivationState()
 		profileType = instanceType;
 		enemyType = "PvP";
 	elseif ( instanceType == "pvp" ) then
-		numPlayers = countMap[maxPlayers];
+		if ( false ) then -- IsRatedBattleground()
+			numPlayers = 10;
+		else
+			numPlayers = countMap[GetMaxUnitNumberBattleground()]; -- временно maxPlayers
+		end
+
 		profileType = instanceType;
 		enemyType = "PvP";
 	else
@@ -331,7 +371,7 @@ end
 
 local checkAutoActivationTimer;
 function CompactUnitFrameProfiles_CheckAutoActivation()
-	--We only want to adjust the profile when you zone. We don't want to automatically
+	--We only want to adjust the profile when you 1) Zone or 2) change specs. We don't want to automatically
 	--change the profile when you are in the uninstanced world.
 	if ( not IsInGroup() ) then
 		CompactUnitFrameProfiles_SetLastActivationType(nil, nil, nil, nil);
@@ -354,41 +394,67 @@ function CompactUnitFrameProfiles_CheckAutoActivation()
 		end
 	end
 
-	local lastActivationType, lastNumPlayers, lastEnemyType = CompactUnitFrameProfiles_GetLastActivationType();
-	if ( lastActivationType == activationType and lastNumPlayers == numPlayers and lastEnemyType == enemyType ) then
+	local spec = GetActiveTalentGroup();
+	local lastActivationType, lastNumPlayers, lastSpec, lastEnemyType = CompactUnitFrameProfiles_GetLastActivationType();
+	if ( lastActivationType == activationType and lastNumPlayers == numPlayers and lastSpec == spec and lastEnemyType == enemyType ) then
 		--If we last auto-adjusted for this same thing, we don't change. (In case they manually changed the profile.)
 		return;
 	end
 
-	if ( CompactUnitFrameProfiles_ProfileMatchesAutoActivation(GetActiveRaidProfile(), numPlayers, enemyType) ) then
-		CompactUnitFrameProfiles_SetLastActivationType(activationType, numPlayers, enemyType);
+	if ( CompactUnitFrameProfiles_ProfileMatchesAutoActivation(GetActiveRaidProfile(), numPlayers, spec, enemyType) ) then
+		CompactUnitFrameProfiles_SetLastActivationType(activationType, numPlayers, spec, enemyType);
 	else
 		for i=1, GetNumRaidProfiles() do
 			local profile = GetRaidProfileName(i);
-			if ( CompactUnitFrameProfiles_ProfileMatchesAutoActivation(profile, numPlayers, enemyType) ) then
+			if ( CompactUnitFrameProfiles_ProfileMatchesAutoActivation(profile, numPlayers, spec, enemyType) ) then
 				CompactUnitFrameProfiles_ActivateRaidProfile(profile);
-				CompactUnitFrameProfiles_SetLastActivationType(activationType, numPlayers, enemyType);
+				CompactUnitFrameProfiles_SetLastActivationType(activationType, numPlayers, spec, enemyType);
 			end
 		end
 	end
 end
 
-function CompactUnitFrameProfiles_SetLastActivationType(activationType, numPlayers, enemyType)
+function CompactUnitFrameProfiles_SetLastActivationType(activationType, numPlayers, spec, enemyType)
 	CompactUnitFrameProfiles.lastActivationType = activationType;
 	CompactUnitFrameProfiles.lastNumPlayers = numPlayers;
+	CompactUnitFrameProfiles.lastSpec = spec;
 	CompactUnitFrameProfiles.lastEnemyType = enemyType;
 end
 
 function CompactUnitFrameProfiles_GetLastActivationType()
-	return CompactUnitFrameProfiles.lastActivationType, CompactUnitFrameProfiles.lastNumPlayers, CompactUnitFrameProfiles.lastEnemyType;
+	return CompactUnitFrameProfiles.lastActivationType, CompactUnitFrameProfiles.lastNumPlayers, 
+		CompactUnitFrameProfiles.lastSpec, CompactUnitFrameProfiles.lastEnemyType;
 end
 
-function CompactUnitFrameProfiles_ProfileMatchesAutoActivation(profile, numPlayers, enemyType)
-	return GetRaidProfileOption(profile, "autoActivate"..numPlayers.."Players") and GetRaidProfileOption(profile, "autoActivate"..enemyType);
+function CompactUnitFrameProfiles_ProfileMatchesAutoActivation(profile, numPlayers, spec, enemyType)
+	return GetRaidProfileOption(profile, "autoActivate"..numPlayers.."Players") and GetRaidProfileOption(profile, "autoActivateSpec"..spec) and
+		GetRaidProfileOption(profile, "autoActivate"..enemyType);
+end
+
+function CompactUnitFrameAutoActivateSpec_OnLoad(self)
+	CompactUnitFrameProfilesCheckButton_InitializeWidget(self, "autoActivateSpec"..self:GetID());
 end
 
 function CompactUnitFrameProfilesGeneralOptionsFrame_OnShow(self)
-	self.autoActivateBG:SetHeight(293);
+	-- For the version of the game 3.3.5a (wotlk), this option is not suitable
+	-- local height = 293 + 26 + 26
+	-- local numSpecializations = GetNumSpecializations();
+	-- for i, option in ipairs(self.AutoActivateSpecs) do
+	-- 	if ( option:GetID() <= numSpecializations ) then
+	-- 		local specID, specName = GetSpecializationInfo(option:GetID());
+	-- 		option.label:SetText(specName);
+	-- 		option:Show();
+	-- 		height = height + 26;
+	-- 		if ( option:GetID() == numSpecializations ) then
+	-- 			self.AutoActivatePvP:ClearAllPoints();
+	-- 			self.AutoActivatePvP:SetPoint("TOPLEFT", option, "BOTTOMLEFT", 0, -15);
+	-- 		end
+	-- 	else
+	-- 		option:Hide();
+	-- 	end
+	-- end
+
+	self.autoActivateBG:SetHeight(345);
 end
 
 function CompactUnitFrameProfile_UpdateAutoActivationDisabledLabel()
@@ -401,15 +467,23 @@ function CompactUnitFrameProfile_UpdateAutoActivationDisabledLabel()
 		end
 	end
 
+	local hasTalentSpec = false;
+	if ( GetRaidProfileOption(profile, "autoActivateSpec1") or GetRaidProfileOption(profile, "autoActivateSpec2") )  then
+		hasTalentSpec = true;
+	end
+
 	local hasEnemyType = false;
 	if ( GetRaidProfileOption(profile, "autoActivatePvP") or GetRaidProfileOption(profile, "autoActivatePvE") ) then
 		hasEnemyType = true;
 	end
 
-	if ( hasGroupSize == hasEnemyType ) then
+	if ( hasGroupSize == hasTalentSpec and hasTalentSpec == hasEnemyType ) then
 		CompactUnitFrameProfiles.optionsFrame.autoActivateDisabledLabel:Hide();
 	elseif ( not hasGroupSize ) then
 		CompactUnitFrameProfiles.optionsFrame.autoActivateDisabledLabel:SetText(AUTO_ACTIVATE_PROFILE_NO_SIZE);
+		CompactUnitFrameProfiles.optionsFrame.autoActivateDisabledLabel:Show();
+	elseif ( not hasTalentSpec ) then
+		CompactUnitFrameProfiles.optionsFrame.autoActivateDisabledLabel:SetText(AUTO_ACTIVATE_PROFILE_NO_TALENT);
 		CompactUnitFrameProfiles.optionsFrame.autoActivateDisabledLabel:Show();
 	elseif ( not hasEnemyType ) then
 		CompactUnitFrameProfiles.optionsFrame.autoActivateDisabledLabel:SetText(AUTO_ACTIVATE_PROFILE_NO_ENEMYTYPE);
@@ -445,18 +519,18 @@ function CompactUnitFrameProfilesDropdown_InitializeWidget(self, optionName, opt
 end
 
 function CompactUnitFrameProfilesDropdown_OnShow(self)
-	C_UIDropDownMenu_SetWidth(self, self.width or 160);
-	C_UIDropDownMenu_Initialize(self, CompactUnitFrameProfilesDropdown_Initialize);
+	UIDropDownMenu_SetWidth(self, self.width or 160);
+	InitializeProfileDropdown(self, CompactUnitFrameProfilesDropdown_Initialize);
 	CompactUnitFrameProfilesDropdown_Update(self);
 end
 
 function CompactUnitFrameProfilesDropdown_Update(self)
-	C_UIDropDownMenu_Initialize(self, CompactUnitFrameProfilesDropdown_Initialize);
-	C_UIDropDownMenu_SetSelectedValue(self, GetRaidProfileOption(CompactUnitFrameProfiles.selectedProfile, self.optionName)); --
+	InitializeProfileDropdown(self, CompactUnitFrameProfilesDropdown_Initialize);
+	UIDropDownMenu_SetSelectedValue(self, GetRaidProfileOption(CompactUnitFrameProfiles.selectedProfile, self.optionName)); --
 end
 
 function CompactUnitFrameProfilesDropdown_Initialize(dropDown)
-	local info = C_UIDropDownMenu_CreateInfo();
+	local info = UIDropDownMenu_CreateInfo();
 
 	local currentValue = GetRaidProfileOption(CompactUnitFrameProfiles.selectedProfile, dropDown.optionName);
 	for i=1, #dropDown.options do
@@ -469,13 +543,13 @@ function CompactUnitFrameProfilesDropdown_Initialize(dropDown)
 		info.value = id;
 		info.checked = currentValue == id;
 		info.isRadio = true;
-		C_UIDropDownMenu_AddButton(info);
+		UIDropDownMenu_AddButton(info);
 	end
 end
 
 function CompactUnitFrameProfilesDropdownButton_OnClick(button, dropDown)
 	SetRaidProfileOption(CompactUnitFrameProfiles.selectedProfile, dropDown.optionName, button.value);
-	C_UIDropDownMenu_SetSelectedValue(dropDown, button.value);
+	UIDropDownMenu_SetSelectedValue(dropDown, button.value);
 	CompactUnitFrameProfiles_ApplyCurrentSettings();
 	CompactUnitFrameProfiles_UpdateCurrentPanel();
 end
@@ -540,29 +614,12 @@ end
 -----------------Applying of Options----------------------
 -------------------------------------------------------------
 function CompactUnitFrameProfiles_ApplyProfile(profile)
-	local settings = GetRaidProfileFlattenedOptions(profile);
-	for settingName, value in pairs(settings) do
-		local func = CUFProfileActionTable[settingName];
-		if ( func ) then
-			func(value);
-		end
+	if InCombatLockdown() then
+		compactProfileApplyPending = true
+		compactProfileApplyRunner:RegisterEvent("PLAYER_REGEN_ENABLED")
+		return
 	end
-
-	--Refresh all frames to make sure the changes stick.
-	CompactRaidFrameContainer_ApplyToFrames(CompactRaidFrameContainer, "normal", DefaultCompactUnitFrameSetup);
-	CompactRaidFrameContainer_ApplyToFrames(CompactRaidFrameContainer, "normal", CompactUnitFrame_UpdateAll);
-	CompactRaidFrameContainer_ApplyToFrames(CompactRaidFrameContainer, "mini", DefaultCompactMiniFrameSetup);
-	CompactRaidFrameContainer_ApplyToFrames(CompactRaidFrameContainer, "mini", CompactUnitFrame_UpdateAll);
-	--CompactRaidFrameContainer_ApplyToFrames(CompactRaidFrameContainer, "group", CompactRaidGroup_UpdateLayout);	--UpdateBorder calls UpdateLayout.
-
-	--Update the borders on the group frames.
-	CompactRaidFrameContainer_ApplyToFrames(CompactRaidFrameContainer, "group", CompactRaidGroup_UpdateBorder);
-
-	--Update the position of the container.
-	CompactRaidFrameManager_ResizeFrame_LoadPosition(CompactRaidFrameManager);
-
-	--Update the container in case sizes and such changed.
-	CompactRaidFrameContainer_TryUpdate(CompactRaidFrameContainer);
+	CompactUnitFrameProfiles_ApplyProfileNow(profile)
 end
 
 local function CompactUnitFrameProfiles_GenerateRaidManagerSetting(optionName)
@@ -599,6 +656,7 @@ CUFProfileActionTable = {
 	sortBy = CompactUnitFrameProfiles_GenerateRaidManagerSetting("SortMode"),
 	displayPets = CompactUnitFrameProfiles_GenerateRaidManagerSetting("DisplayPets"),
 	displayMainTankAndAssist = CompactUnitFrameProfiles_GenerateRaidManagerSetting("DisplayMainTankAndAssist"),
+	displayHealPrediction = CompactUnitFrameProfiles_GenerateOptionSetter("displayHealPrediction", "all"),
 	displayPowerBar = CompactUnitFrameProfiles_GenerateSetUpOptionSetter("displayPowerBar", "normal"),
 	displayAggroHighlight = CompactUnitFrameProfiles_GenerateOptionSetter("displayAggroHighlight", "all"),
 	displayNonBossDebuffs = CompactUnitFrameProfiles_GenerateOptionSetter("displayNonBossDebuffs", "normal"),

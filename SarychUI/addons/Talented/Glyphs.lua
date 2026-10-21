@@ -45,9 +45,24 @@ do
 		self.hasCursor = nil
 	end
 
+	local function ReadSocket(id, group)
+		local enabled, gtype, a, b, c = GetGlyphSocketInfo(id, group)
+		local spell, icon
+		if c ~= nil then
+			spell, icon = b, c
+		else
+			spell, icon = a, b
+		end
+		return enabled, gtype, spell, icon
+	end
+
 	local function Glyph_Update(self)
 		local id, group = self.id, self:GetParent().group
-		local enabled, gtype, spell, icon = GetGlyphSocketInfo(id, group)
+		local enabled, gtype, spell, icon = ReadSocket(id, group)
+		local EG = _G.SarychUI_EasyGlyph
+		if EG and EG.RestoreTalentedSocketArt then
+			EG.RestoreTalentedSocketArt(self)
+		end
 
 		self.highlight:Hide()
 		if not enabled then
@@ -104,7 +119,30 @@ do
 				end
 			else
 				self.glyph:Show()
-				self.glyph:SetTexture(icon or "Interface\\Spellbook\\UI-Glyph-Rune1")
+				local customPath
+				if EG and EG.IsEnabled and EG.IsEnabled() and EG.GetSocketIconPath then
+					local spellName = GetSpellInfo(spell)
+					customPath = EG.GetSocketIconPath(spell, spellName, icon)
+					if not customPath and type(GetGlyphLink) == "function" then
+						local link = GetGlyphLink(id, group)
+						local glyphName = type(link) == "string" and link:match("%[(.-)%]")
+						customPath = glyphName and EG.GetSocketIconPath(glyphName)
+					end
+				end
+				if customPath then
+					self.glyph:SetTexture(customPath)
+					if self.glyph.SetTexCoord then
+						self.glyph:SetTexCoord(0, 1, 0, 1)
+					end
+					self.glyph:SetVertexColor(1, 1, 1, 1)
+					if EG.ApplyTalentedSocketArt then
+						EG.ApplyTalentedSocketArt(self, gtype)
+					elseif EG.SizeTalentedSocketIcon then
+						EG.SizeTalentedSocketIcon(self.glyph, gtype)
+					end
+				else
+					self.glyph:SetTexture(icon or "Interface\\Spellbook\\UI-Glyph-Rune1")
+				end
 				local left = SLOT_COORD_BASE[id]
 				self.background:SetTexCoord(left, left + 0.12890625, 0.87109375, 1)
 				self.background:SetAlpha(1)

@@ -96,8 +96,33 @@ function FlowContainer_SetStartingOffset(container, xOffset, yOffset)
 end
 
 --:GetWidth() and :GetHeight() are used in this function. --meta-comment: Comment added in case anyone ever searches all files for these.
+local function QueueFlowContainerLayout(container)
+    if not FlowContainerLayoutRetry then
+        FlowContainerLayoutRetry = CreateFrame("Frame");
+        FlowContainerLayoutRetry.pending = {};
+        FlowContainerLayoutRetry:SetScript("OnEvent", function(self)
+            self:UnregisterEvent("PLAYER_REGEN_ENABLED");
+            if InCombatLockdown and InCombatLockdown() then
+                self:RegisterEvent("PLAYER_REGEN_ENABLED");
+                return;
+            end
+            local pending = self.pending;
+            self.pending = {};
+            for queued in pairs(pending) do
+                FlowContainer_DoLayout(queued);
+            end
+        end);
+    end
+    FlowContainerLayoutRetry.pending[container] = true;
+    FlowContainerLayoutRetry:RegisterEvent("PLAYER_REGEN_ENABLED");
+end
+
 function FlowContainer_DoLayout(container)
     if ( container.flowPauseUpdates ) then
+        return;
+    end
+    if ( InCombatLockdown and InCombatLockdown() ) then
+        QueueFlowContainerLayout(container);
         return;
     end
 

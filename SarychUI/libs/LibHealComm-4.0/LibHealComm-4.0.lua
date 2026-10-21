@@ -2722,22 +2722,11 @@ function HealComm:OnInitialize()
 	self.resetFrame:Hide()
 	self.resetFrame:SetScript("OnUpdate", function(self) self:Hide() end)
 
-	-- You can't unhook secure hooks after they are done, so will hook once and the HealComm table will update with the latest functions
-	-- automagically. If a new function is ever used it'll need a specific variable to indicate those set of hooks.
-	-- By default most of these are mapped to a more generic function, but I call separate ones so I don't have to rehook
-	-- if it turns out I need to know something specific
-	hooksecurefunc("TargetUnit", function(...) HealComm:TargetUnit(...) end)
-	hooksecurefunc("SpellTargetUnit", function(...) HealComm:SpellTargetUnit(...) end)
-	hooksecurefunc("AssistUnit", function(...) HealComm:AssistUnit(...) end)
-	hooksecurefunc("UseAction", function(...) HealComm:UseAction(...) end)
-	hooksecurefunc("TargetLastFriend", function(...) HealComm:TargetLastFriend(...) end)
-	hooksecurefunc("TargetLastTarget", function(...) HealComm:TargetLastTarget(...) end)
-	hooksecurefunc("CastSpellByName", function(...) HealComm:CastSpellByName(...) end)
-	
-	-- Fixes hook error for people who are not on 3.2 yet
-	if ( CastSpellByID ) then
-		hooksecurefunc("CastSpellByID", function(...) HealComm:CastSpellByID(...) end)
-	end
+	-- Do not hooksecurefunc UseAction, CastSpellByName, CastSpellByID, TargetUnit
+	-- or the other protected unit/cast APIs. On this client the hook trampoline
+	-- taints the secure caller, so a macro /castsequence run from UseAction hits
+	-- ADDON_ACTION_FORBIDDEN at ChatFrame.lua:856. Heal target still comes from
+	-- UNIT_SPELLCAST_SENT.
 end
 
 -- General event handler

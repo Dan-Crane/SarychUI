@@ -160,6 +160,7 @@ SarychUI.defaults = {
 		modules = {
 			party_abilities = {
 				enabled = true,
+				showPlayer = true,
 				displayMode = "all",
 				contexts = { arena = true, group = true, raid = false },
 				seeded = false,
@@ -380,7 +381,7 @@ SarychUI.defaults = {
             -- Bags module
             bags = {
                 enabled = true,
-                mode = "elvui", -- "default" | "elvui" | "baudbag"
+                mode = "elvui", -- "default" | "elvui"
                 enableBagSearch = true,
                 elvui = {
                     showKeyring = true,
@@ -924,6 +925,7 @@ SarychUI.defaults = {
 				
 				-- Chat Spam Filter settings
 				spamFilterEnabled = 1,
+				foreignFactionFilterEnabled = 0,
 				
                 -- Chat URL Copying settings
                 urlCopyingEnabled = 1,
@@ -1260,10 +1262,6 @@ SarychUI.defaults = {
 				enabled = true,
 				showOnAlt = false,
 			},
-			-- BaudBag (bags mode: baudbag)
-			BaudBag = {
-				enabled = false,
-			},
 			-- SarychUI Bags (bags mode: elvui)
 			SarychUI_Bags = {
 				enabled = true,
@@ -1301,7 +1299,7 @@ SarychUI.defaults = {
 	
 	-- Global settings (not per character)
 	global = {
-        version = "1.3.0",
+        version = "1.3.1a",
 		quickStartCatalog = false,
 		quickStartCatalogCleared = false,
 		quickStartMiscEnabled = false,
@@ -1445,22 +1443,25 @@ local function MigrateProfileDefaults(profile)
 				bagsDb.mode = bagsDefaults.mode
 			end
 		end
-		-- Синхронизация bags.mode <-> addons.BaudBag / SarychUI_Bags
+		-- Синхронизация bags.mode <-> addons.SarychUI_Bags
 		local addonsForBags = profile.addons
 		if addonsForBags then
 			-- Migrate renamed embed key (ElvUI_Bags -> SarychUI_Bags).
 			if type(addonsForBags.ElvUI_Bags) == "table" and type(addonsForBags.SarychUI_Bags) ~= "table" then
 				addonsForBags.SarychUI_Bags = CopyTable(addonsForBags.ElvUI_Bags)
 			end
-			addonsForBags.BaudBag = addonsForBags.BaudBag or { enabled = false }
+			addonsForBags.BaudBag = nil
 			addonsForBags.SarychUI_Bags = addonsForBags.SarychUI_Bags or { enabled = false }
 			local mode = bagsDb.mode
+			if mode == "baudbag" then
+				mode = "elvui"
+				bagsDb.mode = mode
+			end
 			if mode == "classic" then
 				mode = "default"
 				bagsDb.mode = "default"
 			end
 			local enabled = bagsDb.enabled == true
-			addonsForBags.BaudBag.enabled = enabled and (mode == "baudbag")
 			addonsForBags.SarychUI_Bags.enabled = enabled and (mode == "elvui")
 		end
 		if bagsDb.enableBagSearch == nil then

@@ -1171,7 +1171,7 @@ function module:SaveDefaultBuffPosition()
 			SarychUI.DragMode:RegisterFrame("buffFrame", mover, {
 				dragPoint = "TOPRIGHT",
 				dragOffsetX = 0,
-				dragOffsetY = 2.5,
+				dragOffsetY = 0,
 				dragWidth = 280,
 				dragHeight = 225,
 				dragText = L and (L["Buffs"] or "Бафы") or "Бафы",
@@ -1220,7 +1220,7 @@ function module:SaveDefaultBuffPosition()
 		SarychUI.DragMode:RegisterFrame("debuffFrame", debuffAnchor, {
 			dragPoint = "TOPRIGHT",
 			dragOffsetX = 0,
-			dragOffsetY = 2.5,
+			dragOffsetY = 0,
 			dragWidth = 280,
 			dragHeight = 100,
 			dragText = "Дебафы",

@@ -21,6 +21,13 @@ local function FramePointOffsets(frame, point)
 	local pl, pr = UIParent:GetLeft(), UIParent:GetRight()
 	local pt, pb = UIParent:GetTop(), UIParent:GetBottom()
 	if left and right and top and bottom and pl and pr and pt and pb then
+		-- GetLeft/Top use the region's scale; normalize to UIParent units.
+		local parentScale = UIParent:GetEffectiveScale()
+		local frameScale = frame:GetEffectiveScale()
+		if parentScale and parentScale > 0 and frameScale then
+			local ratio = frameScale / parentScale
+			left, right, top, bottom = left * ratio, right * ratio, top * ratio, bottom * ratio
+		end
 		if point == "TOPRIGHT" then
 			return right - pr, top - pt
 		elseif point == "TOPLEFT" then
@@ -50,6 +57,18 @@ local function FrameCenterOffsets(frame)
 	return FramePointOffsets(frame, "CENTER")
 end
 
+-- Screen measurements above use UIParent units, while SetPoint offsets are
+-- expressed in the moved frame's own effective scale.
+local function ToFrameOffsets(frame, x, y)
+    local parentScale = UIParent:GetEffectiveScale()
+    local frameScale = frame and frame:GetEffectiveScale()
+    if parentScale and frameScale and frameScale > 0 then
+        local ratio = parentScale / frameScale
+        return x * ratio, y * ratio
+    end
+    return x, y
+end
+
 --------------------------------------------------------------------
 -- Сетка выравнивания (портирована из FrostAtomUI Core/Movers.lua):
 -- линии шагом gridSize от центра экрана, 1 физический пиксель толщиной,
@@ -57,6 +76,8 @@ end
 --------------------------------------------------------------------
 local GRID_COLOR = { 1, 1, 1, 0.12 }
 local GRID_CENTER_COLOR = { 1, 0.4, 0.4, 0.4 }
+local DRAG_BORDER_COLOR = { 0.2, 1.0, 0.35, 0.95 }
+local DRAG_LABEL_FONT = [[Interface\AddOns\SarychUI\media\fonts\Homespun.ttf]]
 local GRID_SIZE_MIN, GRID_SIZE_MAX, GRID_SIZE_STEP, GRID_SIZE_DEFAULT = 8, 128, 4, 32
 
 local alignmentGrid = nil
@@ -117,12 +138,12 @@ local function DrawGridLine(index, color, vertical, offset)
     local px = PixelSize()
     if vertical then
         line:SetWidth(px)
-        line:SetPoint("TOPLEFT", alignmentGrid, "TOP", offset, 0)
-        line:SetPoint("BOTTOMLEFT", alignmentGrid, "BOTTOM", offset, 0)
+        line:SetPoint("TOP", alignmentGrid, "TOP", offset, 0)
+        line:SetPoint("BOTTOM", alignmentGrid, "BOTTOM", offset, 0)
     else
         line:SetHeight(px)
-        line:SetPoint("BOTTOMLEFT", alignmentGrid, "LEFT", 0, offset)
-        line:SetPoint("BOTTOMRIGHT", alignmentGrid, "RIGHT", 0, offset)
+        line:SetPoint("LEFT", alignmentGrid, "LEFT", 0, offset)
+        line:SetPoint("RIGHT", alignmentGrid, "RIGHT", 0, offset)
     end
 end
 
@@ -140,6 +161,7 @@ function DragMode:GetGridSizeRange()
 end
 
 function DragMode:SetGridSize(size)
+    local previous = self:GetGridSize()
     size = tonumber(size) or GRID_SIZE_DEFAULT
     size = floor(size / GRID_SIZE_STEP + 0.5) * GRID_SIZE_STEP
     if size < GRID_SIZE_MIN then size = GRID_SIZE_MIN end
@@ -150,6 +172,7 @@ function DragMode:SetGridSize(size)
     end
     if gridVisible then
         self:UpdateGrid()
+        if size ~= previous then self:SnapVisibleFramesToGrid() end
     end
     return size
 end
@@ -238,15 +261,32 @@ end
 local function SizeDragOverlay(data)
     local df = data and data.dragFrame
     local settings = data and data.settings
-    if not df or (settings and settings.overlayFrame) then
-        return
+    if not df or not settings or settings.overlayFrame then return end
+    if settings.getDragBounds and not data.isMoving then
+        local left, bottom, right, top = settings.getDragBounds()
+        local frame = data.frame
+        local frameLeft, frameBottom = frame:GetLeft(), frame:GetBottom()
+        local parentScale = UIParent:GetEffectiveScale()
+        local frameScale = frame:GetEffectiveScale()
+        if left and bottom and right and top and right > left and top > bottom
+            and frameLeft and frameBottom and parentScale and parentScale > 0
+            and frameScale and frameScale > 0 then
+            local ratio = frameScale / parentScale
+            data.dragBoundsOffsetX = left - frameLeft * ratio + (settings.dragOffsetX or 0)
+            data.dragBoundsOffsetY = bottom - frameBottom * ratio + (settings.dragBoundsOffsetY or 0)
+            df:SetScale(1)
+            df:SetWidth(right - left)
+            df:SetHeight(top - bottom)
+            return
+        end
     end
-    local gscale = 1
-    if GetCVar("useuiscale") == "1" then
-        gscale = tonumber(GetCVar("uiscale")) or 1
-    end
-    df:SetWidth((settings.dragWidth or 280) * gscale)
-    df:SetHeight((settings.dragHeight or 225) * gscale)
+    data.dragBoundsOffsetX, data.dragBoundsOffsetY = nil, nil
+    if not (settings.dragWidth or settings.dragHeight) then return end
+    -- Explicit dimensions describe proxy groups (auras/arena/tracker) in UI
+    -- units. UI scale is already applied by WoW; multiplying it here shrinks
+    -- or enlarges the selection independently of the object.
+    df:SetWidth(settings.dragWidth or data.frame:GetWidth())
+    df:SetHeight(settings.dragHeight or data.frame:GetHeight())
 end
 
 local function AnchorDragOverlay(data)
@@ -262,8 +302,99 @@ local function AnchorDragOverlay(data)
         df:SetAllPoints(cover)
         return
     end
+    if data.dragBoundsOffsetX and data.dragBoundsOffsetY then
+        df:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", data.dragBoundsOffsetX, data.dragBoundsOffsetY)
+        return
+    end
+    if settings and (settings.dragInsetLeft or settings.dragInsetRight) then
+        df:SetPoint("TOPLEFT", frame, "TOPLEFT", settings.dragInsetLeft or 0, 0)
+        df:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -(settings.dragInsetRight or 0), 0)
+        return
+    end
+    if not (settings and (settings.dragWidth or settings.dragHeight or settings.dragOffsetX or settings.dragOffsetY)) then
+        df:SetAllPoints(frame)
+        return
+    end
     local dragPoint = (settings and settings.dragPoint) or "CENTER"
-    df:SetPoint(dragPoint, frame, dragPoint, (settings and settings.dragOffsetX) or 0, (settings and settings.dragOffsetY) or 2.5)
+    df:SetPoint(dragPoint, frame, dragPoint, (settings and settings.dragOffsetX) or 0, (settings and settings.dragOffsetY) or 0)
+end
+
+function DragMode:RefreshDragOverlay(frameId)
+    local data = registeredFrames[frameId]
+    if not data or not data.dragFrame or data.isMoving or data._settleUpdater then return end
+    SizeDragOverlay(data)
+    AnchorDragOverlay(data)
+end
+
+-- The one snap reference for every movable frame: the painted border's
+-- OUTER BOTTOM-LEFT corner. It never depends on the frame's own anchor.
+local function BorderCorner(data)
+    local overlay = data and data.dragFrame
+    if not overlay then return end
+    local x, y = overlay:GetLeft(), overlay:GetBottom()
+    local parentScale = UIParent:GetEffectiveScale()
+    if not (x and y) then return end
+    local ratio = parentScale and parentScale > 0
+        and overlay:GetEffectiveScale() / parentScale or 1
+    local half = PixelSize() / 2
+    return x * ratio - half, y * ratio - half
+end
+
+-- Return a correction in UIParent units; convert it to the moved frame's
+-- SetPoint units before applying it.
+local function GridSnapOffsets(data)
+    if not gridVisible or not alignmentGrid or not alignmentGrid:IsShown() then return 0, 0 end
+    local x, y = BorderCorner(data)
+    if not (x and y) then return 0, 0 end
+    -- UpdateGrid draws these very same intersections from UIParent's centre.
+    -- Texture coordinates can lag behind SetPoint for a frame, so calculate
+    -- the node from the shared origin and step instead of reading the lines.
+    local size = DragMode:GetGridSize()
+    local centerX, centerY = UIParent:GetWidth() / 2, UIParent:GetHeight() / 2
+    local maxX, maxY = floor(centerX / size), floor(centerY / size)
+    local ix = floor((x - centerX) / size + 0.5)
+    local iy = floor((y - centerY) / size + 0.5)
+    ix = math.max(-maxX, math.min(maxX, ix))
+    iy = math.max(-maxY, math.min(maxY, iy))
+    return centerX + ix * size - x, centerY + iy * size - y
+end
+
+-- Keep currently selected frames on a grid node when its step changes.
+function DragMode:SnapVisibleFramesToGrid()
+    if not gridVisible or (InCombatLockdown and InCombatLockdown()) then return end
+    for _, data in pairs(registeredFrames) do
+        local overlay = data.dragFrame
+        local frame = data.frame
+        if data.showDragFrame and overlay and overlay:IsShown() and frame
+            and not data.isMoving and not data._settleUpdater then
+            local dx, dy = GridSnapOffsets(data)
+            if math.abs(dx) > 0.0001 or math.abs(dy) > 0.0001 then
+                local saved = data.settings.getPoint and data.settings.getPoint()
+                local point, relativePoint, x, y
+                if saved then
+                    point, relativePoint, x, y = saved[1], saved[3], saved[4], saved[5]
+                else
+                    local relativeTo
+                    point, relativeTo, relativePoint, x, y = frame:GetPoint()
+                end
+                if point and x and y then
+                    relativePoint = relativePoint or point
+                    local offsetX, offsetY = ToFrameOffsets(frame, dx, dy)
+                    x, y = x + offsetX, y + offsetY
+                    data.justDragged = true
+                    frame:ClearAllPoints()
+                    local setPoint = data.originalSetPoint or frame.SetPoint
+                    setPoint(frame, point, UIParent, relativePoint, x, y)
+                    if data.onPositionChanged then
+                        data.onPositionChanged(point, relativePoint, x, y)
+                    end
+                    data.justDragged = false
+                    SizeDragOverlay(data)
+                    AnchorDragOverlay(data)
+                end
+            end
+        end
+    end
 end
 
 -- Создание drag frame для фрейма
@@ -276,8 +407,6 @@ local function CreateDragFrame(frameId, frame, settings)
     
     local parent = OverlayParentFrame(settings, frame)
     local dragframe = CreateFrame("FRAME", nil, parent)
-    dragframe:SetBackdropColor(0.0, 0.5, 1.0)
-    dragframe:SetBackdrop({ edgeFile = "Interface/Tooltips/UI-Tooltip-Border", tile = false, tileSize = 0, edgeSize = 16, insets = { left = 0, right = 0, top = 0, bottom = 0 } })
     local cover = OverlayCoverFrame(settings, frame)
     -- Keep Minimap children on the map's draw pass: do not raise strata/toplevel.
     if parent then
@@ -297,19 +426,45 @@ local function CreateDragFrame(frameId, frame, settings)
     local texLayer = parent and "OVERLAY" or "ARTWORK"
     dragframe.t = dragframe:CreateTexture(nil, texLayer)
     dragframe.t:SetAllPoints()
-    if parent then
-        -- Solid-color SetTexture is drawn under minimap tiles; WHITE8X8 is not.
-        dragframe.t:SetTexture("Interface\\Buttons\\WHITE8X8")
-        dragframe.t:SetVertexColor(0.0, 1.0, 0.0, 0.45)
-        dragframe.t:SetAlpha(0.45)
-    else
-        dragframe.t:SetTexture(0.0, 1.0, 0.0, 0.5)
-        dragframe.t:SetAlpha(0.5)
+    dragframe.t:SetTexture("Interface\\Buttons\\WHITE8X8")
+    dragframe.t:SetVertexColor(0.0, 1.0, 0.0, 1)
+	data.fillAlpha = 0.16
+	dragframe.t:SetAlpha(data.fillAlpha)
+
+    -- Border textures are centred on the selection edges below.
+    local function BorderLine()
+        local line = dragframe:CreateTexture(nil, "OVERLAY")
+        line:SetDrawLayer("OVERLAY", 4)
+        line:SetTexture("Interface\\Buttons\\WHITE8X8")
+        line:SetVertexColor(unpack(DRAG_BORDER_COLOR))
+        return line
     end
+    data.borderLines = {
+        BorderLine(), BorderLine(), BorderLine(), BorderLine(),
+    }
     
-    dragframe.f = dragframe:CreateFontString(nil, 'OVERLAY', 'GameFontNormalLarge')
-    dragframe.f:SetPoint('CENTER', 0, 0)
+    dragframe.f = dragframe:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    dragframe.f:SetFont(DRAG_LABEL_FONT, 12, "")
+    dragframe.f:SetTextColor(unpack(DRAG_BORDER_COLOR))
+    dragframe.f:SetJustifyH("LEFT")
+    dragframe.f:SetPoint("BOTTOMLEFT", dragframe, "TOPLEFT", 0, 5)
     dragframe.f:SetText(settings.dragText or "Frame")
+
+    -- Mark the exact corner used by GridSnapOffsets inside the selection.
+    dragframe.cornerLabel = dragframe:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    dragframe.cornerLabel:SetDrawLayer("OVERLAY", 3)
+    dragframe.cornerLabel:SetFont(DRAG_LABEL_FONT, 7, "")
+    dragframe.cornerLabel:SetTextColor(1, 1, 1, 1)
+    dragframe.cornerLabel:SetJustifyH("LEFT")
+    dragframe.cornerLabel:SetPoint("BOTTOMLEFT", dragframe, "BOTTOMLEFT", 3, 3)
+    dragframe.cornerLabel:SetText("Угол крепления")
+
+    dragframe.cornerLabelBackground = dragframe:CreateTexture(nil, "OVERLAY")
+    dragframe.cornerLabelBackground:SetDrawLayer("OVERLAY", 2)
+    dragframe.cornerLabelBackground:SetTexture("Interface\\Buttons\\WHITE8X8")
+    dragframe.cornerLabelBackground:SetVertexColor(0, 0, 0, 0.78)
+    dragframe.cornerLabelBackground:SetPoint("BOTTOMLEFT", dragframe.cornerLabel, "BOTTOMLEFT", -3, -2)
+    dragframe.cornerLabelBackground:SetPoint("TOPRIGHT", dragframe.cornerLabel, "TOPRIGHT", 2, 1)
     
     data.isMoving = false
     data.startSliderPosition = nil  -- Позиция из слайдеров при начале перетаскивания
@@ -458,8 +613,15 @@ local function CreateDragFrame(frameId, frame, settings)
                     local sliderY = data.startSliderPosition.y
                     
                     if startX and startY and sliderX and sliderY and currentX and currentY then
-                        local newSliderX = floor((sliderX + (currentX - startX)) + 0.5)
-                        local newSliderY = floor((sliderY + (currentY - startY)) + 0.5)
+                        local snapX, snapY = GridSnapOffsets(data)
+                        local offsetX, offsetY = ToFrameOffsets(
+                            frame, (currentX - startX) + snapX, (currentY - startY) + snapY)
+                        local rawX = sliderX + offsetX
+                        local rawY = sliderY + offsetY
+						-- Even a zero snap delta may require a fractional saved offset.
+						-- Rounding it would move an aligned corner off the grid line.
+                        local newSliderX = gridVisible and rawX or floor(rawX + 0.5)
+                        local newSliderY = gridVisible and rawY or floor(rawY + 0.5)
                         
                         data.justDragged = true
                         
@@ -478,6 +640,7 @@ local function CreateDragFrame(frameId, frame, settings)
                         data.justDragged = false
                         
                         if data.dragFrame then
+                            SizeDragOverlay(data)
                             AnchorDragOverlay(data)
                             if not data.showDragFrame then
                                 data.dragFrame:Hide()
@@ -576,6 +739,7 @@ end
 function DragMode:EnableEditMode(frameId, enabled, showDragFrame, showGrid)
     local data = registeredFrames[frameId]
     if not data or not data.frame then return end
+    if enabled and data.isMoving then return end
     
     local frame = data.frame
     local settings = data.settings
@@ -612,7 +776,7 @@ function DragMode:EnableEditMode(frameId, enabled, showDragFrame, showGrid)
         end
         
         -- Восстанавливаем дефолтную позицию
-        if data.defaultPosition then
+        if data.defaultPosition and not settings.preservePositionOnDisable then
             frame:ClearAllPoints()
             local relativeTo = _G[data.defaultPosition.relativeTo] or UIParent
             pcall(function()
@@ -718,12 +882,38 @@ function DragMode:EnableEditMode(frameId, enabled, showDragFrame, showGrid)
         end
         frame:SetScale(scale)
         
-        if data.dragFrame and not settings.overlayFrame then
+        if data.dragFrame and (settings.dragWidth or settings.dragHeight) and not settings.overlayFrame then
             data.dragFrame:SetScale(scale)
         end
     end
     
     SizeDragOverlay(data)
+    if data.borderLines then
+        local effective = data.dragFrame:GetEffectiveScale()
+        local parentScale = UIParent:GetEffectiveScale()
+        local width = PixelSize()
+        if effective and effective > 0 and parentScale then
+            width = width * parentScale / effective
+        end
+        local half = width / 2
+        local top, bottom, left, right = unpack(data.borderLines)
+        top:ClearAllPoints()
+        top:SetPoint("TOPLEFT", data.dragFrame, "TOPLEFT", 0, half)
+        top:SetPoint("TOPRIGHT", data.dragFrame, "TOPRIGHT", 0, half)
+        top:SetHeight(width)
+        bottom:ClearAllPoints()
+        bottom:SetPoint("BOTTOMLEFT", data.dragFrame, "BOTTOMLEFT", 0, -half)
+        bottom:SetPoint("BOTTOMRIGHT", data.dragFrame, "BOTTOMRIGHT", 0, -half)
+        bottom:SetHeight(width)
+        left:ClearAllPoints()
+        left:SetPoint("TOPLEFT", data.dragFrame, "TOPLEFT", -half, 0)
+        left:SetPoint("BOTTOMLEFT", data.dragFrame, "BOTTOMLEFT", -half, 0)
+        left:SetWidth(width)
+        right:ClearAllPoints()
+        right:SetPoint("TOPRIGHT", data.dragFrame, "TOPRIGHT", half, 0)
+        right:SetPoint("BOTTOMRIGHT", data.dragFrame, "BOTTOMRIGHT", half, 0)
+        right:SetWidth(width)
+    end
     
     -- Сохраняем флаг видимости drag frame
     data.showDragFrame = showDragFrame
@@ -740,10 +930,10 @@ function DragMode:EnableEditMode(frameId, enabled, showDragFrame, showGrid)
                 data.dragFrame:SetFrameLevel(coverLevel + 50)
             end
             data.dragFrame:Show()
-            -- Показываем текстуру и устанавливаем alpha
+            -- Показываем зелёную заливку и тонкую рамку
             if data.dragFrame.t then
                 data.dragFrame.t:Show()
-                data.dragFrame.t:SetAlpha(settings.overlayFrame and 0.45 or 0.5)
+                data.dragFrame.t:SetAlpha(data.fillAlpha or 0.16)
             end
         else
             -- Скрываем drag frame и его текстуру
@@ -821,7 +1011,7 @@ function DragMode:SetFrameScale(frameId, scale)
     
     -- Обновляем масштаб drag frame
     if data.dragFrame then
-        data.dragFrame:SetScale(scale)
+        data.dragFrame:SetScale((settings.dragWidth or settings.dragHeight) and not settings.overlayFrame and scale or 1)
     end
 end
 

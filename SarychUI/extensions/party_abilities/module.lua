@@ -618,7 +618,8 @@ function extension:Render()
 	for guid, member in pairs(units) do
 		local target = frames[guid]
 		local frame, kind = target and target[1], target and target[2]
-		if frame and (not UnitIsDeadOrGhost or not UnitIsDeadOrGhost(member.token)) then
+		if frame and (db.showPlayer ~= false or not UnitIsUnit(member.token, "player"))
+			and (not UnitIsDeadOrGhost or not UnitIsDeadOrGhost(member.token)) then
 			local auras = AuraSet(member.token, guid)
 			local list = {}
 			for id, data in pairs(db.spells or {}) do

@@ -1,5 +1,5 @@
 -- SarychUI Bags wrapper for SarychUI
--- Bags mode valve (like BaudBag): enable immediate; reload on disable for mode cleanup.
+-- Bags mode valve: enable immediately; reload on disable for mode cleanup.
 
 local ADDON_NAME = "SarychUI_Bags"
 

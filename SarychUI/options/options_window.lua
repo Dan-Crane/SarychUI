@@ -1000,7 +1000,7 @@ function OW:RefreshFooterCredit()
 	if not credit then
 		return
 	end
-    local ver = (SUI and SUI.version) or "1.3.0"
+    local ver = (SUI and SUI.version) or "1.3.1a"
 	local author = (SarychUI and SarychUI.T and SarychUI:T("Автор:")) or "Автор:"
 	credit:SetText(author .. " Сарыч / WotLK 3.3.5 / " .. tostring(ver))
 end
@@ -1214,8 +1214,7 @@ end
 function OW:SavePosition()
 	local root = self.root
 	if not root then return end
-	local store = self:GetPositionStore()
-	if not store then return end
+	local store = self ~= OW and self:GetPositionStore() or nil
 
 	-- Anchor to UIParent BOTTOMLEFT in screen coords so restore never depends
 	-- on a transient relative frame left behind by StartMoving().
@@ -1224,17 +1223,18 @@ function OW:SavePosition()
 	if not left or not bottom then return end
 	root:ClearAllPoints()
 	root:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left, bottom)
-	if root.SetUserPlaced then
-		root:SetUserPlaced(true)
-	end
+	if root.SetUserPlaced then root:SetUserPlaced(self ~= OW) end
 
-	store.point = "BOTTOMLEFT"
-	store.relativePoint = "BOTTOMLEFT"
-	store.x = left
-	store.y = bottom
+	if store then
+		store.point = "BOTTOMLEFT"
+		store.relativePoint = "BOTTOMLEFT"
+		store.x = left
+		store.y = bottom
+	end
 end
 
 function OW:RestorePosition()
+	if self == OW then return end
 	local root = self.root
 	if not root then return end
 	local ow = self:GetPositionStore()
@@ -1268,6 +1268,14 @@ end
 function OW:Show()
 	self:CreateRoot()
 	local wasShown = self.root:IsShown()
+	if self == OW and not wasShown then
+		-- Main SUI options always start from the centre on every open.
+		local general = SUI.db and SUI.db.global and SUI.db.global.general
+		if general then general.optionsWindow = nil end
+		self.root:ClearAllPoints()
+		self.root:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+		if self.root.SetUserPlaced then self.root:SetUserPlaced(false) end
+	end
 	self.root:Show()
 	self.root:Raise()
 	if not wasShown and PlaySound then

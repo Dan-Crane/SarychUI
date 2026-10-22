@@ -490,6 +490,7 @@ local ADIBAGS_SECTION_ORDER = {
 	"new",
 	"quest",
 	"equipment",
+	"unboundEquipment",
 	"consumable",
 	"tradeGoods",
 	"recipe",
@@ -504,6 +505,7 @@ local ADIBAGS_SECTION_LABELS = {
 	new = "Новые",
 	quest = "Задания",
 	equipment = "Экипировка",
+	unboundEquipment = "Неперсональная экипировка",
 	consumable = "Расходные материалы",
 	tradeGoods = "Хозяйственные товары",
 	recipe = "Рецепты",
@@ -1077,6 +1079,45 @@ local function BuildAdiBagsAuctionMap()
 	return adiBagsAuctionMap
 end
 
+-- Binding belongs to the item in this slot, not to its itemID or link: one
+-- copy may already be soulbound while another identical copy is still tradable.
+function B:IsUnboundAdiBagsEquipment(bagID, slotID, slot, link)
+	local equipLoc = slot and slot._suiItemEquipLoc
+	if not equipLoc and link then
+		equipLoc = select(9, GetItemInfo(link))
+	end
+	if not equipLoc or equipLoc == "" or equipLoc == "INVTYPE_NON_EQUIP"
+		or equipLoc == "INVTYPE_BAG" or equipLoc == "INVTYPE_QUIVER"
+		or equipLoc == "INVTYPE_AMMO" or equipLoc == "INVTYPE_TABARD"
+		or equipLoc == "INVTYPE_BODY" then
+		return false
+	end
+	if bagID ~= 0 and (bagID < 0 or bagID > 4) and not B.bankIsOpen then
+		return false -- An offline bank slot has no live binding data.
+	end
+
+	if not B.adiBagsBindingTooltip then
+		B.adiBagsBindingTooltip = CreateFrame("GameTooltip", "SarychUIBagsBindingTooltip", UIParent, "GameTooltipTemplate")
+	end
+	local tooltip = B.adiBagsBindingTooltip
+	tooltip:ClearLines()
+	tooltip:SetOwner(UIParent, "ANCHOR_NONE")
+	local ok = pcall(tooltip.SetBagItem, tooltip, bagID, slotID)
+	if not ok or not tooltip:NumLines() or tooltip:NumLines() == 0 then
+		return false
+	end
+	for i = 2, tooltip:NumLines() do
+		local line = _G["SarychUIBagsBindingTooltipTextLeft" .. i]
+		local text = line and line:GetText()
+		if text and ((ITEM_SOULBOUND and text == ITEM_SOULBOUND)
+			or (ITEM_ACCOUNTBOUND and text == ITEM_ACCOUNTBOUND)
+			or (ITEM_BNETACCOUNTBOUND and text == ITEM_BNETACCOUNTBOUND)) then
+			return false
+		end
+	end
+	return true
+end
+
 function B:GetAdiBagsSectionKey(bagID, slotID, slot)
 	local hasSlotMetadata = slot and slot._suiItemMetadataReady
 	local link = hasSlotMetadata and slot._suiItemLink or GetContainerItemLink(bagID, slotID)
@@ -1110,6 +1151,9 @@ function B:GetAdiBagsSectionKey(bagID, slotID, slot)
 	B._adiBagsSectionKeyCache = B._adiBagsSectionKeyCache or {}
 	local cached = B._adiBagsSectionKeyCache[link]
 	if cached then
+		if cached == "equipment" and B:IsUnboundAdiBagsEquipment(bagID, slotID, slot, link) then
+			return "unboundEquipment"
+		end
 		return cached
 	end
 
@@ -1158,6 +1202,9 @@ function B:GetAdiBagsSectionKey(bagID, slotID, slot)
 	end
 
 	B._adiBagsSectionKeyCache[link] = key
+	if key == "equipment" and B:IsUnboundAdiBagsEquipment(bagID, slotID, slot, link) then
+		return "unboundEquipment"
+	end
 	return key
 end
 
@@ -3874,7 +3921,7 @@ function B:Tooltip_Show()
 end
 
 function B:DisableBlizzard()
-	-- BaudBag-style: unregister + swallow BankFrame_OnEvent so ShowUIPanel(BankFrame)
+	-- Unregister + swallow BankFrame_OnEvent so ShowUIPanel(BankFrame)
 	-- never runs. Do NOT Hide() a shown BankFrame here - BankFrame_OnHide calls CloseBankFrame().
 	BankFrame:UnregisterAllEvents()
 	if not BankFrame:IsShown() then
@@ -4587,14 +4634,12 @@ function B:UpdateSlot(frame, bagID, slotID)
 		end
 
 		SetItemButtonCount(slot, count or 0)
-		-- A bag that the client has not generated yet reports every slot as
-		-- locked, which desaturates the icon and blocks pickup until /reload.
-		-- Keep the real lock visual only while the cursor is holding an item.
-		local showLock = (locked == 1 or locked == true) and CursorHasItem and CursorHasItem()
-		SetItemButtonDesaturated(slot, showLock or slot.junkDesaturate)
 		if not frame.isBank then
 			B:EnsureLiveBagSlotInteraction(slot)
 		end
+		-- Client bags are primed before display, so a locked slot can use the
+		-- same desaturated state as Blizzard (including mail attachments).
+		SetItemButtonDesaturated(slot, locked or slot.junkDesaturate)
 
 		slot.itemLink = clink
 		slot.itemID = clink and tonumber(strmatch(clink, "item:(%d+)")) or nil
@@ -5201,7 +5246,7 @@ function B:Layout(isBank, inventorySignature, categoryOnly)
 				-- Keep purchased-but-empty slots visible in the cached view.
 				showBankBagButton = (i - 1) <= numContainerSlots
 			else
-				-- Match Blizzard/BaudBag: draw every bank-bag position. Locked
+				-- Match Blizzard: draw every bank-bag position. Locked
 				-- positions are tinted below; purchased empty ones accept bags.
 				showBankBagButton = true
 			end
@@ -6820,7 +6865,7 @@ function B:OpenBank()
 	B.bankIsOpen = true
 	B.bankOfflineView = false
 
-	-- BaudBag: keep Blizzard bank from receiving OPENED (OnHide would CloseBankFrame).
+	-- Keep Blizzard bank from receiving OPENED (OnHide would CloseBankFrame).
 	if BankFrame then
 		BankFrame:UnregisterEvent("BANKFRAME_OPENED")
 	end

@@ -122,6 +122,9 @@ function extension:GetOptions()
 						group = ContextToggle("group", "PA_Party", 2),
 						raid = ContextToggle("raid", "PA_Raid", 3),
 					} },
+				showPlayer = { type = "toggle", name = function() return L["PA_ShowPlayer"] end, order = 3,
+					get = function() return DB().showPlayer ~= false end,
+					set = function(_, value) DB().showPlayer = value; Refresh() end },
 			} },
 			position = { type = "group", name = function() return L["PA_Position"] end, order = 20, args = {
 				preview = { type = "description", name = "", order = 1, width = "full",

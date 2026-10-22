@@ -836,7 +836,24 @@ function R:RenderControl(parent, key, opt, path, y, padX, handler)
 		end, MakeTooltip(opt, info))
 		compactW = nil
 	elseif t == "execute" then
-		if type(opt.suiResetDefaults) == "function" and W.ButtonPair then
+		if type(opt.suiExpandDetails) == "table" and W.ButtonPair then
+			local expand = opt.suiExpandDetails
+			widget = W:ButtonPair(
+				parent,
+				name,
+				function()
+					ApplyConfirm(opt, info, function() CallFunc(opt, info) end)
+				end,
+				MakeTooltip(opt, info),
+				function() return ResolveName(opt, info) end,
+				TUI(type(expand.name) == "function" and expand.name() or expand.name or ">"),
+				function() if type(expand.func) == "function" then expand.func() end end,
+				function() return TTip("Показать или скрыть все быстрые настройки") end,
+				28,
+				function() return TUI(type(expand.name) == "function" and expand.name() or expand.name or ">") end
+			)
+			compactW = nil
+		elseif type(opt.suiResetDefaults) == "function" and W.ButtonPair then
 			widget = W:ButtonPair(
 				parent,
 				name,
@@ -2151,7 +2168,7 @@ local function CollectTwoPaneEntries(groupOpt)
 	for k, v in pairs(groupOpt.args) do
 		if type(v) == "table" and v.type then
 			-- ENP stays a separate window (/enp); bags/arena engines live in their modules.
-			if k == "ElvUI_NamePlates" or k == "BaudBag" or k == "SarychUI_Bags" then
+			if k == "ElvUI_NamePlates" or k == "SarychUI_Bags" then
 				-- skip
 			elseif v.type == "group" and not v.inline and not v.dialogInline and not v.guiInline and not IsHidden(v, MakeInfo({ k }, v)) then
 				local info = MakeInfo({ k }, v)

@@ -1489,6 +1489,21 @@ function module:GetOptions()
                                     RefreshChatOptionsPanel()
                                 end,
                             },
+                            foreign_faction_filter = {
+                                type = "toggle",
+                                name = L and (L["Foreign_Faction_Chat_Filter"] or "Скрывать сообщения чужой фракции") or "Скрывать сообщения чужой фракции",
+                                desc = L and (L["Foreign_Faction_Chat_Filter_Desc"] or "Скрывать сообщения на языке противоположной фракции в чате") or "Скрывать сообщения на языке противоположной фракции в чате",
+                                order = 2,
+                                width = "full",
+                                hidden = function() return GetSetting("spamFilterEnabled", 1) ~= 1 end,
+                                get = function()
+                                    return GetSetting("foreignFactionFilterEnabled", 0) == 1
+                                end,
+                                set = function(_, value)
+                                    SarychUI.db.profile.modules[moduleName].foreignFactionFilterEnabled = value and 1 or 0
+                                    module:ApplySpamFilterSettings()
+                                end,
+                            },
                         },
                     },
                     listBox = {

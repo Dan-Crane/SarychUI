@@ -270,11 +270,10 @@ local function MakeRow(parent, sample)
 	fill:SetTexture("Interface\\Buttons\\WHITE8X8")
 	fill:SetVertexColor(0, 0, 0, 0.5)
 
-	-- Visible bars fill the dark cutout (72x17). XML StatusBar AbsDimension 42x4
-	-- is the interactive hit-box; the painted bar spans the background region.
+	-- ArenaEnemyFrameTemplate places both 70x8 bars at these exact offsets.
 	local health = CreateFrame("StatusBar", nil, row)
 	health:SetSize(70, 8)
-	health:SetPoint("TOPLEFT", 3, -11)
+	health:SetPoint("TOPLEFT", 2, -12)
 	health:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
 	health:SetMinMaxValues(0, 1)
 	health:SetValue(tonumber(sample.hp) or 0)
@@ -282,8 +281,8 @@ local function MakeRow(parent, sample)
 	row.health = health
 
 	local mana = CreateFrame("StatusBar", nil, row)
-	mana:SetSize(70, 7)
-	mana:SetPoint("TOPLEFT", 3, -19)
+	mana:SetSize(70, 8)
+	mana:SetPoint("TOPLEFT", 2, -20)
 	mana:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
 	mana:SetMinMaxValues(0, 1)
 	mana:SetValue(tonumber(sample.mana) or 0)
@@ -294,8 +293,8 @@ local function MakeRow(parent, sample)
 	-- Frame chrome ON TOP (Blizzard ArenaEnemyFrameTexture).
 	local chromeHost = CreateFrame("Frame", nil, row)
 	chromeHost:SetAllPoints()
-	chromeHost:SetFrameLevel(row:GetFrameLevel() + 5)
-	local chrome = chromeHost:CreateTexture(nil, "ARTWORK")
+	chromeHost:SetFrameLevel(row:GetFrameLevel() + 2)
+	local chrome = chromeHost:CreateTexture(nil, "BACKGROUND")
 	chrome:SetSize(102, 32)
 	chrome:SetPoint("TOPLEFT", 0, -2)
 	chrome:SetTexture("Interface\\ArenaEnemyFrame\\UI-ArenaTargetingFrame")
@@ -364,6 +363,11 @@ function Preview:Create(parent)
 		local trinketsOn, racialOn, iconScale = TrinketsDB()
 		local distanceAlpha = LiveFlag("distanceAlpha", false) and LiveFlag("useAwesomeWotlk", false)
 		local farAlpha = distanceAlpha and 0.5 or 1.0
+		local lorti = SarychUI_LortiUI
+		local borderR, borderG, borderB, borderA = 1, 1, 1, 1
+		if lorti and lorti.IsSettingOn and lorti.IsSettingOn() and lorti.GetColor then
+			borderR, borderG, borderB, borderA = lorti.GetColor()
+		end
 
 		stack:SetScale(scale)
 		stack:ClearAllPoints()
@@ -380,6 +384,8 @@ function Preview:Create(parent)
 
 			row.trinket:SetScale(iconScale)
 			row.racial:SetScale(iconScale)
+			row.trinket._border:SetVertexColor(borderR, borderG, borderB, borderA)
+			row.racial._border:SetVertexColor(borderR, borderG, borderB, borderA)
 
 			if trinketsOn then
 				row.trinket:Show()

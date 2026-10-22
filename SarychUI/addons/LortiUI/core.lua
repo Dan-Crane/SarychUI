@@ -272,6 +272,10 @@ function L:Apply()
 	if prMod and prMod.ApplyTotemsDarkMode then
 		prMod:ApplyTotemsDarkMode()
 	end
+	local arenaMod = SarychUI and SarychUI.modules and SarychUI.modules.arena
+	if arenaMod and arenaMod.RefreshTrinketBorders then
+		arenaMod:RefreshTrinketBorders()
+	end
 end
 
 function L:Enable()
@@ -304,5 +308,9 @@ function L:Disable()
 	local prMod = SarychUI and SarychUI.modules and SarychUI.modules.player_resources
 	if prMod and prMod.ApplyTotemsDarkMode then
 		prMod:ApplyTotemsDarkMode()
+	end
+	local arenaMod = SarychUI and SarychUI.modules and SarychUI.modules.arena
+	if arenaMod and arenaMod.RefreshTrinketBorders then
+		arenaMod:RefreshTrinketBorders()
 	end
 end

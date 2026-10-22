@@ -1094,12 +1094,12 @@ function W:Button(parent, text, onClick, tooltipFn, nameFn)
 end
 
 -- Left button fills leftover width; right button sizes to its label.
-function W:ButtonPair(parent, leftText, leftClick, leftTooltip, leftNameFn, rightText, rightClick, rightTooltip)
+function W:ButtonPair(parent, leftText, leftClick, leftTooltip, leftNameFn, rightText, rightClick, rightTooltip, rightMinWidth, rightNameFn)
 	local row = CreateFrame("Frame", nil, parent)
 	row:SetHeight(24)
 	local gap = 8
 	local left = W:Button(row, leftText, leftClick, leftTooltip, leftNameFn)
-	local right = W:Button(row, rightText, rightClick, rightTooltip)
+	local right = W:Button(row, rightText, rightClick, rightTooltip, rightNameFn)
 	left:SetPoint("LEFT", row, "LEFT", 0, 0)
 	right:SetPoint("RIGHT", row, "RIGHT", 0, 0)
 	row.left = left
@@ -1111,14 +1111,14 @@ function W:ButtonPair(parent, leftText, leftClick, leftTooltip, leftNameFn, righ
 		if right.label and right.label.GetStringWidth then
 			tw = right.label:GetStringWidth() or 0
 		end
-		return math.max(72, math.ceil(tw + 18))
+		return math.max(rightMinWidth or 72, math.ceil(tw + 18))
 	end
 
 	row.MeasureHeight = function(self, width)
 		width = width or self:GetWidth() or 200
 		local rw = FitRightWidth()
 		if rw > width - 88 then
-			rw = math.max(72, width - 88)
+			rw = math.max(rightMinWidth or 72, width - 88)
 		end
 		right:SetWidth(rw)
 		left:SetWidth(math.max(80, width - rw - gap))
@@ -1129,6 +1129,9 @@ function W:ButtonPair(parent, leftText, leftClick, leftTooltip, leftNameFn, righ
 	row.Refresh = function(self)
 		if left.Refresh then
 			left:Refresh()
+		end
+		if right.Refresh then
+			right:Refresh()
 		end
 	end
 
@@ -1517,10 +1520,12 @@ function W:Slider(parent, text, minV, maxV, step, get, set, previewKey, tooltipF
 
 	local label = MakeLabel(row, text)
 	label:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
+	local titleWidth = label:GetStringWidth() or 0
+	local help
 
 	-- Small "?" next to the title; hover shows the option description.
 	if tooltipFn then
-		local help = CreateFrame("Button", nil, row)
+		help = CreateFrame("Button", nil, row)
 		help:SetSize(14, 14)
 		help:SetPoint("LEFT", label, "RIGHT", 4, 0)
 		help:EnableMouse(true)
@@ -1562,9 +1567,18 @@ function W:Slider(parent, text, minV, maxV, step, get, set, previewKey, tooltipF
 	valueFS:SetTextColor(ac[1], ac[2], ac[3], 1)
 	row.valueText = valueFS
 
-	label:SetPoint("RIGHT", box, "LEFT", -6, 0)
 	label:SetJustifyH("LEFT")
 	label:SetWordWrap(false)
+	local function PlaceHelpAfterLabel()
+		if titleWidth <= 0 then
+			label:SetWidth(1000)
+			titleWidth = label:GetStringWidth() or 0
+		end
+		local rowWidth = row:GetWidth() or 0
+		local reserve = editW + 6 + (help and 18 or 0)
+		local available = rowWidth > reserve and rowWidth - reserve or titleWidth
+		label:SetWidth(math.max(1, math.min(titleWidth, available)))
+	end
 
 	local edit = CreateFrame("EditBox", nil, box)
 	row.edit = edit
@@ -1851,8 +1865,11 @@ function W:Slider(parent, text, minV, maxV, step, get, set, previewKey, tooltipF
 	edit:SetScript("OnShow", RefreshShownValue)
 	row:SetScript("OnSizeChanged", function(_, width)
 		if not width or width < 20 then return end
+		PlaceHelpAfterLabel()
 		RefreshShownValue()
 	end)
+	row:SetScript("OnShow", PlaceHelpAfterLabel)
+	PlaceHelpAfterLabel()
 	row:Refresh()
 	return row
 end

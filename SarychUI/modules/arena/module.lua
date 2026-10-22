@@ -10,10 +10,6 @@ SarychUI:RegisterModule(moduleName, module)
 -- Local references
 local L = SarychUI.L
 
--- Local drag mode для arena
--- Загружается из modules\arena\drag_mode.lua (добавлен в TOC перед module.lua)
-local ArenaDragMode = SarychUI_ArenaDragMode
-
 -- Helpers
 local function GetDB()
 	local root = SarychUI and SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.modules
@@ -45,6 +41,42 @@ local nameplateCacheTime = {}
 module.Trinkets = CreateFrame("Frame")
 local trinketSuffixes = {"Trinket1", "Trinket2", "Trinket3", "Trinket4"}
 
+local function ApplyTrinketBorderColor(icon)
+    local border = icon and icon._border
+    if not border then return end
+    local lorti = SarychUI_LortiUI
+    if lorti and lorti.IsSettingOn and lorti.IsSettingOn() and lorti.GetColor then
+        border:SetVertexColor(lorti.GetColor())
+    else
+        border:SetVertexColor(1, 1, 1, 1)
+    end
+end
+
+local function AddTrinketBorder(icon)
+    local borderHost = CreateFrame("Frame", nil, icon)
+    borderHost:SetAllPoints(icon)
+    borderHost:SetFrameLevel(icon:GetFrameLevel() + 3)
+    local border = borderHost:CreateTexture(nil, "OVERLAY")
+    border:SetTexture("Interface\\Buttons\\UI-Quickslot2")
+    border:SetSize(40, 40)
+    border:SetPoint("CENTER", icon, "CENTER", 0, 0)
+    icon._borderHost = borderHost
+    icon._border = border
+    ApplyTrinketBorderColor(icon)
+end
+
+function module:RefreshTrinketBorders()
+    for id = 1, 5 do
+        for _, suffix in ipairs(trinketSuffixes) do
+            ApplyTrinketBorderColor(self.Trinkets["arena" .. id .. suffix])
+        end
+        ApplyTrinketBorderColor(_G["SarychUIArenaTestTrinket" .. id .. "Trinket1"])
+        ApplyTrinketBorderColor(_G["SarychUIArenaTestTrinket" .. id .. "Racial"])
+    end
+    local preview = SarychUI.ArenaPreview
+    if preview and preview.RefreshAll then preview:RefreshAll() end
+end
+
 local Alliance = {
     ["Human"] = "Human",
     ["Dwarf"] = "Dwarf",
@@ -72,7 +104,6 @@ local racialSpells = {
     ["Troll"] = {id = 26297, icon = "Interface\\Icons\\racial_troll_berserk", cd = 180},
     ["Blood Elf"] = {id = 28730, icon = "Interface\\Icons\\spell_shadow_teleport", cd = 120},
     ["Draenei"] = {id = 28880, icon = "Interface\\Icons\\spell_holy_holyprotection", cd = 180},
-    ["None"] = {id = nil, icon = "Interface\\Icons\\inv_misc_questionmark", cd = 0},
 }
 
 -- Localized UnitRace() names -> racialSpells keys (fallback when raceFile unavailable)
@@ -122,8 +153,6 @@ function module.Trinkets:GetTrinketTextureByRaceAndFaction(race)
         return "Interface\\Icons\\inv_jewelry_trinketpvp_01"
     elseif Horde[race] then
         return "Interface\\Icons\\inv_jewelry_trinketpvp_02"
-    else
-        return "Interface\\Icons\\inv_misc_questionmark"
     end
 end
 
@@ -155,9 +184,10 @@ function module.Trinkets:CreateTrinketIcon(frame, texture, anchorFrame)
     trinket.Icon:SetAllPoints()
 
     trinket.Icon.Texture = trinket.Icon:CreateTexture(nil, "BORDER")
-    trinket.Icon.Texture:SetAllPoints()
+    trinket.Icon.Texture:SetSize(24, 24)
+    trinket.Icon.Texture:SetPoint("CENTER", trinket, "CENTER", 0, 0)
     trinket.Icon.Texture:SetTexture(texture)
-    trinket.Icon.Texture:SetTexCoord(0, 1, 0, 1)
+    trinket.Icon.Texture:SetTexCoord(0.07, 0.93, 0.07, 0.93)
 
     -- Keep the artwork attached to its cooldown. Reparenting an all-points
     -- child to UIParent makes it fill UIParent instead of the 26px icon.
@@ -171,11 +201,12 @@ function module.Trinkets:CreateTrinketIcon(frame, texture, anchorFrame)
     trinket.Cooldown:SetFrameLevel(trinket:GetFrameLevel() + 1)
     if trinket.Cooldown.SetDrawEdge then trinket.Cooldown:SetDrawEdge(true) end
     trinket.Cooldown:Hide()
+    AddTrinketBorder(trinket)
     return trinket
 end
 
 function module.Trinkets:CreateNonHumanIcons(frame, id, race)
-    if not racialSpells[race] then race = "None" end
+    if not racialSpells[race] then return end
     local db = GetDB()
     local tr = db and db.Trinkets or {}
     local trinket1
@@ -201,16 +232,35 @@ function module.Trinkets:CreateIcon(frame)
     local id = frame:GetID()
     if not id then return end
     local unit = "arena" .. id
-    local race = ResolveArenaRace(unit)
-    if not racialSpells[race] then race = "None" end
     local previous = self._iconRace and self._iconRace[id]
     local guid = UnitGUID(unit)
     local priorGUID = self._iconGUID and self._iconGUID[id]
     local existing = self[unit .. "Trinket1"] or self[unit .. "Trinket2"] or self[unit .. "Trinket4"]
 
-    -- A disappearing unit can make UnitRace unavailable. Keep the known
-    -- race and existing cooldown until a genuine replacement is identified.
-    if race == "None" and previous then race = previous end
+    -- Opponent slots exist before the enemy's unit data is available. Never
+    -- create a placeholder (or leave an old icon visible) for an empty slot.
+    if not UnitExists(unit) or not guid then
+        for _, suffix in ipairs(trinketSuffixes) do
+            local icon = self[unit .. suffix]
+            if icon then icon:Hide() end
+        end
+        return
+    end
+
+    if priorGUID and guid ~= priorGUID then
+        self:DeleteTrinketIcons(id)
+        previous, existing = nil, nil
+    end
+
+    local race = ResolveArenaRace(unit)
+    if not racialSpells[race] then
+        -- UnitRace may briefly be unavailable for a known opponent.
+        if previous and priorGUID == guid then
+            race = previous
+        else
+            return
+        end
+    end
     if previous == race and existing and (not guid or not priorGUID or guid == priorGUID) then
         if guid and not priorGUID then self._iconGUID[id] = guid end
         for _, suffix in ipairs(trinketSuffixes) do
@@ -218,11 +268,6 @@ function module.Trinkets:CreateIcon(frame)
             if icon and not icon:IsShown() then icon:Show() end
         end
         return
-    end
-
-    if guid and priorGUID and guid ~= priorGUID then
-        self:DeleteTrinketIcons(id)
-        previous = nil
     end
 
     if previous and previous ~= "Human" and race ~= "Human" then
@@ -620,11 +665,8 @@ function module:ApplyContainerPosition()
     
     -- Проверяем, не происходит ли сейчас drag или только что был drag - если да, не применяем позицию
     -- Это предотвращает перезапись позиции во время drag и сразу после него
-    if ArenaDragMode then
-        if ArenaDragMode:IsMoving() or ArenaDragMode:JustDragged() then
-            return
-        end
-    end
+    local dragData = SarychUI.DragMode and SarychUI.DragMode:GetFrameData("arenaContainer")
+    if dragData and (dragData.isMoving or dragData.justDragged or dragData._settleUpdater) then return end
     
     -- Вычисляем дефолтную позицию если еще не вычислена
     if not arenaDefaultPosition then
@@ -748,29 +790,41 @@ local function EnsureArenaTestFrames()
 		local coords = CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS.WARRIOR
 		if coords then portrait:SetTexCoord(unpack(coords)) end
 
+		local background = frame:CreateTexture(nil, "BACKGROUND")
+		background:SetSize(72, 17)
+		background:SetPoint("TOPLEFT", 2, -10)
+		background:SetTexture("Interface\\Buttons\\WHITE8X8")
+		background:SetVertexColor(0, 0, 0, 0.5)
+
 		local health = CreateFrame("StatusBar", nil, frame)
 		health:SetSize(70, 8)
-		health:SetPoint("TOPLEFT", 3, -11)
+		health:SetPoint("TOPLEFT", 2, -12)
+		health:SetFrameLevel(frame:GetFrameLevel() + 1)
 		health:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
 		health:SetMinMaxValues(0, 1)
 		health:SetValue(0.82)
 		health:SetStatusBarColor(0.78, 0.61, 0.43)
 
 		local mana = CreateFrame("StatusBar", nil, frame)
-		mana:SetSize(70, 7)
-		mana:SetPoint("TOPLEFT", 3, -19)
+		mana:SetSize(70, 8)
+		mana:SetPoint("TOPLEFT", 2, -20)
+		mana:SetFrameLevel(frame:GetFrameLevel() + 1)
 		mana:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
 		mana:SetMinMaxValues(0, 1)
 		mana:SetValue(0.65)
 		mana:SetStatusBarColor(0.2, 0.35, 0.95)
 
-		local chrome = frame:CreateTexture(nil, "ARTWORK")
+		-- Blizzard's texture is on a nested frame above the status bars.
+		local chromeHost = CreateFrame("Frame", nil, frame)
+		chromeHost:SetAllPoints(frame)
+		chromeHost:SetFrameLevel(frame:GetFrameLevel() + 2)
+		local chrome = chromeHost:CreateTexture(nil, "BACKGROUND")
 		chrome:SetSize(102, 32)
 		chrome:SetPoint("TOPLEFT", 0, -2)
 		chrome:SetTexture("Interface\\ArenaEnemyFrame\\UI-ArenaTargetingFrame")
 		chrome:SetTexCoord(0.0, 0.796, 0.0, 0.5)
 
-		local name = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+		local name = chromeHost:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 		name:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 3, 24)
 		name:SetText("Arena " .. i)
 
@@ -785,6 +839,9 @@ function module:HideArenaEnemyFrames()
 	-- Hide() or Blizzard event/update functions on ArenaEnemyFrame* taints the
 	-- visibility that Blizzard must change during combat.
 	if arenaTestContainer then arenaTestContainer:Hide() end
+	if SarychUI.DragMode then
+		SarychUI.DragMode:RefreshDragOverlay("arenaContainer")
+	end
 end
 
 function module:Test(numOpponents)
@@ -804,6 +861,9 @@ function module:Test(numOpponents)
 		if i <= numOpponents then arenaTestFrames[i]:Show() else arenaTestFrames[i]:Hide() end
 	end
 	arenaTestContainer:Show()
+	if SarychUI.DragMode then
+		SarychUI.DragMode:RefreshDragOverlay("arenaContainer")
+	end
 	
 	-- Show trinket and racial icons in test mode (with delay to ensure frames are set up)
 	local db = GetDB()
@@ -816,6 +876,9 @@ function module:Test(numOpponents)
 				self:SetScript("OnUpdate", nil)
 				if module.ShowTestTrinkets then
 					module:ShowTestTrinkets(numOpponents, db.Trinkets)
+				end
+				if SarychUI.DragMode then
+					SarychUI.DragMode:RefreshDragOverlay("arenaContainer")
 				end
 			end
 		end)
@@ -916,8 +979,10 @@ function module:GetOrCreateTestTrinket(frame, id, suffix, anchorFrame)
 		
 		-- Texture
 		trinket.Icon.Texture = trinket.Icon:CreateTexture(nil, "BORDER")
-		trinket.Icon.Texture:SetAllPoints()
-		trinket.Icon.Texture:SetTexCoord(0, 1, 0, 1)
+		trinket.Icon.Texture:SetSize(24, 24)
+		trinket.Icon.Texture:SetPoint("CENTER", trinket, "CENTER", 0, 0)
+		trinket.Icon.Texture:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+		AddTrinketBorder(trinket)
 		
 		-- Enable mouse for testing
 		trinket:EnableMouse(true)
@@ -1762,20 +1827,13 @@ function module:ApplySettings()
 	
 	-- Проверяем, не происходит ли сейчас drag или только что был drag - если да, не применяем позицию
 	-- Это предотвращает перезапись позиции во время drag и сразу после него
-	local shouldApplyPosition = true
-	if ArenaDragMode then
-		if ArenaDragMode:IsMoving() or ArenaDragMode:JustDragged() then
-			shouldApplyPosition = false
-		end
-	end
-	
-	-- Применяем позицию только если не происходит drag
-	if shouldApplyPosition then
-		self:ApplyContainerPosition()
-	end
+	self:ApplyContainerPosition()
 	
 	if ArenaEnemyFrames and not (InCombatLockdown and InCombatLockdown()) then
 		ArenaEnemyFrames:SetScale(db.scale or 1.0)
+	end
+	if arenaTestContainer then
+		arenaTestContainer:SetScale(db.scale or 1.0)
 	end
 
 	-- Apply class coloring immediately according to setting
@@ -1796,10 +1854,13 @@ function module:ApplySettings()
 			if module.ShowTestTrinkets then
 				module:ShowTestTrinkets(db.testMode, db.Trinkets)
 			end
+			if SarychUI.DragMode then
+				SarychUI.DragMode:RefreshDragOverlay("arenaContainer")
+			end
 		end)
 	end
 	
-	-- Используем локальный ArenaDragMode или fallback на глобальный
+	-- Общий режим перемещения и общая сетка.
 	local showDrag = db.showDragFrame == 1
 	local showGrid = db.showGrid == 1
 	
@@ -1813,68 +1874,84 @@ function module:ApplySettings()
 		self:CalculateDefaultContainerPosition()
 	end
 	
-	-- Пробуем использовать локальный ArenaDragMode
-	if ArenaDragMode and arenaContainer then
-		-- Включаем/отключаем режим редактирования
-		if showDrag then
-			ArenaDragMode:Enable(arenaContainer, {
-				dragText = "Арена",
-				dragPoint = "TOPRIGHT",
-				dragOffsetX = 0,
-				dragOffsetY = 2.5,
-				dragWidth = 280,
-				dragHeight = 225,
-			}, showDrag, showGrid, function(point, relativePoint, xOfs, yOfs)
-				-- Callback при изменении позиции
-				local db = GetDB(); if not db then return end
-				
-				-- Сохраняем абсолютные координаты как есть
-				db.arenaA = point
-				db.arenaR = relativePoint
-				db.arenaX = xOfs
-				db.arenaY = yOfs
-				module:PlaceFirstArenaFrame()
-				
-				-- If test mode is active, re-run to reflect new anchor instantly
-				if db.testMode and db.testMode > 0 then
-					local updateFrame = CreateFrame("Frame")
-					updateFrame:SetScript("OnUpdate", function(self)
-						self:SetScript("OnUpdate", nil)
-						if module.Test then
-							module:Test(db.testMode)
-						end
-					end)
-				end
-			end)
-		else
-			ArenaDragMode:Disable(arenaContainer)
-		end
-		
-		ArenaDragMode:ShowGrid(showGrid and showDrag)
-	else
-		-- Fallback на глобальный DragMode если локальный не загрузился
-		if SarychUI.DragMode then
-			-- Регистрируем фрейм если еще не зарегистрирован
-			if not SarychUI.DragMode:GetFrameData("arenaContainer") then
-				self:RegisterDrag()
-			end
-			
-			SarychUI.DragMode:EnableEditMode("arenaContainer", showDrag, showDrag, showGrid)
-			SarychUI.DragMode:ShowGrid(showGrid and showDrag)
-		end
+	if SarychUI.DragMode then
+		self:RegisterDrag()
+		SarychUI.DragMode:EnableEditMode("arenaContainer", showDrag, showDrag, showGrid)
+		SarychUI.DragMode:ShowGrid(showGrid and showDrag)
 	end
 end
 
--- Register container in DragMode system (legacy - используется локальный ArenaDragMode)
-function module:RegisterDrag()
-	-- Локальный ArenaDragMode инициализируется в ApplySettings
-	-- Эта функция оставлена для совместимости
-	if not arenaContainer then return end
-	
-	-- Вычисляем дефолтную позицию если еще не вычислена
-	if not arenaDefaultPosition then
-		self:CalculateDefaultContainerPosition()
+-- The container is an unprotected position editor; arena unit buttons stay in
+-- Blizzard's protected hierarchy.
+local function ArenaDragBounds()
+	local parentScale = UIParent:GetEffectiveScale()
+	if not parentScale or parentScale <= 0 then return end
+	local left, bottom, right, top
+	local function Include(frame)
+		if not frame then return end
+		local l, b, r, t = frame:GetLeft(), frame:GetBottom(), frame:GetRight(), frame:GetTop()
+		local scale = frame:GetEffectiveScale()
+		if not (l and b and r and t and scale and scale > 0 and r > l and t > b) then return end
+		local ratio = scale / parentScale
+		l, b, r, t = l * ratio, b * ratio, r * ratio, t * ratio
+		left = left and math.min(left, l) or l
+		bottom = bottom and math.min(bottom, b) or b
+		right = right and math.max(right, r) or r
+		top = top and math.max(top, t) or t
 	end
+
+	if arenaTestContainer and arenaTestContainer:IsShown() then
+		for i = 1, 5 do
+			local frame = arenaTestFrames[i]
+			if frame and frame:IsShown() then
+				Include(frame)
+				for _, suffix in ipairs({ "Trinket1", "Racial" }) do
+					local icon = _G["SarychUIArenaTestTrinket" .. i .. suffix]
+					if icon and icon:IsShown() then Include(icon) end
+				end
+			end
+		end
+	else
+		for i = 1, (MAX_ARENA_ENEMIES or 5) do
+			local frame = _G["ArenaEnemyFrame" .. i]
+			if frame and frame:IsShown() then Include(frame) end
+		end
+	end
+	-- Keep the left snap corner fixed; trim only the right edge of the editor.
+	return left, bottom, right and right - 20, top
+end
+
+function module:RegisterDrag()
+	if not arenaContainer or not SarychUI.DragMode
+		or SarychUI.DragMode:GetFrameData("arenaContainer") then return end
+	SarychUI.DragMode:RegisterFrame("arenaContainer", arenaContainer, {
+		dragText = "Арена",
+		dragPoint = "TOP",
+		dragOffsetX = -24,
+		dragOffsetY = 3,
+		dragBoundsOffsetY = 12,
+		-- Fallback based on five 102x32 preview frames with 20px gaps.
+		dragWidth = 82,
+		dragHeight = 240,
+		getDragBounds = ArenaDragBounds,
+		preservePositionOnDisable = true,
+		getPoint = function()
+			local point, _, relativePoint, x, y = arenaContainer:GetPoint()
+			return { point or "RIGHT", UIParent, relativePoint or "RIGHT", x or 0, y or 0 }
+		end,
+		onPositionChanged = function(point, relativePoint, x, y)
+			local db = GetDB(); if not db then return end
+			db.arenaA, db.arenaR, db.arenaX, db.arenaY = point, relativePoint, x, y
+			module:PlaceFirstArenaFrame()
+			if db.testMode and db.testMode > 0 then
+				local updateFrame = CreateFrame("Frame")
+				updateFrame:SetScript("OnUpdate", function(self)
+					self:SetScript("OnUpdate", nil)
+					if module.Test then module:Test(db.testMode) end
+				end)
+			end
+		end,
+	})
 end
 
 -- Public API used by options
@@ -1884,6 +1961,12 @@ function module:SetScale(value)
 	db.scale = value
 	if ArenaEnemyFrames and not (InCombatLockdown and InCombatLockdown()) then
 		ArenaEnemyFrames:SetScale(value)
+	end
+	if arenaTestContainer then
+		arenaTestContainer:SetScale(value)
+	end
+	if SarychUI.DragMode then
+		SarychUI.DragMode:RefreshDragOverlay("arenaContainer")
 	end
 end
 
@@ -1974,11 +2057,7 @@ function module:Disable()
 	if arenaTestContainer then
 		arenaTestContainer:Hide()
 	end
-	-- DragMode cleanup (локальный ArenaDragMode)
-	if ArenaDragMode and arenaContainer then
-		ArenaDragMode:Disable(arenaContainer)
-	end
-	-- Fallback на глобальный DragMode
+	-- Shared DragMode cleanup.
 	if SarychUI.DragMode then
 		SarychUI.DragMode:EnableEditMode("arenaContainer", false, false, false)
 		SarychUI.DragMode:UnregisterFrame("arenaContainer")

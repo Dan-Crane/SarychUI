@@ -1,4 +1,4 @@
--- SarychUI Bags Module - стандартные / ElvUI / BaudBag
+-- SarychUI Bags Module - стандартные / ElvUI
 
 
 
@@ -74,7 +74,7 @@ function module:IsDefaultMode()
 
 	local mode = self:GetMode()
 
-	return mode ~= "elvui" and mode ~= "baudbag"
+	return mode ~= "elvui"
 
 end
 
@@ -83,50 +83,6 @@ end
 function module:IsElvUIMode()
 
 	return self:GetMode() == "elvui"
-
-end
-
-
-
-function module:IsBaudBagMode()
-
-	return self:GetMode() == "baudbag"
-
-end
-
-
-
-function module:GetBaudBagWrapper()
-
-	return _G.SarychUI_BaudBag or (SarychUI and SarychUI.addons and SarychUI.addons.BaudBag)
-
-end
-
-
-
-function module:StartBaudBagRuntime()
-
-	local wrap = self:GetBaudBagWrapper()
-
-	if wrap and wrap.SetRuntimeEnabled then
-
-		wrap:SetRuntimeEnabled(true)
-
-	end
-
-end
-
-
-
-function module:StopBaudBagRuntime()
-
-	local wrap = self:GetBaudBagWrapper()
-
-	if wrap and wrap.SetRuntimeEnabled then
-
-		wrap:SetRuntimeEnabled(false)
-
-	end
 
 end
 
@@ -471,7 +427,6 @@ function module:ApplyMode()
 
 		self:StopElvUIBagsRuntime()
 
-		self:StopBaudBagRuntime()
 
 		return
 
@@ -481,7 +436,6 @@ function module:ApplyMode()
 
 	if self:IsElvUIMode() then
 
-		self:StopBaudBagRuntime()
 
 		self:DisableDefaultHandlers()
 
@@ -493,22 +447,10 @@ function module:ApplyMode()
 
 		self:StartElvUIBagsRuntime()
 
-	elseif self:IsBaudBagMode() then
-
-		self:StopElvUIBagsRuntime()
-
-		self:StartBaudBagRuntime()
-
-		-- Поиск и сортировка SarychUI работают и с BaudBag.
-		self:EnableDefaultHandlers()
-
-		bagDebug("BaudBag bags mode")
-
 	else
 
 		self:StopElvUIBagsRuntime()
 
-		self:StopBaudBagRuntime()
 
 		self:EnableDefaultHandlers()
 
@@ -587,6 +529,8 @@ local CUSTOM_CATEGORY_RESERVED_NAMES = {
 	["Задания"] = true,
 	["экипировка"] = true,
 	["Экипировка"] = true,
+	["неперсональная экипировка"] = true,
+	["Неперсональная экипировка"] = true,
 	["расходные материалы"] = true,
 	["Расходные материалы"] = true,
 	["хозяйственные товары"] = true,
@@ -851,7 +795,6 @@ function module:Disable()
 
 	self:StopElvUIBagsRuntime()
 
-	self:StopBaudBagRuntime()
 
 end
 

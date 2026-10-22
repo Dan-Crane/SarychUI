@@ -166,7 +166,10 @@ local function EnsureReloadPopup()
 		f._onCancel = nil
 		f:Hide()
 		if type(onAccept) == "function" then
-			pcall(onAccept)
+			local ok, err = pcall(onAccept)
+			if not ok then
+				geterrorhandler()(err)
+			end
 		else
 			ReloadUI()
 		end
@@ -1081,18 +1084,41 @@ local options = {
 									desc = "Применить QoL-настройки Blizzard.",
 									order = 1,
 									width = "full",
+									suiExpandDetails = {
+										name = function() return SarychUI._quickSettingsExpanded and "v" or ">" end,
+										func = function()
+											SarychUI._quickSettingsExpanded = not SarychUI._quickSettingsExpanded
+											local core = SarychUI._activeOptionsCore or SarychUI.OptionsCore
+											if core and core.Refresh then core:Refresh() end
+										end,
+									},
 									suiTooltip = function()
 										return SarychUI:GetQuickSettingsTooltipLines()
 									end,
 									func = function()
 										SarychUI:ShowReloadPopup(
-											"Применить быстрые настройки Blizzard?\n\nПосле применения потребуется перезагрузка интерфейса (/reload).",
+											"Применить быстрые настройки Blizzard?\n\nЕсли потребуется перезагрузка, она останется на ваше усмотрение.",
 											nil,
 											function()
 												SarychUI:ApplyQuickSettings()
 											end
 										)
 									end,
+								},
+								quickStatus = {
+									type = "description",
+									name = function() return SarychUI:GetQuickSettingsStatusText() end,
+									hidden = function() return not SarychUI._quickSettingsExpanded end,
+									order = 1.5,
+									width = "full",
+								},
+								reloadQuickButton = {
+									type = "execute",
+									name = "Перезагрузить",
+									order = 1.6,
+									width = "full",
+									hidden = function() return not SarychUI:QuickSettingsHasPendingReload() end,
+									func = function() ReloadUI() end,
 								},
 								applyGraphicsButton = {
 									type = "execute",
@@ -1117,7 +1143,7 @@ local options = {
 						},
 						warning = {
 							type = "description",
-							name = "|cFFFFD700Внимание:|r После применения потребуется перезагрузка интерфейса. Для настроек графики требуется полный перезапуск игры.",
+							name = "|cFFFFD700Внимание:|r Некоторые быстрые настройки могут ожидать /reload. Для настроек графики требуется полный перезапуск игры.",
 							order = 4,
 							width = "full",
 						},
@@ -2256,7 +2282,6 @@ function SarychUI:_AddAddOnOptionsImpl()
 	-- except grouped addons which the two-pane list pins under a header).
 	local addonEntries = {}
 	local ADDON_LIST_HIDDEN = {
-		BaudBag = true,
 		SarychUI_Bags = true,
 	}
 	local ADDON_LIST_GROUPS = {
@@ -2547,11 +2572,15 @@ local function SafeSetCVar(name, value)
 	local ok, current = pcall(GetCVar, name)
 	if ok and current ~= nil then
 		SetCVar(name, value)
+		return true
 	end
+	return false
 end
 
 -- Target values for «Быстрые настройки Blizzard» (label, cvar, desired).
 local QUICK_SETTING_CVARS = {
+	{ "timingMethod", "timingMethod", "2" },
+	{ "dbCompress", "dbCompress", "0" },
 	{ "Менеджер экипировки", "equipmentManager", "1" },
 	{ "Неймплейты врагов", "nameplateShowEnemies", "1" },
 	{ "Цель цели", "showTargetOfTarget", "1" },
@@ -2620,6 +2649,17 @@ local QUICK_SETTING_CVARS = {
 	{ "Скорость авто-следования", "cameraYawSmoothSpeed", "270" },
 	{ "Чувствительность мыши", "mouseSpeed", "1.1" },
 	{ "Скорость поворота", "cameraYawMoveSpeed", "110" },
+}
+
+local QUICK_SETTING_DIRECT_SET = {
+	timingMethod = true,
+	dbCompress = true,
+}
+
+-- These settings are initialized by the client or Blizzard UI at load time.
+local QUICK_SETTING_RELOAD = {
+	showArenaEnemyFrames = true,
+	enableCombatText = true,
 }
 
 -- Display / graphics from author Config.wtf (recommended 2K preset).
@@ -2801,7 +2841,7 @@ local function GetActionBarDiffLine()
 	)
 end
 
--- Tooltip lines for «Применить»: only settings that currently differ.
+-- Tooltip lines for «Применить»: show only differences and pending reloads.
 -- Colors match Details Cooltip Preset 2 (orange body text).
 function SarychUI:GetQuickSettingsTooltipLines()
 	local ORANGE = { 1, 0.65, 0 }
@@ -2809,11 +2849,21 @@ function SarychUI:GetQuickSettingsTooltipLines()
 	local GREEN = { 0.55, 0.95, 0.45 }
 	local lines = {}
 	local diffs = {}
+	local waiting = {}
+	local pending = self._quickSettingsPendingReload or {}
 
 	for _, entry in ipairs(QUICK_SETTING_CVARS) do
 		local label, cvar, desired = entry[1], entry[2], entry[3]
 		local ok, current = pcall(GetCVar, cvar)
-		if ok and current ~= nil and CVarDiffers(cvar, desired) then
+		if pending[cvar] == desired then
+			waiting[#waiting + 1] = QUICK_SETTING_DIRECT_SET[cvar] and cvar or self:T(label)
+		elseif QUICK_SETTING_DIRECT_SET[cvar] then
+			if not ok or current == nil or NormalizeQuickValue(current) ~= NormalizeQuickValue(desired) then
+				diffs[#diffs + 1] = string.format(
+					"%s: %s -> %s", cvar, ok and current ~= nil and tostring(current) or "?", desired
+				)
+			end
+		elseif ok and current ~= nil and CVarDiffers(cvar, desired) then
 			diffs[#diffs + 1] = string.format(
 				"%s: %s -> %s",
 				self:T(label),
@@ -2828,13 +2878,15 @@ function SarychUI:GetQuickSettingsTooltipLines()
 		diffs[#diffs + 1] = bars
 	end
 
-	if #diffs == 0 then
+	if #diffs == 0 and #waiting == 0 then
 		lines[#lines + 1] = { self:T("Быстрые настройки"), ORANGE[1], ORANGE[2], ORANGE[3] }
 		lines[#lines + 1] = { self:T("Всё уже применено - менять нечего."), GREEN[1], GREEN[2], GREEN[3] }
 		return lines
 	end
 
-	lines[#lines + 1] = { self:T("Будут изменены:"), ORANGE[1], ORANGE[2], ORANGE[3] }
+	if #diffs > 0 then
+		lines[#lines + 1] = { self:T("Будут изменены:"), ORANGE[1], ORANGE[2], ORANGE[3] }
+	end
 	local maxShow = 14
 	for i = 1, math.min(#diffs, maxShow) do
 		lines[#lines + 1] = { diffs[i], ORANGE[1], ORANGE[2], ORANGE[3] }
@@ -2845,8 +2897,60 @@ function SarychUI:GetQuickSettingsTooltipLines()
 			ORANGE_DIM[1], ORANGE_DIM[2], ORANGE_DIM[3]
 		}
 	end
-	lines[#lines + 1] = { self:T("Также применятся настройки чата."), ORANGE_DIM[1], ORANGE_DIM[2], ORANGE_DIM[3] }
+	if #waiting > 0 then
+		lines[#lines + 1] = { self:T("Ожидает перезагрузки:"), ORANGE_DIM[1], ORANGE_DIM[2], ORANGE_DIM[3] }
+		for _, label in ipairs(waiting) do
+			lines[#lines + 1] = { label, ORANGE_DIM[1], ORANGE_DIM[2], ORANGE_DIM[3] }
+		end
+	end
 	return lines
+end
+
+function SarychUI:QuickSettingsHasPendingReload()
+	return next(self._quickSettingsPendingReload or {}) ~= nil
+end
+
+function SarychUI:GetQuickSettingsStatusText()
+	local lines = {}
+	local pending = self._quickSettingsPendingReload or {}
+	for _, entry in ipairs(QUICK_SETTING_CVARS) do
+		local label, cvar, desired = entry[1], entry[2], entry[3]
+		local ok, current = pcall(GetCVar, cvar)
+		local name = QUICK_SETTING_DIRECT_SET[cvar] and cvar or self:T(label)
+		local actual = ok and current ~= nil and tostring(current) or "?"
+		local target = desired
+		if not QUICK_SETTING_DIRECT_SET[cvar] then
+			actual = FormatQuickValue(ok and current or nil)
+			target = FormatQuickValue(desired)
+		end
+		local status, color
+		if pending[cvar] == desired then
+			status, color = "Ожидает перезагрузки", "ffffd200"
+		elseif not ok or current == nil then
+			status, color = "Недоступно", "ffff6666"
+		elseif NormalizeQuickValue(current) ~= NormalizeQuickValue(desired) then
+			status, color = "Не настроено", "ffff6666"
+		else
+			status = nil
+		end
+		if status then
+			lines[#lines + 1] = string.format("|c%s%s|r  %s: %s -> %s", color, status, name, actual, target)
+		end
+	end
+
+	local petOk, petCurrent = pcall(GetCVar, "PetSpellDamage")
+	if petOk and petCurrent ~= nil and NormalizeQuickValue(petCurrent) ~= "1" then
+		lines[#lines + 1] = string.format("|cffff6666Не настроено|r  Урон заклинаний питомца: %s -> Вкл", FormatQuickValue(petCurrent))
+	end
+
+	local bars = GetActionBarDiffLine()
+	if bars then
+		lines[#lines + 1] = "|cffff6666Не настроено|r  " .. bars
+	end
+	if #lines == 0 then
+		return "Изменений нет."
+	end
+	return table.concat(lines, "\n")
 end
 
 function SarychUI:GetQuickGraphicsTooltipLines()
@@ -2898,8 +3002,25 @@ end
 
 -- Apply quick settings (from sarsettings.default)
 function SarychUI:ApplyQuickSettings()
+	local pending = self._quickSettingsPendingReload or {}
+	self._quickSettingsPendingReload = pending
 	for _, entry in ipairs(QUICK_SETTING_CVARS) do
-		SafeSetCVar(entry[2], entry[3])
+		local cvar, desired = entry[2], entry[3]
+		local wasOk, previous = pcall(GetCVar, cvar)
+		local changed = not wasOk or previous == nil or NormalizeQuickValue(previous) ~= NormalizeQuickValue(desired)
+		local setOk
+		if QUICK_SETTING_DIRECT_SET[entry[2]] then
+			local ok, err = pcall(SetCVar, entry[2], entry[3])
+			setOk = ok
+			if not ok then
+				geterrorhandler()(err)
+			end
+		else
+			setOk = SafeSetCVar(entry[2], entry[3])
+		end
+		if QUICK_SETTING_RELOAD[cvar] and changed and setOk then
+			pending[cvar] = desired
+		end
 	end
 	-- Optional on some 3.3.5 builds; grouped with pet damage if present.
 	SafeSetCVar("PetSpellDamage", "1")
@@ -2932,11 +3053,9 @@ function SarychUI:ApplyQuickSettings()
 
 	-- Notify user
 	print(self:T("|cffffd200SarychUI:|r Быстрые настройки применены."))
+	local core = self._activeOptionsCore or self.OptionsCore
+	if core and core.Refresh then core:Refresh() end
 
-	-- Show reload confirmation popup
-	if SarychUI.ShowReloadPopup then
-		SarychUI:ShowReloadPopup("Быстрые настройки применены!\n\nДля полного применения изменений рекомендуется выполнить перезагрузку интерфейса.")
-	end
 end
 
 -- Display / graphics (recommended 2K; clamped to display max).
@@ -3062,7 +3181,7 @@ function SarychUI:ApplyQuickChatSettings()
 				"TARGETICONS", "BN_WHISPER", "BN_WHISPER_INFORM", "BN_CONVERSATION",
 				"BN_INLINE_TOAST_ALERT", "OPENING"
 			},
-			channels = { generalChannel, tradeChannel, defenseChannel },
+			channels = {},
 			position = {"BOTTOMLEFT", 0.018970, 0.160158},
 			dimensions = {389.272827, 124.266113}
 		},
@@ -3112,17 +3231,38 @@ function SarychUI:ApplyQuickChatSettings()
 	}
 
 	local function ClearChatFrameChannels(chatFrame)
-		if not chatFrame or not ChatFrame_RemoveChannel then
+		if not chatFrame then return end
+		if ChatFrame_RemoveAllChannels then
+			ChatFrame_RemoveAllChannels(chatFrame)
+			return
+		end
+		if not ChatFrame_RemoveChannel then
 			return
 		end
 		local copy = {}
-		if type(chatFrame.channelList) == "table" then
-			for i = 1, #chatFrame.channelList do
-				copy[#copy + 1] = chatFrame.channelList[i]
+		for _, list in pairs({ chatFrame.channelList, chatFrame.zoneChannelList }) do
+			if type(list) == "table" then
+				for i = 1, #list do
+					copy[#copy + 1] = list[i]
+				end
 			end
 		end
 		for i = 1, #copy do
 			ChatFrame_RemoveChannel(chatFrame, copy[i])
+		end
+	end
+
+	local function ClearChatFrameMessageGroups(chatFrame)
+		if ChatFrame_RemoveAllMessageGroups then
+			ChatFrame_RemoveAllMessageGroups(chatFrame)
+		elseif ChatFrame_RemoveMessageGroup and type(chatFrame.messageTypeList) == "table" then
+			local copy = {}
+			for i = 1, #chatFrame.messageTypeList do
+				copy[i] = chatFrame.messageTypeList[i]
+			end
+			for _, messageGroup in ipairs(copy) do
+				ChatFrame_RemoveMessageGroup(chatFrame, messageGroup)
+			end
 		end
 	end
 
@@ -3200,12 +3340,8 @@ function SarychUI:ApplyQuickChatSettings()
 			FCF_SetLocked(chatFrame, true)
 		end
 
-		-- Configure message groups
-		if CHAT_CONFIG_CHAT_LEFT and ChatFrame_RemoveMessageGroup then
-			for _, group in ipairs(CHAT_CONFIG_CHAT_LEFT) do
-				ChatFrame_RemoveMessageGroup(chatFrame, group.type)
-			end
-		end
+		-- Reset every category (including Loot/Money), then add this tab's groups.
+		ClearChatFrameMessageGroups(chatFrame)
 		for _, messageGroup in ipairs(settings.messages) do
 			if ChatFrame_AddMessageGroup then
 				ChatFrame_AddMessageGroup(chatFrame, messageGroup)
@@ -3241,6 +3377,29 @@ function SarychUI:ApplyQuickChatSettings()
 
 	for _, settings in ipairs(chatWindowsSettings) do
 		ConfigureChatWindow(settings.index, settings)
+	end
+	-- Keep only the LFG channel. Resetting chat windows can restore the default
+	-- General/Trade/LocalDefense subscriptions, so leave them explicitly.
+	if LeaveChannelByName then
+		local unwanted = { generalChannel, tradeChannel, defenseChannel }
+		if GetChannelList then
+			local joined = { GetChannelList() }
+			for i = 2, #joined, 2 do
+				local name = joined[i]
+				if type(name) == "string" then
+					for _, base in ipairs(unwanted) do
+						if name == base or name:sub(1, #base + 3) == base .. " - " then
+							LeaveChannelByName(name)
+							break
+						end
+					end
+				end
+			end
+		else
+			for _, name in ipairs(unwanted) do
+				LeaveChannelByName(name)
+			end
+		end
 	end
 
 	-- Undock/restore can fight SetPoint once; pin Общий geometry again at the end.

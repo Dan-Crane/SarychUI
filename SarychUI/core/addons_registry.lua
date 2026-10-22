@@ -89,8 +89,6 @@ local function CoordinatorSetModeForAddOn(self, addonName, enable)
 		self:SetMapType("carbonite")
 	elseif addonName == "ElvUI_NamePlates" and self.SetNameplateMode then
 		self:SetNameplateMode("elvui")
-	elseif addonName == "BaudBag" and self.SetBagsMode then
-		self:SetBagsMode("baudbag")
 	elseif addonName == "SarychUI_Bags" and self.SetBagsMode then
 		self:SetBagsMode("elvui")
 	elseif addonName == "pretty_lootalert" and self.SetLootMode then
@@ -109,11 +107,6 @@ local function CoordinatorClearModeForAddOn(self, addonName)
 	end
 	if addonName == "ElvUI_NamePlates" and self.SetNameplateMode then
 		self:SetNameplateMode("classic")
-	elseif addonName == "BaudBag" and self.SetBagsMode then
-		local bags = self.db and self.db.profile and self.db.profile.modules and self.db.profile.modules.bags
-		if bags and bags.mode == "baudbag" then
-			self:SetBagsMode("default")
-		end
 	elseif addonName == "SarychUI_Bags" and self.SetBagsMode then
 		local bags = self.db and self.db.profile and self.db.profile.modules and self.db.profile.modules.bags
 		if bags and bags.mode == "elvui" then

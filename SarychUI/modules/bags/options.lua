@@ -613,7 +613,7 @@ function module:GetOptions()
 	local function isDefaultMode()
 		local db = DB()
 		local mode = db and db.mode or "elvui"
-		return mode ~= "elvui" and mode ~= "baudbag"
+		return mode ~= "elvui"
 	end
 
 	local function isElvUIMode()
@@ -621,15 +621,10 @@ function module:GetOptions()
 		return (db and db.mode or "elvui") == "elvui"
 	end
 
-	local function isBaudBagMode()
-		local db = DB()
-		return (db and db.mode or "elvui") == "baudbag"
-	end
-
 	return {
 		type = "group",
 		name = "Сумки",
-		desc = "Режим сумок: классические, SarychUI сумка или Baud Bag",
+		desc = "Режим сумок: классические или SarychUI сумка",
 		childGroups = "tab",
 		args = {
 			general = {
@@ -679,13 +674,12 @@ function module:GetOptions()
 							mode = {
 								type = "select",
 								name = "",
-								desc = "Классические сумки WoW, SarychUI сумка или Baud Bag. Требуется /reload.",
+								desc = "Классические сумки WoW или SarychUI сумка. Требуется /reload.",
 								order = 1,
 								values = {
 									default = "Классические WoW",
 									elvui = "SarychUI сумка",
-									baudbag = "Baud Bag",
-								},
+												},
 								get = function()
 									return DB().mode or "elvui"
 								end,
@@ -714,9 +708,6 @@ function module:GetOptions()
 									if isElvUIMode() then
 										return "Открыть настройки SarychUI сумки."
 									end
-									if isBaudBagMode() then
-										return "Открыть настройки Baud Bag."
-									end
 									return "Открыть настройки стандартных сумок."
 								end,
 								order = 2,
@@ -725,8 +716,6 @@ function module:GetOptions()
 									if not OC or not OC.SelectTab then return end
 									if isElvUIMode() then
 										OC:SelectTab("elvuiBags")
-									elseif isBaudBagMode() then
-										OC:SelectTab("baudBags")
 									else
 										OC:SelectTab("defaultBags")
 									end
@@ -1734,104 +1723,6 @@ function module:GetOptions()
 						},
 					},
 				},
-			},
-			baudBags = {
-				type = "group",
-				name = "Baud Bag",
-				order = 4,
-				hidden = function() return not isBaudBagMode() end,
-				disabled = function() return not DB().enabled end,
-				args = (function()
-					local args = {
-						bagSearchBox = {
-							type = "group",
-							name = "Включить строку поиска",
-							order = 1,
-							inline = true,
-							args = {
-								enableBagSearch = {
-									type = "toggle",
-									name = "Включить строку поиска",
-									desc = "Поле поиска на окне основной сумки Baud Bag (слева от кнопки сортировки)",
-									order = 1,
-									width = "full",
-									get = function() return DB().enableBagSearch == true end,
-									set = function(_, val)
-										DB().enableBagSearch = val and true or false
-										if not val and module.ResetClassicBagSearch then
-											module:ResetClassicBagSearch()
-										end
-										if module.ApplyBagSortSettings then
-											module:ApplyBagSortSettings()
-										end
-										if SarychUI.RefreshConfig then
-											SarychUI:RefreshConfig()
-										end
-									end,
-								},
-							},
-						},
-						bagSortBox = {
-							type = "group",
-							name = "Включить сортировку сумок",
-							order = 2,
-							inline = true,
-							args = (function()
-								local sortArgs = {
-									enableBagSortButton = {
-										type = "toggle",
-										name = "Включить сортировку сумок",
-										desc = "Кнопка на окне основной сумки Baud Bag",
-										order = 1,
-										width = "full",
-										get = toggleGetter,
-										set = function(info, val)
-											AutomationDB().enableBagSortButton = val and 1 or 0
-											if module.ApplyBagSortSettings then module:ApplyBagSortSettings() end
-											RefreshBagsOptionsPanel()
-											if SarychUI.RefreshConfig then SarychUI:RefreshConfig() end
-										end,
-									},
-								}
-								if isOn("enableBagSortButton") then
-									local pinned = module:BuildBagSortPinnedOptionsArgs()
-									for key, opt in pairs(pinned) do
-										if type(opt.order) == "number" then
-											opt.order = opt.order + 1
-										end
-										sortArgs[key] = opt
-									end
-								end
-								return sortArgs
-							end)(),
-						},
-						baudSettingsHeader = {
-							type = "header",
-							name = "Настройки Baud Bag",
-							order = 3,
-						},
-						openBaudBagOptions = {
-							type = "execute",
-							name = "Открыть настройки Baud Bag",
-							desc = "Открывает окно настроек Baud Bag (/baudbag).",
-							order = 4,
-							width = "full",
-							func = function()
-								local wrap = _G.SarychUI_BaudBag
-								if wrap and wrap.ShowOptions then
-									wrap:ShowOptions()
-									return
-								end
-								if BaudBagOptionsFrame then
-									BaudBagOptionsFrame:SetFrameStrata("FULLSCREEN_DIALOG")
-									BaudBagOptionsFrame:Raise()
-									BaudBagOptionsFrame:Show()
-								end
-							end,
-						},
-					}
-					return args
-				end)(),
 			},
 		},
 	}

@@ -2343,16 +2343,12 @@ function module:RegisterPositionFrames()
             SarychUI:SyncOpenOptionsValues()
         end
     end
-    
+
     -- Register PlayerFrame
     if PlayerFrame then
         SarychUI.DragMode:RegisterFrame("playerFrame", PlayerFrame, {
-            dragPoint = "CENTER",
-            dragOffsetX = 0,
-            dragOffsetY = 0,
-            dragWidth = 200,
-            dragHeight = 100,
             dragText = "Игрок",
+            dragInsetLeft = 22,
             interceptSetPoint = false,
             getPoint = FrameGetPoint("playerFrame", "playerFrameX", "playerFrameY", -514, 200),
             onPositionChanged = function(point, relativePoint, xOfs, yOfs)
@@ -2364,12 +2360,8 @@ function module:RegisterPositionFrames()
     -- Register TargetFrame
     if TargetFrame then
         SarychUI.DragMode:RegisterFrame("targetFrame", TargetFrame, {
-            dragPoint = "CENTER",
-            dragOffsetX = 0,
-            dragOffsetY = 0,
-            dragWidth = 200,
-            dragHeight = 100,
             dragText = "Цель",
+            dragInsetRight = 22,
             interceptSetPoint = false,
             getPoint = FrameGetPoint("targetFrame", "targetFrameX", "targetFrameY", -240, 200),
             onPositionChanged = function(point, relativePoint, xOfs, yOfs)
@@ -2381,12 +2373,8 @@ function module:RegisterPositionFrames()
     -- Register FocusFrame
     if FocusFrame then
         SarychUI.DragMode:RegisterFrame("focusFrame", FocusFrame, {
-            dragPoint = "CENTER",
-            dragOffsetX = 0,
-            dragOffsetY = 0,
-            dragWidth = 200,
-            dragHeight = 100,
             dragText = "Фокус",
+            dragInsetRight = 22,
             interceptSetPoint = false,
             getPoint = FrameGetPoint("focusFrame", "focusFrameX", "focusFrameY", 350, -150),
             onPositionChanged = function(point, relativePoint, xOfs, yOfs)

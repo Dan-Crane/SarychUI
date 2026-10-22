@@ -96,9 +96,6 @@ function Coordinator:NormalizeBagsMode(mode)
 	if mode == "elvui" and self:IsWoWAddOnEnabled("ElvUI") then
 		return "classic"
 	end
-	if mode == "baudbag" then
-		return "baudbag"
-	end
 	return mode
 end
 
@@ -293,7 +290,7 @@ function Coordinator:SyncBagsModeFromDB()
 	-- Bagnon_FT: тултипы/учёт предметов по персонажам - совместим с SarychUI Bags, classic и Bagnon UI.
 	-- Не входит в bags.mode; включается отдельным тумблером в списке аддонов.
 	addons.Bagnon_FT = addons.Bagnon_FT or { enabled = true }
-	addons.BaudBag = addons.BaudBag or { enabled = false }
+	addons.BaudBag = nil
 	-- Migrate renamed embed key (ElvUI_Bags -> SarychUI_Bags).
 	if type(addons.ElvUI_Bags) == "table" and type(addons.SarychUI_Bags) ~= "table" then
 		addons.SarychUI_Bags = CopyTable(addons.ElvUI_Bags)
@@ -301,6 +298,10 @@ function Coordinator:SyncBagsModeFromDB()
 	addons.SarychUI_Bags = addons.SarychUI_Bags or { enabled = false }
 
 	local mode = modules.bags.mode or "elvui"
+	if mode == "baudbag" then
+		mode = "elvui"
+		modules.bags.mode = mode
+	end
 	if mode == "classic" then
 		mode = "default"
 		modules.bags.mode = "default"
@@ -309,7 +310,6 @@ function Coordinator:SyncBagsModeFromDB()
 	local owner = self:NormalizeBagsMode(mode)
 	local enabled = modules.bags.enabled == true
 	-- Режим сумок - источник истины; флаги аддонов синхронизируются с ним.
-	addons.BaudBag.enabled = enabled and (owner == "baudbag")
 	addons.SarychUI_Bags.enabled = enabled and (owner == "elvui")
 end
 
@@ -389,9 +389,6 @@ function Coordinator:UpdateBlizzMoveBlocks()
 	local bagsOwner = self:GetActiveFeatureOwner("bags")
 	if bagsOwner == "elvui" then
 		blocks.BankFrame = "SarychUI Bags управляет банком"
-		self:RecordGate("BlizzMove:BankFrame", blocks.BankFrame)
-	elseif bagsOwner == "baudbag" then
-		blocks.BankFrame = "Baud Bag управляет банком"
 		self:RecordGate("BlizzMove:BankFrame", blocks.BankFrame)
 	end
 
@@ -588,7 +585,7 @@ function Coordinator:GetAddOnArea(addonName)
 		return "loot"
 	end
 	if addonName == "ElvUI_NamePlates" then return "nameplates" end
-	if addonName == "BaudBag" or addonName == "SarychUI_Bags" then return "bags" end
+	if addonName == "SarychUI_Bags" then return "bags" end
 	if addonName == "Postal" then return "mail" end
 	return nil
 end
@@ -630,7 +627,7 @@ function SarychUI:CanEnableCoordinatedAddOn(addonName)
 		return true
 	end
 
-	if area == "bags" and (addonName == "BaudBag" or addonName == "SarychUI_Bags") then
+	if area == "bags" and (addonName == "SarychUI_Bags") then
 		return true
 	end
 
@@ -680,9 +677,6 @@ function SarychUI:IsCoordinatedAddOnAllowed(addonName)
 	end
 	if addonName == "ElvUI_NamePlates" then
 		return Coordinator:GetActiveFeatureOwner("nameplates") == "elvui"
-	end
-	if addonName == "BaudBag" then
-		return Coordinator:GetActiveFeatureOwner("bags") == "baudbag"
 	end
 	if addonName == "SarychUI_Bags" then
 		return Coordinator:GetActiveFeatureOwner("bags") == "elvui"

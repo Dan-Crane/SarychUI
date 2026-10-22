@@ -3,6 +3,53 @@ local moduleName = "chat"
 local module = {}
 
 local spamFilterRegistered = false
+local foreignFactionFilterRegistered = false
+local foreignLanguages, foreignTags
+local foreignChatEvents = {
+    "CHAT_MSG_SAY", "CHAT_MSG_YELL", "CHAT_MSG_CHANNEL", "CHAT_MSG_WHISPER",
+    "CHAT_MSG_MONSTER_SAY", "CHAT_MSG_MONSTER_YELL",
+}
+
+local function UpdateForeignFactionLanguage()
+    local faction = UnitFactionGroup("player")
+    foreignLanguages, foreignTags = nil, nil
+    if faction == "Alliance" then
+        foreignLanguages = { orcish = true, ["Орочий"] = true, ["орочий"] = true }
+        foreignTags = { "[Орочий]", "[орочий]", "[Orcish]", "[orcish]" }
+    elseif faction == "Horde" then
+        foreignLanguages = {
+            common = true, ["Общий"] = true, ["общий"] = true,
+            ["Всеобщий"] = true, ["всеобщий"] = true,
+        }
+        foreignTags = {
+            "[Общий]", "[общий]", "[Всеобщий]", "[всеобщий]", "[Common]", "[common]",
+        }
+    end
+end
+
+local function ForeignFactionMessageFilter(_, _, message, _, language)
+    if not foreignLanguages then UpdateForeignFactionLanguage() end
+    if not foreignLanguages then return false end
+    if type(language) == "string" and (foreignLanguages[language] or foreignLanguages[language:lower()]) then
+        return true
+    end
+    if type(message) == "string" then
+        -- Some custom-server messages arrive with the rendered sender/yell
+        -- prefix already inside the text. Accept a language tag directly
+        -- after that prefix too, without matching tags quoted in normal text.
+        local afterPrefix
+        local colon = message:find(": ", 1, true)
+        if colon and colon <= 60 then afterPrefix = colon + 2 end
+        for i = 1, #foreignTags do
+            local tag = foreignTags[i]
+            if message:sub(1, #tag) == tag
+                or (afterPrefix and message:sub(afterPrefix, afterPrefix + #tag - 1) == tag) then
+                return true
+            end
+        end
+    end
+    return false
+end
 
 -- Register module first
 SarychUI:RegisterModule(moduleName, module)
@@ -644,9 +691,33 @@ function module:ApplySpamFilterSettings()
         self:EnableSpamFilter()
         -- Обновляем список паттернов при каждом применении настроек
         self:UpdateSpamFilterPatterns()
+        if db.foreignFactionFilterEnabled == 1 then
+            self:EnableForeignFactionFilter()
+        else
+            self:DisableForeignFactionFilter()
+        end
     else
         self:DisableSpamFilter()
     end
+end
+
+function module:EnableForeignFactionFilter()
+    if foreignFactionFilterRegistered or not ChatFrame_AddMessageEventFilter then return end
+    UpdateForeignFactionLanguage()
+    for i = 1, #foreignChatEvents do
+        ChatFrame_AddMessageEventFilter(foreignChatEvents[i], ForeignFactionMessageFilter)
+    end
+    foreignFactionFilterRegistered = true
+end
+
+function module:DisableForeignFactionFilter()
+    if not foreignFactionFilterRegistered then return end
+    if ChatFrame_RemoveMessageEventFilter then
+        for i = 1, #foreignChatEvents do
+            ChatFrame_RemoveMessageEventFilter(foreignChatEvents[i], ForeignFactionMessageFilter)
+        end
+    end
+    foreignFactionFilterRegistered = false
 end
 
 -- Update Spam Filter patterns
@@ -675,6 +746,7 @@ end
 
 -- Disable Spam Filter functionality
 function module:DisableSpamFilter()
+    self:DisableForeignFactionFilter()
     if _G.DisableSpamFilter then
         _G.DisableSpamFilter()
     end

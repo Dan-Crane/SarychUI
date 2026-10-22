@@ -389,30 +389,6 @@ local function BagsDB()
     return SarychUI.db.profile.modules.bags
 end
 
--- Одна таблица вместо нескольких local (лимит Lua 5.1: 200 local в чанке).
-local baudUI = {
-	SORT_GAP = 1,
-	SEARCH_GAP = 1,
-	SEARCH_WIDTH = 78,
-	SEARCH_ICON = 9,
-	SORT_SIZE = 22,
-}
-
-function baudUI.isMode()
-	return module and module.IsEnabled and module:IsEnabled()
-		and module.IsBaudBagMode and module:IsBaudBagMode()
-end
-
-function baudUI.menuButton(parent)
-	if parent and parent.GetName then
-		local menu = _G[parent:GetName() .. "MenuButton"]
-		if menu then
-			return menu
-		end
-	end
-	return _G.BBCont1_1MenuButton
-end
-
 local function IsBagSortEnabled()
     local automation = AutomationDB()
     return automation and automation.enabled and automation.enableBagSortButton == 1
@@ -420,7 +396,6 @@ end
 
 local function IsClassicBagsUIMode()
     if not module or not module.IsEnabled or not module:IsEnabled() then return false end
-    if baudUI.isMode() then return true end
     if module.IsDefaultMode and module:IsDefaultMode() then return true end
     return false
 end
@@ -467,7 +442,6 @@ sortDriver:Hide()
 
 local sortButton
 local sortButtonHooksInstalled = false
-local baudBagSortHooksInstalled = false
 local searchEditBox
 local sortLoaderActive = false
 local sortLoaderFailsafeElapsed = 0
@@ -485,57 +459,23 @@ K.SORT_BTN_SIZE = 28
 K.SORT_BTN_OFFSET_X = -4
 K.SORT_BTN_OFFSET_Y = -24
 
-function baudUI.anchor(parent)
-    local menu = baudUI.isMode() and baudUI.menuButton(parent) or nil
-    -- XML: MenuButton = 16x16; берём факт. размер кнопки.
-    local menuW, menuH = 16, 16
-    if menu then
-        menuW = menu:GetWidth() or 16
-        menuH = menu:GetHeight() or 16
-        if menuW < 1 then menuW = 16 end
-        if menuH < 1 then menuH = 16 end
-    end
-
+local function AnchorClassicBagControls(parent)
     if sortButton and sortButton:IsShown() then
-        if sortButton:GetParent() ~= parent then
-            sortButton:SetParent(parent)
-        end
+        if sortButton:GetParent() ~= parent then sortButton:SetParent(parent) end
         sortButton:SetFrameLevel((parent.GetFrameLevel and parent:GetFrameLevel() or 0) + 50)
-        if menu then
-            sortButton:SetSize(baudUI.SORT_SIZE, baudUI.SORT_SIZE)
-            sortButton:ClearAllPoints()
-            sortButton:SetPoint("RIGHT", menu, "LEFT", baudUI.SORT_GAP, 0)
-        else
-            sortButton:SetSize(K.SORT_BTN_SIZE, K.SORT_BTN_SIZE)
-            sortButton:ClearAllPoints()
-            sortButton:SetPoint("TOPRIGHT", parent, "TOPRIGHT", K.SORT_BTN_OFFSET_X, K.SORT_BTN_OFFSET_Y)
-        end
+        sortButton:SetSize(K.SORT_BTN_SIZE, K.SORT_BTN_SIZE)
+        sortButton:ClearAllPoints()
+        sortButton:SetPoint("TOPRIGHT", parent, "TOPRIGHT", K.SORT_BTN_OFFSET_X, K.SORT_BTN_OFFSET_Y)
     end
-
     if searchEditBox and searchEditBox:IsShown() then
-        if searchEditBox:GetParent() ~= parent then
-            searchEditBox:SetParent(parent)
-        end
+        if searchEditBox:GetParent() ~= parent then searchEditBox:SetParent(parent) end
         searchEditBox:SetFrameLevel((parent.GetFrameLevel and parent:GetFrameLevel() or 0) + 50)
-        if menu then
-            searchEditBox:SetSize(baudUI.SEARCH_WIDTH, menuH)
-            if searchEditBox.searchIcon then
-                searchEditBox.searchIcon:Show()
-                searchEditBox.searchIcon:SetSize(baudUI.SEARCH_ICON, baudUI.SEARCH_ICON)
-            end
-            searchEditBox:SetTextInsets(baudUI.SEARCH_ICON + 6, 4, 0, 0)
-        else
-            searchEditBox:SetSize(K.SEARCH_BOX_WIDTH, K.SEARCH_BOX_HEIGHT)
-            if searchEditBox.searchIcon then
-                searchEditBox.searchIcon:Hide()
-            end
-            searchEditBox:SetTextInsets(6, 6, 0, 0)
-        end
+        searchEditBox:SetSize(K.SEARCH_BOX_WIDTH, K.SEARCH_BOX_HEIGHT)
+        if searchEditBox.searchIcon then searchEditBox.searchIcon:Hide() end
+        searchEditBox:SetTextInsets(6, 6, 0, 0)
         searchEditBox:ClearAllPoints()
         if sortButton and sortButton:IsShown() then
-            searchEditBox:SetPoint("RIGHT", sortButton, "LEFT", baudUI.SEARCH_GAP, 0)
-        elseif menu then
-            searchEditBox:SetPoint("RIGHT", menu, "LEFT", baudUI.SEARCH_GAP, 0)
+            searchEditBox:SetPoint("RIGHT", sortButton, "LEFT", 1, 0)
         else
             local x = K.SORT_BTN_OFFSET_X - K.SORT_BTN_SIZE + K.SEARCH_BOX_GAP
             local y = K.SORT_BTN_OFFSET_Y - math.floor((K.SORT_BTN_SIZE - K.SEARCH_BOX_HEIGHT) / 2)
@@ -1585,19 +1525,6 @@ local function IsSortInProgress()
 end
 
 local function GetContainerFrameForBagID(bagID)
-    if baudUI.isMode() then
-        if bagID and bagID >= 0 and bagID <= K.PLAYER_BAG_MAX then
-            local sub = _G["BaudBagSubBag" .. bagID]
-            if sub and sub:IsShown() then
-                local parent = sub:GetParent()
-                if parent and parent:IsShown() then
-                    return parent
-                end
-            end
-        end
-        return nil
-    end
-
     if IsBagOpen then
         local frameIndex = IsBagOpen(bagID)
         if frameIndex then
@@ -1626,30 +1553,11 @@ local function GetContainerFrameForBagID(bagID)
 end
 
 local function GetBackpackContainerFrame()
-    if baudUI.isMode() then
-        local sub = _G.BaudBagSubBag0
-        local parent = sub and sub:GetParent()
-        if parent and parent:IsShown() then
-            return parent
-        end
-        local fallback = _G.BBCont1_1
-        if fallback and fallback:IsShown() then
-            return fallback
-        end
-        return nil
-    end
     return GetContainerFrameForBagID(K.BACKPACK_BAG_ID)
 end
 
 local function IsBackpackContainerFrame(frame)
     if not frame then return false end
-    if baudUI.isMode() then
-        local sub = _G.BaudBagSubBag0
-        if sub and sub:GetParent() == frame then
-            return true
-        end
-        return frame == _G.BBCont1_1
-    end
     return frame.GetID and frame:GetID() == K.BACKPACK_BAG_ID
 end
 
@@ -1658,19 +1566,6 @@ local function IsPlayerBagID(bagID)
 end
 
 local function ForEachBackpackSlot(callback)
-    if baudUI.isMode() then
-        local sub = _G.BaudBagSubBag0
-        if not sub or not sub:IsShown() then return end
-        local numSlots = sub.size or SafeBagNumSlots(K.BACKPACK_BAG_ID)
-        for slot = 1, numSlots do
-            local button = _G[sub:GetName() .. "Item" .. slot]
-            if button then
-                callback(button, slot)
-            end
-        end
-        return
-    end
-
     local container = GetBackpackContainerFrame()
     if not container then return end
 
@@ -1730,19 +1625,6 @@ if _G.SEARCH then
 end
 
 local function ForEachOpenClassicBagFrame(callback)
-    if baudUI.isMode() then
-        for bagID = 0, K.PLAYER_BAG_MAX do
-            local sub = _G["BaudBagSubBag" .. bagID]
-            if sub and sub:IsShown() then
-                local parent = sub:GetParent()
-                if parent and parent:IsShown() then
-                    callback(parent, bagID)
-                end
-            end
-        end
-        return
-    end
-
     for bagID = 0, K.PLAYER_BAG_MAX do
         local container = GetContainerFrameForBagID(bagID)
         if container and container:IsShown() then
@@ -1752,25 +1634,6 @@ local function ForEachOpenClassicBagFrame(callback)
 end
 
 local function ForEachOpenClassicBagButton(callback)
-    if baudUI.isMode() then
-        for bagID = 0, K.PLAYER_BAG_MAX do
-            local sub = _G["BaudBagSubBag" .. bagID]
-            if sub and sub:IsShown() then
-                local parent = sub:GetParent()
-                if parent and parent:IsShown() then
-                    local numSlots = sub.size or SafeBagNumSlots(bagID)
-                    for slot = 1, numSlots do
-                        local button = _G[sub:GetName() .. "Item" .. slot]
-                        if button and button:IsShown() then
-                            callback(button, bagID, slot)
-                        end
-                    end
-                end
-            end
-        end
-        return
-    end
-
     ForEachOpenClassicBagFrame(function(container, bagID)
         local numSlots = SafeBagNumSlots(bagID)
         for slot = 1, numSlots do
@@ -2205,7 +2068,7 @@ local function UpdateSearchBoxVisibility()
     end
 
     searchEditBox:Show()
-    baudUI.anchor(parent)
+    AnchorClassicBagControls(parent)
 end
 
 local function EnsureSearchEditBox(parent)
@@ -2237,7 +2100,7 @@ local function EnsureSearchEditBox(parent)
     icon:SetTexture("Interface\\Common\\UI-Searchbox-Icon")
     icon:SetSize(14, 14)
     icon:SetPoint("LEFT", box, "LEFT", 4, -1)
-    icon:Hide() -- classic bags: no magnifying glass (BaudBag may show it)
+    icon:Hide() -- Classic bags use a text-only search field.
     box.searchIcon = icon
 
     box:SetScript("OnTextChanged", function(self)
@@ -2270,7 +2133,7 @@ local function UpdateSortButtonVisibility()
         return
     end
     sortButton:Show()
-    baudUI.anchor(parent)
+    AnchorClassicBagControls(parent)
 end
 
 local function InstallBagSortFrameHooks()
@@ -2285,10 +2148,6 @@ local function InstallBagSortFrameHooks()
     end
 
     local function onContainerFrameHide(self)
-        -- BaudBag starts close with a fade: OnHide fires once while Closing+FadeStart, then re-Shows.
-        if self and self.Closing and self.FadeStart then
-            return
-        end
         if IsBackpackContainerFrame(self) then
             if IsSortInProgress() then
                 stopPacking()
@@ -2301,8 +2160,6 @@ local function InstallBagSortFrameHooks()
             end
             ResetClassicBagSearchVisuals()
         elseif self.GetID and IsPlayerBagID(self:GetID()) then
-            ScheduleClassicBagSearchRefresh()
-        elseif baudUI.isMode() and self.BagSet == 1 then
             ScheduleClassicBagSearchRefresh()
         end
         -- Defer layout refresh: sync ApplyBagSortSettings inside OpenAllBags Hide()
@@ -2336,30 +2193,6 @@ local function InstallBagSortFrameHooks()
         end
     end
 
-    if not baudBagSortHooksInstalled and (BaudBagContainer_OnShow or _G.BBCont1_1) then
-        baudBagSortHooksInstalled = true
-        if hooksecurefunc then
-            if BaudBagContainer_OnShow then
-                hooksecurefunc("BaudBagContainer_OnShow", function(self)
-                    if not baudUI.isMode() then return end
-                    if self and self.BagSet == 1 then
-                        onBagFrameToggle()
-                    end
-                end)
-            end
-            if BaudBagContainer_OnHide then
-                hooksecurefunc("BaudBagContainer_OnHide", function(self)
-                    if not baudUI.isMode() then return end
-                    onContainerFrameHide(self)
-                end)
-            end
-        end
-        local baudMain = _G.BBCont1_1
-        if baudMain and baudMain.HookScript then
-            baudMain:HookScript("OnShow", onBagFrameToggle)
-            baudMain:HookScript("OnHide", onContainerFrameHide)
-        end
-    end
 end
 
 function module:ApplyBagSortSettings()

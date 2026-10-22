@@ -20,8 +20,7 @@ end
 
 -- Register custom fonts
 local function RegisterFonts()
-	-- Add custom fonts here if needed
-	-- LSM:Register("font", "Font Name", [[Interface\AddOns\SarychUI\media\fonts\FontFile.ttf]])
+	LSM:Register("font", "SarychUI Homespun", [[Interface\AddOns\SarychUI\media\fonts\Homespun.ttf]])
 end
 
 -- Register custom textures

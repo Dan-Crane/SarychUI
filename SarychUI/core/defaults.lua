@@ -158,6 +158,12 @@ SarychUI.defaults = {
 		
 		-- Module settings
 		modules = {
+			interface_style = {
+				enabled = false,
+				styleColor = { r = 0, g = 0, b = 0, a = 1 },
+				glossBrightness = 1,
+				debuffOriginalColor = true,
+			},
 			party_abilities = {
 				enabled = true,
 				showPlayer = true,
@@ -176,6 +182,13 @@ SarychUI.defaults = {
             arena = {
                 enabled = true,
                 frameType = "classic",
+                enemyAbilities = {
+                    enabled = true,
+                    displayMode = "cooldown",
+                    anchorMode = "auto",
+                    layout = { side = "RIGHT", growth = "RIGHT", x = 2, y = 6,
+                        autoX = 7, autoY = 0, size = 24, spacing = 5, perRow = 5, showBorders = true, cooldownEdge = true },
+                },
                 -- Position (DragMode)
                 arenaA = "RIGHT",
                 arenaR = "RIGHT",
@@ -185,6 +198,7 @@ SarychUI.defaults = {
                 showGrid = 0,
                 -- Scale
                 scale = 1.0,
+                frameSpacing = 40,
                 -- Test mode (0 = none, 2 = test 2, 3 = test 3, 5 = test 5)
                 testMode = 0,
                 -- Nameplate arena index (RougeUI ArenaNumbers)
@@ -276,11 +290,6 @@ SarychUI.defaults = {
                     GuildBankFrame = {save = true},
                 },
                 
-				-- DarkMode
-				enableDarkMode = 0,
-				darkModeColor = {r = 0.37, g = 0.37, b = 0.37, a = 1},
-				darkModeSkipPlayerAuras = 0,
-
 				-- EasyGlyph (custom glyph icons in glyph UI, bags, vendors)
 				enableEasyGlyph = 1,
 				easyGlyphSkipItems = 1,
@@ -498,6 +507,8 @@ SarychUI.defaults = {
 				enabled = true,
 				-- classic | dragonflight (requires /reload when changed)
 				barStyle = "classic",
+				classicCastbarOffsetY = 0,
+				dragonflightCastbarOffsetY = 0,
 				scale = 1,
 				showPlayerIcon = false,
 				showPlayerIconCooldown = true,
@@ -560,8 +571,9 @@ SarychUI.defaults = {
 			-- Main Menu Bar module
 			mainmenubar = {
 				enabled = true,
-				-- classic | bfa (requires /reload when changed)
+				-- classic | bfa | dragon (requires /reload when changed)
 				barStyle = "classic",
+				dragonSpacing = 6,
 				
 				-- Hotkey settings
 				hideHotkeysEnabled = true,
@@ -604,8 +616,10 @@ SarychUI.defaults = {
 				buttonBorderAlpha = 0.4,
 				microMenuAlphaEnabled = true,
 				microMenuAlpha = 0.95,
+				microMenuShowOnMouseover = false,
 				bagAlphaEnabled = true,
 				bagAlpha = 0.95,
+				bagShowOnMouseover = false,
 				-- classic | dragonflight (только текстуры микроменю)
 				microMenuStyle = "dragonflight",
 				-- DF only: hide latency pip while green; show on yellow/red
@@ -1299,7 +1313,7 @@ SarychUI.defaults = {
 	
 	-- Global settings (not per character)
 	global = {
-        version = "1.3.1a",
+        version = "1.3.2b",
 		quickStartCatalog = false,
 		quickStartCatalogCleared = false,
 		quickStartMiscEnabled = false,
@@ -1674,7 +1688,7 @@ local function MigrateProfileDefaults(profile)
 		if mmbDb.microMenuHideGreenLatency == nil then
 			mmbDb.microMenuHideGreenLatency = mmbDefaults.microMenuHideGreenLatency
 		end
-		if mmbDb.barStyle ~= "bfa" then
+		if mmbDb.barStyle ~= "bfa" and mmbDb.barStyle ~= "dragon" then
 			mmbDb.barStyle = "classic"
 		end
 		if mmbDb.hideBagMicroMenuBackground == nil then

@@ -158,15 +158,12 @@ local function LiveFlag(key, fallback)
 end
 
 -- One aura icon (buff or debuff). Optional Stealable glow / debuff border.
-local LORTI_GLOSS = [[Interface\AddOns\SarychUI\addons\LortiUI\media\gloss]]
-
-local function ToolsDarkMode()
-	local mods = SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.modules
-	local db = mods and mods.tools
-	if not (db and db.enabled and (db.enableDarkMode == 1 or db.enableDarkMode == true)) then
+local function UseStyleTextures()
+	local style = SarychUI_InterfaceStyle
+	if not (style and style.enabled and style.UseStyleTextures()) then
 		return false
 	end
-	return true, db.darkModeColor
+	return true
 end
 
 local function MakeAuraIcon(parent, size, iconPath, opts)
@@ -175,7 +172,7 @@ local function MakeAuraIcon(parent, size, iconPath, opts)
 	f:SetSize(size, size)
 	f._selfAura = opts.selfAura and true or false
 
-	local dark, color = ToolsDarkMode()
+	local dark = UseStyleTextures()
 	local icon = f:CreateTexture(nil, "BACKGROUND")
 	if dark then
 		icon:SetPoint("TOPLEFT", 1, -1)
@@ -191,7 +188,9 @@ local function MakeAuraIcon(parent, size, iconPath, opts)
 		local border = f:CreateTexture(nil, "OVERLAY")
 		local c = opts.debuffColor
 		if dark then
-			border:SetTexture(LORTI_GLOSS)
+			local style = SarychUI_InterfaceStyle
+			border:SetTexture(style:GetDebuffOriginalColor()
+				and style.textures.debuffOriginal or style.textures.normal)
 			border:SetTexCoord(0, 1, 0, 1)
 			border:SetAllPoints(f)
 		else
@@ -200,18 +199,38 @@ local function MakeAuraIcon(parent, size, iconPath, opts)
 			border:SetPoint("TOPLEFT", -1, 1)
 			border:SetPoint("BOTTOMRIGHT", 1, -1)
 		end
-		border:SetVertexColor(c[1], c[2], c[3])
+		if dark then
+			local style = SarychUI_InterfaceStyle
+			local value = style:GetGlossBrightness()
+			local _, _, _, sa = style.GetColor()
+			if style:GetDebuffOriginalColor() then
+				border:SetVertexColor(c[1], c[2], c[3], sa)
+			else
+				border:SetVertexColor(value, value, value, sa)
+			end
+		else
+			local style = SarychUI_InterfaceStyle
+			if style and style.enabled then
+				local sr, sg, sb, sa = style.GetColor()
+				if style:GetDebuffOriginalColor() then
+					border:SetVertexColor(c[1], c[2], c[3], sa)
+				else
+					border:SetVertexColor(sr, sg, sb, sa)
+				end
+			else
+				border:SetVertexColor(c[1], c[2], c[3])
+			end
+		end
 		f.border = border
 	elseif dark then
 		local border = f:CreateTexture(nil, "OVERLAY")
-		border:SetTexture(LORTI_GLOSS)
+		border:SetTexture(SarychUI_InterfaceStyle.textures.normal)
 		border:SetTexCoord(0, 1, 0, 1)
 		border:SetAllPoints(f)
-		if color then
-			border:SetVertexColor(color.r or 0.37, color.g or 0.37, color.b or 0.37, color.a or 1)
-		else
-			border:SetVertexColor(0, 0, 0, 0.9)
-		end
+		local style = SarychUI_InterfaceStyle
+		local _, _, _, a = style.GetColor()
+		local value = style:GetGlossBrightness()
+		border:SetVertexColor(value, value, value, a)
 		f.border = border
 	end
 

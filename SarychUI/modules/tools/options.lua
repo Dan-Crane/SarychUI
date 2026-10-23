@@ -152,14 +152,14 @@ function module:GetOptions()
 								desc = "Выберите клавишу-модификатор для Focuser",
 								order = 2,
 								width = "full",
-								values = { [1] = "SHIFT", [2] = "ALT", [3] = "CTRL" },
+								values = { [1] = "SHIFT", [2] = "ALT", [3] = "CTRL", __order = { 1, 2, 3 } },
 								get = function()
 									local db = DB(); return (db and db.focuserModifierKey) or 2
 								end,
 								set = function(_, val)
 									local db = DB(); if not db then return end
-									db.focuserModifierKey = val
-									if module and module.ApplyFocuser then module:ApplyFocuser() end
+									db.focuserModifierKey = tonumber(val) or 2
+									if module and module.ApplyFocuserModifier then module:ApplyFocuserModifier() end
 									Refresh()
 								end,
 								disabled = function() return not isOn("enableFocuser") end,
@@ -883,87 +883,6 @@ function module:GetOptions()
 						},
 					},
 
-					fpsBox = {
-						type = "group",
-						name = "FPS",
-						desc = "Настройки индикатора FPS при зажатом Alt",
-						order = 2,
-						inline = true,
-						suiTwoCol = true,
-						suiHelpIcon = SarychUI.DOTA_ALT_HELP_ICON,
-						args = {
-							enableAltFPS = {
-								type = "toggle",
-								name = "Показывать FPS при зажатом |cFFFFD700Alt|r",
-								desc = "Показывает FPS в левом верхнем углу при зажатой клавише |cFFFFD700Alt|r",
-								order = 1,
-								width = "full",
-								suiHelpIcon = SarychUI.DOTA_ALT_HELP_ICON,
-								get = toggleGetter,
-								set = function(info, val)
-									local db = DB(); if not db then return end
-									db.enableAltFPS = val and 1 or 0
-									if module and module.ApplyAltFPS then module:ApplyAltFPS() end
-									Refresh()
-								end,
-							},
-							fpsScale = {
-								type = "range",
-								name = "Масштаб FPS",
-								desc = "Размер FPS-индикатора при зажатом |cFFFFD700Alt|r (0.50 - 2.00)",
-								order = 2,
-								width = "full",
-								suiFullRow = true,
-								min = 0.5, max = 2.0, step = 0.05,
-								get = function()
-									local db = DB()
-									return (db and db.fpsScale) or 1.0
-								end,
-								set = function(_, val)
-									local db = DB(); if not db then return end
-									db.fpsScale = val
-									if module and module.ApplyFpsScale then module:ApplyFpsScale() end
-								end,
-								disabled = function() return not isOn("enableAltFPS") end,
-							},
-							fpsExtraOffsetX = {
-								type = "range",
-								name = "Смещение по X",
-								desc = "Дополнительное горизонтальное смещение FPS-индикатора относительно базовой позиции",
-								order = 3,
-								min = -300, max = 300, step = 1,
-								get = function()
-									local db = DB()
-									return (db and db.fpsExtraOffsetX) or 0
-								end,
-								set = function(_, val)
-									local db = DB(); if not db then return end
-									db.fpsExtraOffsetX = val
-									if module and module.SetFpsPosition then module:SetFpsPosition() end
-								end,
-								disabled = function() return not isOn("enableAltFPS") end,
-							},
-							fpsExtraOffsetY = {
-								type = "range",
-								name = "Смещение по Y",
-								desc = "Дополнительное вертикальное смещение FPS-индикатора относительно базовой позиции",
-								order = 4,
-								min = -300, max = 300, step = 1,
-								get = function()
-									local db = DB()
-									return (db and db.fpsExtraOffsetY) or 0
-								end,
-								set = function(_, val)
-									local db = DB(); if not db then return end
-									db.fpsExtraOffsetY = val
-									if module and module.SetFpsPosition then module:SetFpsPosition() end
-								end,
-								disabled = function() return not isOn("enableAltFPS") end,
-							},
-						},
-					},
-
-
 					travelBox = {
 						type = "group",
 						name = "Путешествия и PvP",
@@ -1003,83 +922,6 @@ function module:GetOptions()
 									end
 									Refresh()
 								end,
-							},
-						},
-					},
-
-					darkModeBox = {
-						type = "group",
-						name = "Затемнение текстур интерфейса (LortiUI)",
-						desc = "Lorti UI: затемняет текстуры фреймов, панелей и обводку иконок (UI-Quickslot2)",
-						order = 4,
-						inline = true,
-						args = {
-							enableDarkMode = {
-								type = "toggle",
-								name = "Включить",
-								desc = "Затемняет текстуры интерфейса Blizzard выбранным цветом",
-								order = 1,
-								width = "full",
-								get = toggleGetter,
-								set = function(info, val)
-									local db = DB(); if not db then return end
-									local enable = val and 1 or 0
-									local previous = db.enableDarkMode
-									if previous == enable then return end
-									db.enableDarkMode = enable
-									if module and module.ApplyDarkMode then module:ApplyDarkMode() end
-									Refresh()
-									if enable == 0 and SarychUI and SarychUI.ShowReloadPopup then
-										SarychUI:ShowReloadPopup(nil, function()
-											db.enableDarkMode = 1
-											if module and module.ApplyDarkMode then module:ApplyDarkMode() end
-											Refresh()
-										end)
-									end
-								end,
-							},
-							darkModeColor = {
-								type = "color",
-								name = "Цвет текстур",
-								desc = "Цвет для затемнения текстур интерфейса",
-								order = 2,
-								width = "full",
-								hasAlpha = true,
-								get = function()
-									local db = DB()
-									if not db or not db.darkModeColor then
-										return 0.37, 0.37, 0.37, 1
-									end
-									return db.darkModeColor.r or 0.37, db.darkModeColor.g or 0.37, db.darkModeColor.b or 0.37, db.darkModeColor.a or 1
-								end,
-								set = function(_, r, g, b, a)
-									local db = DB(); if not db then return end
-									db.darkModeColor = db.darkModeColor or {}
-									db.darkModeColor.r = r
-									db.darkModeColor.g = g
-									db.darkModeColor.b = b
-									db.darkModeColor.a = a or 1
-									if module and module.ApplyDarkMode then module:ApplyDarkMode() end
-									Refresh()
-								end,
-								hidden = function() return not isOn("enableDarkMode") end,
-							},
-							darkModeSkipPlayerAuras = {
-								type = "toggle",
-								name = "Убрать затенение в баффах/дебаффах персонажа",
-								desc = "Не затемнять обводку аур персонажа (SUI → Ауры → Ауры персонажа). Ауры цели, фокуса и рейда не меняются.",
-								order = 3,
-								width = "full",
-								get = toggleGetter,
-								set = function(_, val)
-									local db = DB(); if not db then return end
-									db.darkModeSkipPlayerAuras = val and 1 or 0
-									if module and module.ApplyDarkMode then
-										module:ApplyDarkMode()
-									end
-									Refresh()
-								end,
-								hidden = function() return not isOn("enableDarkMode") end,
 							},
 						},
 					},

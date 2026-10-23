@@ -95,7 +95,7 @@ local function ShowClassIcon(levelText, unit, x, y, withRing)
 		if withRing then
 			ring:ClearAllPoints()
 			ring:SetPoint("TOPLEFT", icon, "CENTER", -15, 16)
-			local L = SarychUI_LortiUI
+			local L = SarychUI_InterfaceStyle
 			if L and L.IsSettingOn and L.IsSettingOn() and L.GetColor then
 				local r, g, b, a = L.GetColor()
 				ring:SetVertexColor(r, g, b, a or 1)

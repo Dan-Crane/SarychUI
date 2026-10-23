@@ -5,6 +5,40 @@ local moduleName = "castbar"
 local module = {}
 SarychUI:RegisterModule(moduleName, module)
 
+local classicManagedY
+local deferredPositionFrame
+
+local function ManageCastbarPosition()
+	if not UIParent_ManageFramePositions then return end
+	if InCombatLockdown and InCombatLockdown() then
+		if not deferredPositionFrame then
+			deferredPositionFrame = CreateFrame("Frame")
+			deferredPositionFrame:SetScript("OnEvent", function(self)
+				self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+				ManageCastbarPosition()
+			end)
+		end
+		deferredPositionFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+	else
+		UIParent_ManageFramePositions()
+	end
+end
+
+function module:ApplyClassicCastbarOffset(reset)
+	local positions = UIPARENT_MANAGED_FRAME_POSITIONS
+	local managed = positions and positions.CastingBarFrame
+	if not managed then return end
+	if classicManagedY == nil then classicManagedY = managed.yOffset or 0 end
+	local db = self:DB()
+	local offset = not reset and self:IsEnabled() and self:GetBarStyle() == "classic"
+		and (db and tonumber(db.classicCastbarOffsetY) or 0) or 0
+	local y = classicManagedY + offset
+	if managed.yOffset ~= y then
+		managed.yOffset = y
+		ManageCastbarPosition()
+	end
+end
+
 function module:DB()
 	return SarychUI.GetModuleProfile and SarychUI:GetModuleProfile(moduleName)
 		or (SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.modules and SarychUI.db.profile.modules[moduleName])
@@ -60,11 +94,13 @@ function module:Enable()
 	elseif self.DF then
 		self.DF:Disable()
 	end
+	self:ApplyClassicCastbarOffset()
 	self:ApplyChannelTicks()
 	ApplyTimers()
 end
 
 function module:Disable()
+	self:ApplyClassicCastbarOffset(true)
 	if self.Ticks then
 		self.Ticks:Disable()
 	end
@@ -93,6 +129,12 @@ end
 function module:ApplyScale()
 	if self.DF and self.DF.ApplyScale then
 		self.DF:ApplyScale()
+	end
+end
+
+function module:ApplyDragonflightCastbarOffset()
+	if self.DF and self.DF.ApplyPlayerOffset then
+		self.DF:ApplyPlayerOffset()
 	end
 end
 

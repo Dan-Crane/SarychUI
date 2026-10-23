@@ -213,7 +213,7 @@ end
 -- Spec badge (corner icon of the "badge" style)
 --------------------------------------------------------------------
 local function ApplyRingColor(ring)
-	local L = SarychUI_LortiUI
+	local L = SarychUI_InterfaceStyle
 	if L and L.IsSettingOn and L.IsSettingOn() and L.GetColor then
 		local r, g, b, a = L.GetColor()
 		ring:SetVertexColor(r, g, b, a or 1)

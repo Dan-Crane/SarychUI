@@ -720,9 +720,9 @@ BigDebuffs.Spells = {
 	[20230] = { type = "buffs_defensive", }, -- Retaliation
 	[18499] = { type = "buffs_defensive", }, -- Berserker Rage
 	[1719] = { type = "buffs_offensive", }, -- Recklessness
-	[2457] = { type = "buffs_other", }, -- Battle Stance
-	[2458] = { type = "buffs_other", }, -- Berserker Stance
-	[71] = { type = "buffs_other", }, -- Defensive Stance
+	[2457] = { type = "buffs_other", nounitFrames = true, }, -- Battle Stance
+	[2458] = { type = "buffs_other", nounitFrames = true, }, -- Berserker Stance
+	[71] = { type = "buffs_other", nounitFrames = true, }, -- Defensive Stance
 	[1715] = { type = "snare", }, -- Hamstring
 	[12323] = { type = "snare", }, -- Piercing Howl
 	-- Misc

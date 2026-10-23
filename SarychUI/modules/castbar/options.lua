@@ -39,9 +39,6 @@ local function IsDragonflightStyle()
 end
 
 local function OpenCastbarSettings()
-	if not IsDragonflightStyle() then
-		return
-	end
 	local OC = SarychUI and SarychUI.OptionsCore
 	if OC and OC.SelectTab then
 		OC:SelectTab("settings")
@@ -57,6 +54,9 @@ end
 local function ApplyPlayerTimerOffset()
 	if module.ApplyPlayerTimerOffset then
 		module:ApplyPlayerTimerOffset()
+	end
+	if SarychUI.CastbarTimerPreview and SarychUI.CastbarTimerPreview.RefreshAll then
+		SarychUI.CastbarTimerPreview:RefreshAll()
 	end
 end
 
@@ -123,7 +123,7 @@ local function tickToggleSet(key)
 end
 
 function module:GetOptions()
-	return {
+	local options = {
 		type = "group",
 		name = "Кастбар",
 		desc = "Настройка полос каста игрока, цели и фокуса.",
@@ -202,11 +202,8 @@ function module:GetOptions()
 							openSettings = {
 								type = "execute",
 								name = "Настройки",
-								desc = "Открыть настройки кастбара Dragonflight.",
+								desc = "Открыть настройки кастбара.",
 								order = 2,
-								hidden = function()
-									return not IsDragonflightStyle()
-								end,
 								func = OpenCastbarSettings,
 							},
 						},
@@ -223,9 +220,6 @@ function module:GetOptions()
 				type = "group",
 				name = "Настройки",
 				order = 2,
-				hidden = function()
-					return not IsDragonflightStyle()
-				end,
 				disabled = function()
 					local db = DB()
 					return not (db and db.enabled)
@@ -234,8 +228,9 @@ function module:GetOptions()
 					appearanceBox = {
 						type = "group",
 						name = "Полосы каста",
-						order = 1,
+						order = 2,
 						inline = true,
+						hidden = function() return not IsDragonflightStyle() end,
 						args = {
 							scale = {
 								type = "range",
@@ -309,6 +304,7 @@ function module:GetOptions()
 						name = "Таймер игрока",
 						order = 2,
 						inline = true,
+						hidden = function() return not IsDragonflightStyle() end,
 						args = {
 							playerTimerOffsetX = {
 								type = "range",
@@ -346,6 +342,64 @@ function module:GetOptions()
 									if not db then return end
 									db.playerTimerOffsetY = val
 									ApplyPlayerTimerOffset()
+								end,
+							},
+						},
+					},
+					classicCastbarBox = {
+						type = "group",
+						name = "Положение кастбара",
+						order = 1,
+						inline = true,
+						hidden = IsDragonflightStyle,
+						args = {
+							classicCastbarOffsetY = {
+								type = "range",
+								name = "Смещение по Y",
+								desc = "Вертикальное смещение самого кастбара игрока от положения Blizzard.",
+								min = -300,
+								max = 300,
+								step = 1,
+								order = 1,
+								width = "full",
+								get = function()
+									local db = DB()
+									return db and db.classicCastbarOffsetY or 0
+								end,
+								set = function(_, val)
+									local db = DB()
+									if not db then return end
+									db.classicCastbarOffsetY = val
+									if module.ApplyClassicCastbarOffset then module:ApplyClassicCastbarOffset() end
+								end,
+							},
+						},
+					},
+					dragonflightCastbarBox = {
+						type = "group",
+						name = "Положение кастбара",
+						order = 1,
+						inline = true,
+						hidden = function() return not IsDragonflightStyle() end,
+						args = {
+							dragonflightCastbarOffsetY = {
+								type = "range",
+								name = "Смещение по Y",
+								desc = "Вертикальное смещение кастбара игрока Dragonflight от положения Blizzard.",
+								min = -300,
+								max = 300,
+								step = 1,
+								order = 1,
+								width = "full",
+								get = function()
+									local db = DB()
+									return db and db.dragonflightCastbarOffsetY or 0
+								end,
+								set = function(_, val)
+									local db = DB()
+									if not db then return end
+									db.dragonflightCastbarOffsetY = val
+									if module.ApplyDragonflightCastbarOffset then module:ApplyDragonflightCastbarOffset() end
 								end,
 							},
 						},
@@ -546,4 +600,11 @@ function module:GetOptions()
 			},
 		},
 	}
+	options.args.settings.args.ticksBox = options.args.timers.args.ticksBox
+	options.args.settings.args.ticksBox.order = 3
+	options.args.timers.args.ticksBox = nil
+	options.args.timers.args.playerTimerBox = options.args.settings.args.playerTimerBox
+	options.args.timers.args.playerTimerBox.order = 2
+	options.args.settings.args.playerTimerBox = nil
+	return options
 end

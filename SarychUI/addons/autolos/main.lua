@@ -839,6 +839,7 @@ local function iterateChildren(...)
 end
 
 local targetScanPending = false
+local plateScanPending = false
 
 local function SyncWorldFrameChildren()
 	if not Autolos.IsEnabled() then
@@ -887,7 +888,10 @@ driverFrame:SetScript("OnEvent", function(_, event)
 			runTargetScan()
 		end
 	elseif event == "NAME_PLATE_UNIT_ADDED" then
+		if plateScanPending then return end
+		plateScanPending = true
 		local function runPlateScan()
+			plateScanPending = false
 			if Autolos.IsEnabled() then
 				Autolos.RescanNameplates()
 			end

@@ -366,6 +366,11 @@ function owner:LibNameplates_RecycleNameplate(event, plate)
 	if UseAwesomeWotlk() then
 		return
 	end
+	local root = ResolvePaintPlate(plate)
+	local guid = root and plateToGUID[root]
+	if guid and _G.sarPlatesAuras_MarkRemovedGUID then
+		_G.sarPlatesAuras_MarkRemovedGUID(guid)
+	end
 	ForgetPlateGUID(plate)
 	HidePlateSpells(plate)
 end
@@ -393,6 +398,7 @@ function _G.sarPlatesAuras_PB_Disable()
 	end
 	wipe(plateToGUID)
 	wipe(guidToPlate)
+	wipe(nametoGUIDs)
 	enabled = false
 end
 

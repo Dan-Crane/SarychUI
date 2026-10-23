@@ -97,7 +97,8 @@ end
 
 local function RestoreButtonBorder(button)
 	if not BFA.active then return end
-	if _G.SarychUI_LortiUI and _G.SarychUI_LortiUI.enabled then return end
+	local style = _G.SarychUI_InterfaceStyle
+	if style and style.enabled and style.UseStyleTextures() then return end
 	local texture = button and button.GetNormalTexture and button:GetNormalTexture()
 	if texture then
 		texture:SetVertexColor(1, 1, 1, 1)
@@ -285,11 +286,11 @@ function BFA:ApplyAppearance()
 		end
 	end
 
-	-- Keep dynamically-created BFA backgrounds in the same LortiUI tint cycle
+	-- Keep dynamically-created BFA backgrounds in the same InterfaceStyle tint cycle
 	-- as Blizzard's named action-bar textures.
-	local lorti = _G.SarychUI_LortiUI
-	if lorti and lorti.ApplySarychUIMainMenuBarArtwork then
-		lorti:ApplySarychUIMainMenuBarArtwork(not lorti.enabled)
+	local style = _G.SarychUI_InterfaceStyle
+	if style and style.ApplySarychUIMainMenuBarArtwork then
+		style:ApplySarychUIMainMenuBarArtwork(not style.enabled)
 	end
 end
 

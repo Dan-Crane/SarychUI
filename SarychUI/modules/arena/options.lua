@@ -56,6 +56,44 @@ local function GetDB()
 	return root and root[moduleName]
 end
 
+local function EnemySettings()
+	local db = GetDB()
+	if not db then return end
+	db.enemyAbilities = db.enemyAbilities or { displayMode = "cooldown", anchorMode = "auto" }
+	db.enemyAbilities.layout = db.enemyAbilities.layout or {
+		side = "RIGHT", growth = "RIGHT", x = 2, y = 6,
+		autoX = 7, autoY = 0, size = 24, spacing = 5, perRow = 5, showBorders = true, cooldownEdge = true,
+	}
+	return db.enemyAbilities
+end
+
+local function RefreshEnemyAbilities()
+	local extension = SarychUI.extensions and SarychUI.extensions.party_abilities
+	if extension and extension.RefreshConfig then extension:RefreshConfig() end
+	local preview = SarychUI.PartyAbilitiesPreview
+	if preview and preview.RefreshAll then preview:RefreshAll() end
+end
+
+local function EnemyRange(key, label, minimum, maximum, order)
+	local defaults = { x = 2, y = 6, autoX = 7, autoY = 0, size = 24, spacing = 5, perRow = 5 }
+	return {
+		type = "range", name = function() return L[label] end,
+		min = minimum, max = maximum, step = 1, order = order,
+		get = function()
+			local settings = EnemySettings()
+			local actual = settings and settings.anchorMode == "auto" and (key == "x" or key == "y") and (key == "x" and "autoX" or "autoY") or key
+			return settings and tonumber(settings.layout[actual]) or defaults[actual]
+		end,
+		set = function(_, value)
+			local settings = EnemySettings()
+			if not settings then return end
+			local actual = settings.anchorMode == "auto" and (key == "x" or key == "y") and (key == "x" and "autoX" or "autoY") or key
+			settings.layout[actual] = value
+			RefreshEnemyAbilities()
+		end,
+	}
+end
+
 -- Options table
 function module:GetOptions()
     -- snapshot original enabled when opening options (persist while panel is open)
@@ -64,7 +102,7 @@ function module:GetOptions()
         originalEnabledSnapshot = db and (db.enabled == true) or false
     end
     local originalEnabled = originalEnabledSnapshot
-    return {
+    local options = {
 		type = "group",
 		name = "Арена",
 		desc = "Настройка фреймов арены",
@@ -204,7 +242,6 @@ function module:GetOptions()
 								step = 0.01,
 								isPercent = false,
 								width = "full",
-								suiPreviewKey = "scale",
 								get = function()
 									local db = GetDB()
 									return db and (db.scale or 1.0) or 1.0
@@ -214,7 +251,25 @@ function module:GetOptions()
 									if m and m.SetScale then
 										m:SetScale(value)
 									end
-									NotifyArenaPreview("scale", nil, true)
+								end,
+							},
+							frameSpacing = {
+								type = "range",
+								name = "Отступ между фреймами",
+								desc = "Расстояние между соседними фреймами арены",
+								order = 1.5,
+								min = 0, max = 60, step = 1,
+								width = "full",
+								suiPreviewKey = "frameSpacing",
+								get = function()
+									local db = GetDB()
+									return db and (db.frameSpacing or 40) or 40
+								end,
+								set = function(_, value)
+									local db = GetDB(); if not db then return end
+									db.frameSpacing = value
+									if module.ApplyFrameSpacing then module:ApplyFrameSpacing() end
+									NotifyArenaPreview("frameSpacing", value)
 								end,
 							},
 							classColorHP = {
@@ -666,4 +721,132 @@ function module:GetOptions()
 			},
 		},
 	}
+	options.args.enemyAbilities = {
+		type = "group", name = "Способности противников", order = 4,
+		args = {
+			enabled = {
+				type = "toggle", name = "Включить", order = 1, width = "full",
+				get = function()
+					local settings = EnemySettings()
+					return settings and settings.enabled ~= false
+				end,
+				set = function(_, value)
+					local settings = EnemySettings()
+					if not settings then return end
+					settings.enabled = value and true or false
+					RefreshEnemyAbilities()
+					RefreshArenaOptions()
+				end,
+			},
+			display = {
+				type = "select", name = function() return L["PA_Content"] end, order = 2,
+				disabled = function() local settings = EnemySettings(); return not settings or settings.enabled == false end,
+				values = { all = L["PA_AllAbilities"], cooldown = L["PA_CooldownAbilities"],
+					__order = { "all", "cooldown" } },
+				get = function()
+					local settings = EnemySettings()
+					return settings and settings.displayMode or "cooldown"
+				end,
+				set = function(_, value)
+					local settings = EnemySettings()
+					if not settings then return end
+					settings.displayMode = value
+					RefreshEnemyAbilities()
+				end,
+			},
+			anchorMode = {
+				type = "select", name = "Крепление", order = 2.5,
+				disabled = function() local settings = EnemySettings(); return not settings or settings.enabled == false end,
+				values = { auto = "Автоматическое крепление", manual = "Ручное размещение",
+					__order = { "auto", "manual" } },
+				get = function()
+					local settings = EnemySettings()
+					return settings and settings.anchorMode or "auto"
+				end,
+				set = function(_, value)
+					local settings = EnemySettings()
+					if not settings then return end
+					settings.anchorMode = value
+					RefreshEnemyAbilities()
+				end,
+			},
+			controls = { type = "group", inline = true, name = "", order = 3, suiTwoCol = true,
+				disabled = function() local settings = EnemySettings(); return not settings or settings.enabled == false end,
+				args = {
+					side = { type = "select", name = function() return L["PA_Side"] end, order = 1,
+							hidden = function() local settings = EnemySettings(); return settings and settings.anchorMode == "auto" end,
+						values = { LEFT = L["PA_Left"], RIGHT = L["PA_Right"],
+							TOP = L["PA_Up"], BOTTOM = L["PA_Down"],
+							__order = { "LEFT", "RIGHT", "TOP", "BOTTOM" } },
+						get = function()
+							local settings = EnemySettings()
+							return settings and settings.layout.side or "RIGHT"
+						end,
+						set = function(_, value)
+							local settings = EnemySettings()
+							if not settings then return end
+							settings.layout.side = value
+							RefreshEnemyAbilities()
+						end },
+					growth = { type = "select", name = function() return L["PA_Growth"] end, order = 2,
+							hidden = function() local settings = EnemySettings(); return settings and settings.anchorMode == "auto" end,
+						values = { LEFT = L["PA_Left"], RIGHT = L["PA_Right"],
+							UP = L["PA_Up"], DOWN = L["PA_Down"],
+							__order = { "RIGHT", "LEFT", "UP", "DOWN" } },
+						get = function()
+							local settings = EnemySettings()
+							return settings and settings.layout.growth or "RIGHT"
+						end,
+						set = function(_, value)
+							local settings = EnemySettings()
+							if not settings then return end
+							settings.layout.growth = value
+							RefreshEnemyAbilities()
+						end },
+					x = EnemyRange("x", "PA_OffsetX", -150, 150, 3),
+					y = EnemyRange("y", "PA_OffsetY", -150, 150, 4),
+					spacing = EnemyRange("spacing", "PA_Spacing", 0, 30, 5),
+					perRow = EnemyRange("perRow", "PA_PerRow", 1, 20, 6),
+					size = EnemyRange("size", "PA_Size", 12, 128, 7),
+				} },
+			showBorders = { type = "toggle", name = function() return L["PA_ShowBorders"] end, order = 4,
+				disabled = function() local settings = EnemySettings(); return not settings or settings.enabled == false end,
+				get = function()
+					local settings = EnemySettings()
+					return settings and settings.layout.showBorders == true
+				end,
+				set = function(_, value)
+					local settings = EnemySettings()
+					if not settings then return end
+					settings.layout.showBorders = value
+					RefreshEnemyAbilities()
+				end },
+			cooldownEdge = { type = "toggle", name = function() return L["PA_CooldownEdge"] end, order = 5,
+				disabled = function() local settings = EnemySettings(); return not settings or settings.enabled == false end,
+				get = function()
+					local settings = EnemySettings()
+					return settings and settings.layout.cooldownEdge == true
+				end,
+				set = function(_, value)
+					local settings = EnemySettings()
+					if not settings then return end
+					settings.layout.cooldownEdge = value
+					RefreshEnemyAbilities()
+				end },
+			spells = { type = "execute", name = "Настройка заклинаний", order = 99,
+				width = "full", suiFullRow = true,
+				disabled = function() local settings = EnemySettings(); return not settings or settings.enabled == false end,
+				func = function()
+					local core = SarychUI.OptionsCore
+					if not core then return end
+					core._twoPaneSelected = core._twoPaneSelected or {}
+					core._twoPaneSelected["extensions/registered"] = "party_abilities"
+					core._addonListTabState = core._addonListTabState or {}
+					core._addonListTabState.party_abilities = "spells"
+					core:SelectSection("sui:extensions")
+					core:Refresh()
+				end },
+		},
+	}
+	return options
 end

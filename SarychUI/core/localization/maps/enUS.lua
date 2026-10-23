@@ -290,7 +290,6 @@ M["Заменить |cFFFFD700ESC/Отмена|r на |cFFFFD700ОК|r в окн
 M["Заменяет текстовые смайлики в чате на иконки."] = "Replaces text emoticons in chat with icons."
 M["Запасной отступ курсора"] = "Fallback cursor padding"
 M["Затемнение текстур интерфейса"] = "Interface texture darkening"
-M["Затемнение текстур интерфейса (LortiUI)"] = "Interface texture darkening (LortiUI)"
 M["Затемняет текстуры интерфейса Blizzard выбранным цветом"] = "Darkens Blizzard interface textures with the selected color"
 M["Защитник Ледяных Пустошей"] = "Defender of the Frozen Wastes"
 M["Игровые уведомления"] = "Game notifications"

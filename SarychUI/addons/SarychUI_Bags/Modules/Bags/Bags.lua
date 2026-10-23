@@ -3385,6 +3385,17 @@ function B:RaiseSarychUIBagFrame(frame)
 	B:RaiseLiveBagSlotFrames(frame)
 end
 
+function B:KeepLootFrameAboveBags()
+	if not E.embeddedInSarychUI or not LootFrame or not LootFrame:IsShown() then return end
+	if B.BagFrame and B.BagFrame:IsShown() then
+		if not LootFrame._suiBagsRaised then
+			LootFrame._suiBagsPreviousStrata = LootFrame:GetFrameStrata()
+			LootFrame._suiBagsRaised = true
+		end
+		LootFrame:SetFrameStrata("FULLSCREEN_DIALOG")
+	end
+end
+
 function B:SarychUIBagsDragStart(frame)
 	if not frame then return end
 	bagsDragDebug("drag start", FrameDebugName(frame), frame.isBank and "bank" or "bag")
@@ -6766,6 +6777,7 @@ function B:OpenBags()
 	B.BagFrame:Show()
 	if E.embeddedInSarychUI then
 		B:RaiseSarychUIBagFrame(B.BagFrame)
+		B:KeepLootFrameAboveBags()
 	end
 	bagDebug("Open unified bags")
 	B:UpdateBlizzardBagButtonCheckedState()
@@ -7283,6 +7295,17 @@ function B:Initialize()
 	B.BagFrame = B:ContructContainerFrame("ElvUI_ContainerFrame")
 	B:ApplyElvUIBagWindowPosition(B.BagFrame)
 	B:WarmAdiBagsLayoutCaches(B.BagFrame)
+	if E.embeddedInSarychUI and LootFrame and not LootFrame._suiBagsLayerHooked then
+		LootFrame._suiBagsLayerHooked = true
+		LootFrame:HookScript("OnShow", function() B:KeepLootFrameAboveBags() end)
+		LootFrame:HookScript("OnHide", function(self)
+			if self._suiBagsRaised then
+				self:SetFrameStrata(self._suiBagsPreviousStrata or "HIGH")
+				self._suiBagsPreviousStrata = nil
+				self._suiBagsRaised = nil
+			end
+		end)
+	end
 
 	--Hook onto Blizzard Functions
 	-- RawHook: Blizzard OpenAllBags must NOT run first (it touches ContainerFrames

@@ -185,6 +185,25 @@ local function ContentMode()
 	return kind or "none"
 end
 
+local function EnemySettings()
+	local modules = SUI.db and SUI.db.profile and SUI.db.profile.modules
+	local arena = modules and modules.arena
+	if not arena or arena.enabled == false or arena.frameType ~= "classic" then return end
+	arena.enemyAbilities = arena.enemyAbilities or {
+		displayMode = "cooldown",
+		anchorMode = "auto",
+		layout = { side = "RIGHT", growth = "RIGHT", x = 2, y = 6,
+			autoX = 7, autoY = 0, size = 24, spacing = 5, perRow = 5, showBorders = true, cooldownEdge = true },
+	}
+	return arena.enemyAbilities
+end
+
+local function EnemyAllowed()
+	local settings = EnemySettings()
+	local arena = SUI.db and SUI.db.profile and SUI.db.profile.modules and SUI.db.profile.modules.arena
+	return settings and settings.enabled ~= false and (ContentMode() == "arena" or (arena and (arena.testMode or 0) > 0))
+end
+
 local function ContextFlags()
 	local kind = ContentMode()
 	local raid = (GetNumRaidMembers and GetNumRaidMembers() or 0) > 0
@@ -206,12 +225,12 @@ local function Allowed(db)
 	return false
 end
 
-local function AddUnit(token)
+local function AddUnit(token, enemy)
 	if not UnitExists(token) then return end
 	local guid = UnitGUID(token)
 	local _, class = UnitClass(token)
 	local _, race = UnitRace(token)
-	if guid and class then units[guid] = { token = token, class = class, race = race } end
+	if guid and class then units[guid] = { token = token, class = class, race = race, enemy = enemy } end
 end
 
 local function Roster()
@@ -223,6 +242,17 @@ local function Roster()
 		AddUnit("player")
 		for i = 1, 4 do AddUnit("party" .. i) end
 	end
+	if EnemyAllowed() then
+		for i = 1, 5 do AddUnit("arena" .. i, true) end
+		local arenaModule = SUI.modules and SUI.modules.arena
+		if arenaModule and arenaModule.GetVisibleTestFrame then
+			for i = 1, 5 do
+				if arenaModule:GetVisibleTestFrame(i) then
+					units["sui:arena-test:" .. i] = { token = "arena" .. i, class = "WARRIOR", race = "Orc", enemy = true, test = true }
+				end
+			end
+		end
+	end
 	for guid in pairs(active) do if not units[guid] then active[guid] = nil end end
 	for guid in pairs(old) do if not units[guid] then
 		for key, icon in pairs(icons) do if icon.guid == guid then icon:Hide(); Glow.Stop(icon) end end
@@ -231,6 +261,18 @@ end
 
 local function FrameMap()
 	local map = {}
+	if EnemyAllowed() then
+		local arenaModule = SUI.modules and SUI.modules.arena
+		for i = 1, 5 do
+			local testFrame = arenaModule and arenaModule.GetVisibleTestFrame and arenaModule:GetVisibleTestFrame(i)
+			if testFrame then map["sui:arena-test:" .. i] = { testFrame, "arena" } end
+			local frame = _G["ArenaEnemyFrame" .. i]
+			local guid = UnitGUID("arena" .. i)
+			if frame and frame:IsVisible() and guid and units[guid] then
+				map[guid] = { frame, "arena" }
+			end
+		end
+	end
 	-- Compact frames take priority when both layouts exist.
 	for i = 1, 40 do
 		local frame = _G["CompactRaidFrame" .. i]
@@ -389,10 +431,10 @@ function extension:Observe(guid, spellID, spellName)
 	self:Render()
 end
 
-local function ShouldShow(data, remaining, db)
+local function ShouldShow(data, remaining, displayMode)
 	if data.enabled == false then return false end
-	if db.displayMode == "cooldown" and remaining <= 0 then return false end
-	return Allowed(db)
+	if displayMode == "cooldown" and remaining <= 0 then return false end
+	return true
 end
 
 local function HasTalent(member, guid, id, data)
@@ -455,11 +497,12 @@ function extension:EntryIcon(id, data)
 end
 
 local function AbilityAvailable(member, guid, id, data)
-	if data.faction and UnitFactionGroup and UnitFactionGroup(member.token) ~= data.faction then return false end
+	if data.faction and UnitFactionGroup and (member.test and "Horde" or UnitFactionGroup(member.token)) ~= data.faction then return false end
 	if data.race and member.race ~= data.race then return false end
 	if data.excludeRace and member.race == data.excludeRace then return false end
-	if (data.item or data.trinket) and not TrinketEquipped(member.token, data, id) then return false end
+	if (data.item or data.trinket) and not member.enemy and not TrinketEquipped(member.token, data, id) then return false end
 	if not data.talent then return true end
+	if member.enemy then return true end
 	return HasTalent(member, guid, id, data)
 end
 
@@ -542,7 +585,7 @@ local function GlowNow(data, spellID, remaining, auras)
 	return remaining > 0
 end
 
-local function Position(icon, frame, layout, index, data, cellSize)
+local function Position(icon, frame, layout, index, data, cellSize, autoAnchor, rowCount, centerRows)
 	local side = layout.side or "RIGHT"
 	local point = side == "LEFT" and "RIGHT" or side == "RIGHT" and "LEFT"
 		or side == "TOP" and "BOTTOM" or "TOP"
@@ -553,11 +596,20 @@ local function Position(icon, frame, layout, index, data, cellSize)
 	local perRow = math.max(1, tonumber(layout.perRow) or 6)
 	local col, row = (index - 1) % perRow, math.floor((index - 1) / perRow)
 	local growth = layout.growth or "RIGHT"
-	if growth == "RIGHT" then dx, dy = col * (cellSize + spacing), -row * (cellSize + spacing)
+	if autoAnchor then
+		point, side = "LEFT", "RIGHT"
+		dx = col * (cellSize + spacing)
+		dy = (((rowCount or 1) - 1) / 2 - row) * (cellSize + spacing)
+		frame = autoAnchor
+	elseif growth == "RIGHT" then dx, dy = col * (cellSize + spacing), -row * (cellSize + spacing)
 	elseif growth == "LEFT" then dx, dy = -col * (cellSize + spacing), -row * (cellSize + spacing)
 	elseif growth == "UP" then dx, dy = row * (cellSize + spacing), col * (cellSize + spacing)
 	else dx, dy = row * (cellSize + spacing), -col * (cellSize + spacing) end
-	local x, y = (tonumber(layout.x) or 0) + dx, (tonumber(layout.y) or 0) + dy
+	if centerRows and not autoAnchor and (growth == "RIGHT" or growth == "LEFT") then
+		dy = dy + ((rowCount or 1) - 1) * (cellSize + spacing) / 2
+	end
+	local x, y = (tonumber(autoAnchor and layout.autoX or layout.x) or (autoAnchor and 7 or 0)) + dx,
+		(tonumber(autoAnchor and layout.autoY or layout.y) or 0) + dy
 	RaiseIcon(icon, frame)
 	if icon._anchor == frame and icon._point == point and icon._side == side
 		and icon._x == x and icon._y == y and icon._size == size then return end
@@ -570,8 +622,8 @@ local function Position(icon, frame, layout, index, data, cellSize)
 	icon:SetPoint(point, frame, side, x, y)
 end
 
-function extension:PositionIcon(icon, frame, layout, index, data, cellSize)
-	Position(icon, frame, layout, index, data, cellSize)
+function extension:PositionIcon(icon, frame, layout, index, data, cellSize, autoAnchor, rowCount, centerRows)
+	Position(icon, frame, layout, index, data, cellSize, autoAnchor, rowCount, centerRows)
 end
 
 function extension:ApplyIconAppearance(icon, layout)
@@ -608,7 +660,9 @@ end
 
 function extension:Render()
 	local db = self:GetDB()
-	if not enabled or not db or not Allowed(db) then
+	local partyAllowed = db and db.enabled ~= false and Allowed(db)
+	local enemyAllowed = EnemyAllowed()
+	if not enabled or not db or (not partyAllowed and not enemyAllowed) then
 		for _, icon in pairs(icons) do icon:Hide(); Glow.Stop(icon); icon.glowing = nil end
 		return
 	end
@@ -618,25 +672,50 @@ function extension:Render()
 	for guid, member in pairs(units) do
 		local target = frames[guid]
 		local frame, kind = target and target[1], target and target[2]
-		if frame and (db.showPlayer ~= false or not UnitIsUnit(member.token, "player"))
-			and (not UnitIsDeadOrGhost or not UnitIsDeadOrGhost(member.token)) then
-			local auras = AuraSet(member.token, guid)
+		local showMember = member.enemy and enemyAllowed or (not member.enemy and partyAllowed)
+		if frame and showMember and (member.enemy or db.showPlayer ~= false or not UnitIsUnit(member.token, "player"))
+			and (member.test or not UnitIsDeadOrGhost or not UnitIsDeadOrGhost(member.token)) then
+			local auras = member.test and {} or AuraSet(member.token, guid)
 			local list = {}
 			for id, data in pairs(db.spells or {}) do
 				local known = GetSpellInfo(id) or data.item or data.trinket or data.icon
-				if (data.class == member.class or data.class == "OTHER") and known and AbilityAvailable(member, guid, id, data) then
+				if (data.class == member.class or data.class == "OTHER") and known
+					and (not member.enemy or not (data.race or data.trinket))
+					and AbilityAvailable(member, guid, id, data) then
 					local state = active[guid] and active[guid][id]
+					if member.test and data.enabled ~= false then
+						local duration = math.max(1, tonumber(data.cooldown) or 60)
+						if not state or state.start + state.duration <= now then
+							active[guid] = active[guid] or {}
+							state = { start = now - duration * 0.25, duration = duration }
+							active[guid][id] = state
+						end
+					end
 					local remaining = state and math.max(0, state.start + state.duration - now) or 0
-					if ShouldShow(data, remaining, db) then list[#list + 1] = { id = id, data = data, state = state, remaining = remaining } end
+					local mode = member.enemy and ((EnemySettings() or {}).displayMode or "all") or db.displayMode
+					if ShouldShow(data, remaining, mode) then list[#list + 1] = { id = id, data = data, state = state, remaining = remaining } end
 				end
 			end
 			table.sort(list, function(a, b)
 				local ao, bo = tonumber(a.data.order) or 100, tonumber(b.data.order) or 100
 				return ao == bo and a.id < b.id or ao < bo
 			end)
-			local layout = db.layouts and db.layouts[kind] or {}
+			if member.test and member.token == "arena1" then
+				for index = #list, 4, -1 do list[index] = nil end
+			end
+			local layout = kind == "arena" and ((EnemySettings() or {}).layout or {})
+				or (db.layouts and db.layouts[kind] or {})
 			local cellSize = tonumber(layout.size) or 24
 			for _, item in ipairs(list) do cellSize = math.max(cellSize, tonumber(item.data.size) or 0) end
+			local autoAnchor
+			if member.enemy and (EnemySettings() or {}).anchorMode == "auto" then
+				local arenaModule = SUI.modules and SUI.modules.arena
+				local index = tonumber(member.token and member.token:match("^arena(%d+)$"))
+				if arenaModule and arenaModule.GetAbilityAnchor and index then
+					autoAnchor = arenaModule:GetAbilityAnchor(index, member.test)
+				end
+			end
+			local rowCount = math.ceil(#list / math.max(1, tonumber(layout.perRow) or 6))
 			for index, item in ipairs(list) do
 				local key = guid .. ":" .. item.id
 				local icon = icons[key] or NewIcon(key, guid)
@@ -648,7 +727,7 @@ function extension:Render()
 					icon._tex = tex
 					icon.texture:SetTexture(tex)
 				end
-				Position(icon, frame, layout, index, item.data, cellSize)
+				Position(icon, frame, layout, index, item.data, cellSize, autoAnchor, rowCount, member.enemy)
 				self:ApplyIconAppearance(icon, layout)
 				if item.remaining > 0 then
 					icon.texture:SetVertexColor(0.55, 0.55, 0.55)
@@ -687,9 +766,10 @@ end
 
 function extension:RefreshConfig()
 	local db = self:GetDB()
+	local enemy = EnemySettings()
 	if lastDB and lastDB ~= db then active = {} end
 	lastDB = db
-	if db and db.enabled ~= false then self:Enable() else self:Disable() end
+	if db and (db.enabled ~= false or (enemy and enemy.enabled ~= false)) then self:Enable() else self:Disable() end
 	if enabled then
 		for guid, spells in pairs(active) do
 			for id, state in pairs(spells) do
@@ -704,7 +784,8 @@ function extension:RefreshConfig()
 end
 
 local function UpdateTick()
-	local tracking = enabled and IsInGroup()
+	local db = DB()
+	local tracking = enabled and ((db and db.enabled ~= false and IsInGroup()) or EnemyAllowed())
 	if tracking ~= trackingEvents then
 		trackingEvents = tracking
 		if tracking then
@@ -739,7 +820,7 @@ function extension:Enable()
 	enabled = true
 	for _, name in ipairs({ "PARTY_MEMBERS_CHANGED", "RAID_ROSTER_UPDATE", "PLAYER_ENTERING_WORLD", "ZONE_CHANGED_NEW_AREA",
 		"PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_TALENT_UPDATE", "UNIT_NAME_UPDATE",
-		"UNIT_FACTION", "UNIT_AURA", "UNIT_INVENTORY_CHANGED", "PLAYER_EQUIPMENT_CHANGED", "GET_ITEM_INFO_RECEIVED",
+		"UNIT_FACTION", "UNIT_AURA", "ARENA_OPPONENT_UPDATE", "UNIT_INVENTORY_CHANGED", "PLAYER_EQUIPMENT_CHANGED", "GET_ITEM_INFO_RECEIVED",
 		"INSPECT_TALENT_READY" }) do
 		eventFrame:RegisterEvent(name)
 	end

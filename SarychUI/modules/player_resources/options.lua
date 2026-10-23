@@ -26,6 +26,9 @@ local function Apply()
 	if module.Refresh then
 		module:Refresh()
 	end
+	if SarychUI.PlayerResourcesPreview then
+		SarychUI.PlayerResourcesPreview:RefreshAll()
+	end
 end
 
 local function Toggle(sub, key)
@@ -214,9 +217,9 @@ end
 
 function module:GetOptions()
 
-	return {
+	local options = {
 		type = "group",
-		name = "Ресурсы игрока",
+		name = "Персональный индикатор ресурсов",
 		desc = "Компактная панель здоровья и ресурса, руны, тотемы и индикатор щита.",
 		childGroups = "tab",
 		args = {
@@ -228,7 +231,7 @@ function module:GetOptions()
 					enabled = {
 						type = "toggle",
 						name = "Включить модуль",
-						desc = "Включить или выключить модуль «Ресурсы игрока».",
+						desc = "Включить или выключить модуль «Персональный индикатор ресурсов».",
 						order = 1,
 						width = "full",
 						get = function() return DB().enabled end,
@@ -252,6 +255,13 @@ function module:GetOptions()
 						name = "Внешний вид",
 						order = 1,
 						args = {
+							preview = {
+								type = "description",
+								name = "",
+								order = 0,
+								width = "full",
+								suiPlayerResourcesPreview = true,
+							},
 							generalBox = {
 								type = "group",
 								name = "Панель игрока",
@@ -859,4 +869,16 @@ function module:GetOptions()
 			},
 		},
 	}
+	local plate = options.args.plate
+	options.args.appearance = plate.args.appearance
+	options.args.appearance.order = 2
+	options.args.appearance.disabled = plate.disabled
+	options.args.position = plate.args.position
+	options.args.position.order = 3
+	options.args.position.disabled = plate.disabled
+	options.args.plate = nil
+	options.args.shield.order = 4
+	options.args.runes.order = 5
+	options.args.totems.order = 6
+	return options
 end

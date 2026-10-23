@@ -108,13 +108,19 @@ function module:Enable()
 
 	if self._bootBarStyle == "bfa" and self.BFAStyle then
 		self.BFAStyle:Enable()
+	elseif self._bootBarStyle == "dragon" and self.DragonStyle then
+		self.DragonStyle:Enable()
 	end
 end
 
 -- Disable module - COORDINATOR FUNCTION
 function module:Disable()
+	if self.StopTransparencyHover then self:StopTransparencyHover() end
 	if self.BFAStyle and self.BFAStyle.active then
 		self.BFAStyle:Disable()
+	end
+	if self.DragonStyle and self.DragonStyle.active then
+		self.DragonStyle:Disable()
 	end
 
 	-- Unregister Alt mode callback
@@ -307,48 +313,41 @@ function module:Disable()
         end
     end
     
+    -- Keep the interface style's border color/opacity when its new textures are active.
+    local style = _G.SarychUI_InterfaceStyle
+    local keepStyleBorder = style and style.enabled and style.UseStyleTextures and style.UseStyleTextures()
+    local function ResetButtonTextures(button)
+        if not button then return end
+        local normal = button.GetNormalTexture and button:GetNormalTexture()
+        if normal and not keepStyleBorder then normal:SetAlpha(1.0) end
+        local pushed = button.GetPushedTexture and button:GetPushedTexture()
+        local highlight = button.GetHighlightTexture and button:GetHighlightTexture()
+        if pushed then pushed:SetAlpha(1.0) end
+        if highlight then highlight:SetAlpha(1.0) end
+    end
+
     -- Reset BUTTON BORDER ALPHA
     local buttonTypes = {
         "ActionButton", "MultiBarBottomLeftButton", "MultiBarBottomRightButton",
-        "MultiBarRightButton", "MultiBarLeftButton", "BonusActionButton",
-        "MainMenuBarBackpackButton", "CharacterBag0Slot", "CharacterBag1Slot", "CharacterBag2Slot", "CharacterBag3Slot"
+        "MultiBarRightButton", "MultiBarLeftButton", "BonusActionButton"
     }
 
     for i = 1, 12 do
         for _, btnType in ipairs(buttonTypes) do
-            local button = _G[btnType .. i]
-            if button then
-                for _, tex in ipairs({button:GetNormalTexture(), button:GetPushedTexture(), button:GetHighlightTexture()}) do
-                    if tex then 
-                        tex:SetAlpha(1.0)
-                    end
-                end
-            end
+            ResetButtonTextures(_G[btnType .. i])
         end
     end
+    ResetButtonTextures(_G.MainMenuBarBackpackButton)
+    for i = 0, 3 do ResetButtonTextures(_G["CharacterBag" .. i .. "Slot"]) end
     
     -- Apply to pet bar buttons
     for i = 1, 10 do
-        local button = _G["PetActionButton" .. i]
-        if button then
-            for _, tex in ipairs({button:GetNormalTexture(), button:GetPushedTexture(), button:GetHighlightTexture()}) do
-                if tex then 
-                    tex:SetAlpha(1.0)
-                end
-            end
-        end
+        ResetButtonTextures(_G["PetActionButton" .. i])
     end
     
     -- Apply to possess bar buttons
     for i = 1, POSSESS_SLOTS do
-        local button = _G["PossessButton" .. i]
-        if button then
-            for _, tex in ipairs({button:GetNormalTexture(), button:GetPushedTexture(), button:GetHighlightTexture()}) do
-                if tex then 
-                    tex:SetAlpha(1.0)
-                end
-            end
-        end
+        ResetButtonTextures(_G["PossessButton" .. i])
     end
     
     -- Reset MICRO MENU ALPHA

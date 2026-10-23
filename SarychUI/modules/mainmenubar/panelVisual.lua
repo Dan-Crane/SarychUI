@@ -518,7 +518,6 @@ end
 -- Apply action bar backgrounds
 local function ApplyActionBarBackgrounds()
     local hideActionBarBackgrounds = GetSetting('hideActionBarBackgrounds', false)
-    local lortiOn = _G.SarychUI_LortiUI and _G.SarychUI_LortiUI.enabled
     
     local actionBars = {
         "MultiBarBottomLeft", "MultiBarBottomRight", "MultiBarRight", "MultiBarLeft", "MainMenuBar", "BonusActionBarFrame"
@@ -827,24 +826,22 @@ end
 local function ApplyButtonBorderAlpha()
     local buttonBorderAlphaEnabled = GetSetting('buttonBorderAlphaEnabled', false)
     local buttonBorderAlpha = GetSetting('buttonBorderAlpha', 0.4)
-    local toolsDb = SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.modules and SarychUI.db.profile.modules.tools
-    local dark = toolsDb and (toolsDb.enableDarkMode == 1 or toolsDb.enableDarkMode == true) and toolsDb.darkModeColor
+    local style = _G.SarychUI_InterfaceStyle
+    local newTextures = style and style.enabled and style.UseStyleTextures and style.UseStyleTextures()
 
     local function Paint(button)
         if not button then return end
-        -- Lorti owns these buttons while dark mode is active. Its black rim
-        -- must not inherit SarychUI's tint or border alpha.
-        if _G.SarychUI_LortiUI and _G.SarychUI_LortiUI.enabled then return end
+        if newTextures then return end
         local nt = button.GetNormalTexture and button:GetNormalTexture()
-        local pt = button.GetPushedTexture and button:GetPushedTexture()
-        if dark then
-            if nt then nt:SetVertexColor(dark.r or 0.37, dark.g or 0.37, dark.b or 0.37, dark.a or 1) end
-            if pt then pt:SetVertexColor(dark.r or 0.37, dark.g or 0.37, dark.b or 0.37, dark.a or 1) end
-        end
+        local name = button.GetName and button:GetName()
+        local named = name and _G[name .. "NormalTexture"]
+        local second = name and _G[name .. "NormalTexture2"]
         local a = buttonBorderAlphaEnabled and (buttonBorderAlpha or 0.4) or 1
         -- NormalTexture is the button rim. Pushed, highlight and checked
         -- textures cover the button interior and must not inherit its opacity.
         if nt then nt:SetAlpha(a) end
+        if named and named ~= nt then named:SetAlpha(a) end
+        if second and second ~= nt and second ~= named then second:SetAlpha(a) end
     end
     
     local buttonTypes = {
@@ -859,6 +856,7 @@ local function ApplyButtonBorderAlpha()
         end
     end
     Paint(_G["MainMenuBarBackpackButton"])
+	for i = 0, 3 do Paint(_G["CharacterBag" .. i .. "Slot"]) end
 
     for i = 1, 10 do
         Paint(_G["PetActionButton" .. i])
@@ -867,6 +865,7 @@ local function ApplyButtonBorderAlpha()
     for i = 1, POSSESS_SLOTS do
         Paint(_G["PossessButton" .. i])
     end
+	if newTextures and style.RefreshButtonAppearance then style:RefreshButtonAppearance() end
 
 	local castbar = SarychUI.modules and SarychUI.modules.castbar
 	if castbar and castbar.ApplyPlayerIconBorderAlpha then
@@ -1294,10 +1293,13 @@ ApplyMicroMenuStyle = function()
 end
 
 -- Apply micro menu alpha
+local microMenuHovered = false
+local bagsHovered = false
+
 ApplyMicroMenuAlpha = function()
     local microMenuAlphaEnabled = GetSetting('microMenuAlphaEnabled', false)
     local microMenuAlpha = GetSetting('microMenuAlpha', 0.95)
-    local a = microMenuAlphaEnabled and (microMenuAlpha or 0.95) or 1
+    local a = microMenuHovered and 1 or (microMenuAlphaEnabled and (microMenuAlpha or 0.95) or 1)
 
     local seen = {}
     local function Paint(button)
@@ -1338,7 +1340,7 @@ local bagAlphaHooked
 local function ApplyBagAlpha()
     local bagAlphaEnabled = GetSetting("bagAlphaEnabled", false)
     local bagAlpha = GetSetting("bagAlpha", 0.95)
-    local a = bagAlphaEnabled and (bagAlpha or 0.95) or 1
+    local a = bagsHovered and 1 or (bagAlphaEnabled and (bagAlpha or 0.95) or 1)
 
     for i = 1, #BAG_ALPHA_BUTTONS do
         local button = _G[BAG_ALPHA_BUTTONS[i]]
@@ -1355,6 +1357,87 @@ local function ApplyBagAlpha()
         end
         bagAlphaHooked = true
     end
+end
+
+local function CursorOverButton(button, x, y)
+    if not button or not button.IsVisible or not button:IsVisible() then
+        return false
+    end
+    if button.IsMouseOver then
+        return button:IsMouseOver()
+    end
+    if not button.GetRect then return false end
+    local left, bottom, width, height = button:GetRect()
+    return left and bottom and width and height
+        and x >= left and x <= left + width and y >= bottom and y <= bottom + height
+end
+
+function module:UpdateTransparencyHover()
+    local watchMicro = GetSetting('microMenuAlphaEnabled', false)
+        and GetSetting('microMenuShowOnMouseover', false)
+    local watchBags = GetSetting('bagAlphaEnabled', false)
+        and GetSetting('bagShowOnMouseover', false)
+
+    if not self.transparencyHoverFrame then
+        local frame = CreateFrame('Frame', nil, UIParent)
+        local elapsedSinceCheck = 0
+        frame:SetScript('OnUpdate', function(_, elapsed)
+            elapsedSinceCheck = elapsedSinceCheck + elapsed
+            if elapsedSinceCheck >= 0.05 then
+                elapsedSinceCheck = 0
+                module:UpdateTransparencyHover()
+            end
+        end)
+        frame:Hide()
+        self.transparencyHoverFrame = frame
+    end
+
+    if watchMicro or watchBags then self.transparencyHoverFrame:Show()
+    else self.transparencyHoverFrame:Hide() end
+
+    local x, y
+    if watchMicro or watchBags then
+        x, y = GetCursorPosition()
+        local scale = UIParent:GetScale()
+        x, y = x / scale, y / scale
+    end
+
+    local overMicro = false
+    if watchMicro then
+        for _, entry in ipairs(MICRO_MENU_BUTTONS) do
+            if CursorOverButton(_G[entry.button], x, y) then overMicro = true; break end
+        end
+        local holder = _G.SarychUIMicroMenu
+        if not overMicro and holder and holder.GetChildren then
+            for _, child in ipairs({ holder:GetChildren() }) do
+                if child and child.GetNormalTexture and CursorOverButton(child, x, y) then
+                    overMicro = true
+                    break
+                end
+            end
+        end
+    end
+    if overMicro ~= microMenuHovered then
+        microMenuHovered = overMicro
+        ApplyMicroMenuAlpha()
+    end
+
+    local overBags = false
+    if watchBags then
+        for _, name in ipairs(BAG_ALPHA_BUTTONS) do
+            if CursorOverButton(_G[name], x, y) then overBags = true; break end
+        end
+    end
+    if overBags ~= bagsHovered then
+        bagsHovered = overBags
+        ApplyBagAlpha()
+    end
+end
+
+function module:StopTransparencyHover()
+    if self.transparencyHoverFrame then self.transparencyHoverFrame:Hide() end
+    microMenuHovered = false
+    bagsHovered = false
 end
 
 -- Apply experience bar settings
@@ -2628,6 +2711,7 @@ function module:ApplyAppearanceSettings()
     ApplyButtonBorderAlpha()
     ApplyMicroMenuAlpha()
     ApplyBagAlpha()
+    self:UpdateTransparencyHover()
     
     -- Apply bar settings
 	ApplyExperienceBarSettings()
@@ -2643,6 +2727,10 @@ function module:ApplyAppearanceSettings()
 	-- page arrows stay in the state chosen by hidePageButtons.
 	ApplyPageButtonsSettings()
 	ApplyBagAlpha()
+	local style = _G.SarychUI_InterfaceStyle
+	if style and style.enabled then
+		if style.RefreshButtonAppearance then style:RefreshButtonAppearance() end
+	end
 end
 
 -- Export functions to module

@@ -283,7 +283,6 @@ M["Заменить |cFFFFD700ESC/Отмена|r на |cFFFFD700ОК|r в окн
 M["Заменяет текстовые смайлики в чате на иконки."] = "Reemplaza los emoticones de texto en el chat con íconos."
 M["Запасной отступ курсора"] = "Relleno del cursor de reserva"
 M["Затемнение текстур интерфейса"] = "Oscurecimiento de la textura de la interfaz"
-M["Затемнение текстур интерфейса (LortiUI)"] = "Oscurecimiento de la textura de la interfaz (LortiUI)"
 M["Затемняет текстуры интерфейса Blizzard выбранным цветом"] = "Oscurece las texturas de la interfaz Blizzard con el color seleccionado"
 M["Защитник Ледяных Пустошей"] = "Defensor de los Páramos Congelados"
 M["Игровые уведомления"] = "Notificaciones del juego"

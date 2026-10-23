@@ -80,6 +80,54 @@ local function Classic(parent, sample)
 	return frame
 end
 
+local function Arena(parent, sample)
+	-- Blizzard ArenaEnemyFrameTemplate: 102x32, with 70x8 bars.
+	local frame = CreateFrame("Frame", nil, parent)
+	frame:SetSize(102, 32)
+	local portrait = frame:CreateTexture(nil, "BACKGROUND")
+	portrait:SetTexture("Interface\\TargetingFrame\\UI-Classes-Circles")
+	local coords = CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[sample.class]
+	if coords then portrait:SetTexCoord(unpack(coords)) end
+	portrait:SetSize(30, 30)
+	portrait:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -1, -4)
+	local shade = Flat(frame, "BACKGROUND", 0, 0, 0, 0.5)
+	shade:SetSize(72, 17)
+	shade:SetPoint("TOPLEFT", frame, "TOPLEFT", 2, -10)
+	local health = Bar(frame, STATUS, 0.78)
+	health:SetSize(70, 8)
+	health:SetPoint("TOPLEFT", frame, "TOPLEFT", 2, -12)
+	local power = Bar(frame, STATUS, 0.62)
+	power:SetSize(70, 8)
+	power:SetPoint("TOPLEFT", frame, "TOPLEFT", 2, -20)
+	power:SetStatusBarColor(unpack(sample.power))
+	local chrome = CreateFrame("Frame", nil, frame)
+	chrome:SetAllPoints(frame)
+	chrome:SetFrameLevel(math.max(health:GetFrameLevel(), power:GetFrameLevel()) + 1)
+	local art = chrome:CreateTexture(nil, "ARTWORK")
+	art:SetTexture("Interface\\ArenaEnemyFrame\\UI-ArenaTargetingFrame")
+	art:SetTexCoord(0, 0.796, 0, 0.5)
+	art:SetSize(102, 32)
+	art:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -2)
+	local name = chrome:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+	name:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 3, 24)
+	name:SetText(SampleName(sample.class))
+	frame.health, frame.power = health, power
+	local function SampleIcon(texture)
+		local icon = CreateFrame("Frame", nil, frame)
+		icon:SetSize(26, 26)
+		local art = icon:CreateTexture(nil, "ARTWORK")
+		art:SetAllPoints(icon)
+		art:SetTexture(texture)
+		art:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+		return icon
+	end
+	frame.trinket = SampleIcon("Interface\\Icons\\INV_Jewelry_TrinketPVP_02")
+	frame.racial = SampleIcon(sample.race == "Human" and "Interface\\Icons\\Spell_Shadow_Charm"
+		or sample.race == "Orc" and "Interface\\Icons\\Racial_Orc_BerserkerStrength"
+		or "Interface\\Icons\\Ability_Ambush")
+	return frame
+end
+
 local function Compact(parent, sample)
 	local frame = CreateFrame("Frame", nil, parent)
 	local bg = frame:CreateTexture(nil, "BACKGROUND")
@@ -158,6 +206,7 @@ local function Abilities(db, sample)
 			and (not data.excludeRace or data.excludeRace ~= sample.race)
 			and data.enabled ~= false
 			and not data.item and not data.trinket
+			and (not db.arena or not data.race)
 			and (GetSpellInfo(id) or data.icon) then
 			list[#list + 1] = { id = id, data = data }
 		end
@@ -201,8 +250,9 @@ local function IconSpan(shown, layout)
 	return rows * (cellSize + (tonumber(layout.spacing) or 2)), cellSize
 end
 
-local function RefreshIcons(host, row, layout, frame, shown, cellSize)
+local function RefreshIcons(host, row, layout, frame, shown, cellSize, autoAnchor)
 	local now = GetTime()
+	local rowCount = math.ceil(#shown / math.max(1, tonumber(layout.perRow) or 6))
 	for index, item in ipairs(shown) do
 		local icon = row.icons[index] or NewIcon(host)
 		row.icons[index] = icon
@@ -211,7 +261,8 @@ local function RefreshIcons(host, row, layout, frame, shown, cellSize)
 			icon.texture:SetTexture(extension:EntryIcon(item.id, item.data))
 			icon.timerStart = nil
 		end
-		extension:PositionIcon(icon, frame, layout, index, item.data, cellSize)
+		extension:PositionIcon(icon, frame, layout, index, item.data, cellSize, autoAnchor, rowCount,
+			host._mode == "arena")
 		extension:ApplyIconAppearance(icon, layout)
 		if item.onCooldown then
 			local duration = tonumber(item.data.cooldown) or 60
@@ -289,10 +340,11 @@ function Preview:ClearStickyHosts()
 	self._instances = {}
 end
 
-function Preview:Create(parent)
+function Preview:Create(parent, mode)
 	self:ClearStickyHosts()
 	local host = CreateFrame("Frame", nil, parent)
 	host:SetHeight(PREVIEW_HEIGHT)
+	host._mode = mode
 	host.spacer = host
 	local theme = SUI.OptionsTheme
 	if theme and theme.ApplyFlat then
@@ -307,9 +359,14 @@ function Preview:Create(parent)
 	title:SetJustifyH("LEFT")
 	host.rows = {}
 	for index, sample in ipairs(samples) do
+		if mode == "arena" and index > 2 then break end
 		local row = { sample = sample, icons = {} }
-		row.classic = Classic(host, sample)
-		row.compact = Compact(host, sample)
+		if mode == "arena" then
+			row.arena = Arena(host, sample)
+		else
+			row.classic = Classic(host, sample)
+			row.compact = Compact(host, sample)
+		end
 		host.rows[index] = row
 	end
 
@@ -318,18 +375,24 @@ function Preview:Create(parent)
 		if not hostWidth or hostWidth < 200 then return end
 		self._laidOutWidth = hostWidth
 		local db = extension:GetDB()
-		local kind = extension:GetLayoutKind()
-		local layout = db.layouts and db.layouts[kind] or {}
-		local otherLayout = db.layouts and db.layouts[kind == "compact" and "blizzard" or "compact"] or {}
-		local w, h, powerShown, classColors, healthText, borderShown, override = CompactSettings()
-		title:SetText(SUI.L[kind == "compact" and "PA_Compact" or "PA_Blizzard"])
-		local frameW = kind == "compact" and w or 128
+		local kind = self._mode == "arena" and "arena" or extension:GetLayoutKind()
+		local arenaDB = SUI.db and SUI.db.profile and SUI.db.profile.modules and SUI.db.profile.modules.arena
+		local enemy = arenaDB and arenaDB.enemyAbilities or {}
+		local layout = kind == "arena" and (enemy.layout or {}) or (db.layouts and db.layouts[kind] or {})
+		local otherLayout = kind == "arena" and {} or (db.layouts and db.layouts[kind == "compact" and "blizzard" or "compact"] or {})
+		local w, h, powerShown, classColors, healthText, borderShown, override
+		if kind == "arena" then w, h = 102, 32
+		else w, h, powerShown, classColors, healthText, borderShown, override = CompactSettings() end
+		title:SetText(kind == "arena" and "Только классические арена фреймы"
+			or SUI.L[kind == "compact" and "PA_Compact" or "PA_Blizzard"])
+		local frameW = kind == "arena" and 102 or kind == "compact" and w or 128
 		local x = math.max(110, math.floor((hostWidth - frameW) / 2))
 		local y = -37
 		for _, row in ipairs(self.rows) do
-			local frame = kind == "compact" and row.compact or row.classic
-			local other = kind == "compact" and row.classic or row.compact
-			other:Hide()
+			local frame = kind == "arena" and row.arena or kind == "compact" and row.compact or row.classic
+			for _, candidate in pairs({ row.classic, row.compact, row.arena }) do
+				if candidate ~= frame then candidate:Hide() end
+			end
 			frame:ClearAllPoints()
 			frame:SetPoint("TOPLEFT", self, "TOPLEFT", x, y)
 			if kind == "compact" then
@@ -365,30 +428,69 @@ function Preview:Create(parent)
 				frame.health:SetStatusBarColor(r, g, b)
 			end
 			frame:Show()
-			local shown = ShownAbilities(db, row.sample)
+			local autoAnchor
+			if kind == "arena" then
+				local tr = arenaDB and arenaDB.Trinkets or {}
+				local scale = tonumber(tr.scale) or 1
+				local showTrinket = tr.enabled ~= false and row.sample.race ~= "Human"
+				local showRacial = tr.racialEnabled ~= false
+				frame.trinket:SetScale(scale)
+				frame.racial:SetScale(scale)
+				frame.trinket:ClearAllPoints()
+				frame.trinket:SetPoint("LEFT", frame, "RIGHT", 2, -2)
+				frame.racial:ClearAllPoints()
+				frame.racial:SetPoint("LEFT", showTrinket and frame.trinket or frame,
+					"RIGHT", showTrinket and 5 or 2, showTrinket and 0 or -2)
+				if showTrinket then frame.trinket:Show() else frame.trinket:Hide() end
+				if showRacial then frame.racial:Show() else frame.racial:Hide() end
+				if enemy.anchorMode == "auto" then
+					autoAnchor = showRacial and frame.racial or showTrinket and frame.trinket or frame
+				end
+			end
+			local shown = ShownAbilities(kind == "arena"
+				and { spells = db.spells, displayMode = enemy.displayMode or "all", arena = true } or db, row.sample)
+			if kind == "arena" then
+				local limit = row == self.rows[1] and 3
+					or math.min(8, math.max(6, (tonumber(layout.perRow) or 5) + 1))
+				for index = #shown, limit + 1, -1 do shown[index] = nil end
+			end
 			local iconSpan, cell = IconSpan(shown, layout)
-			local otherSpan = IconSpan(shown, otherLayout)
-			RefreshIcons(self, row, layout, frame, shown, cell)
+			local otherSpan = kind == "arena" and 0 or IconSpan(shown, otherLayout)
+			RefreshIcons(self, row, layout, frame, shown, cell, autoAnchor)
 			local rowHeight = math.max(h, iconSpan, otherSpan) + 22
 			y = y - rowHeight
 		end
-		self:SetHeight(math.max(PREVIEW_HEIGHT, -y + 10))
+		local height = math.max(PREVIEW_HEIGHT, -y + 10)
+		if math.abs(self:GetHeight() - height) >= 1 then self:SetHeight(height) end
 		if self._kind and self._kind ~= kind and SUI.NotifySarychUIOptionsChange then
 			SUI:NotifySarychUIOptionsChange()
 		end
 		self._kind = kind
 	end
 
-	host:SetScript("OnShow", function(self) self:Refresh() end)
-	host:SetScript("OnSizeChanged", function(self, width)
-		if width and width >= 200 and width ~= self._laidOutWidth then self:Refresh() end
+	host:SetScript("OnShow", function(self)
+		self:Refresh()
+		if self._mode == "arena" and self._laidOutWidth then self:SetScript("OnSizeChanged", nil) end
 	end)
-	host:SetScript("OnUpdate", function(self, delta)
+	if mode == "arena" then
+		-- The options window can report size changes while it is being dragged.
+		-- Arena preview geometry only needs its initial width and explicit setting refreshes.
+		host:SetScript("OnSizeChanged", function(self, width)
+			if self._laidOutWidth or not width or width < 200 then return end
+			self:Refresh()
+			if self._laidOutWidth then self:SetScript("OnSizeChanged", nil) end
+		end)
+	else
+		host:SetScript("OnSizeChanged", function(self, width)
+			if width and width >= 200 and (not self._laidOutWidth or math.abs(width - self._laidOutWidth) >= 1) then self:Refresh() end
+		end)
+	end
+	if mode ~= "arena" then host:SetScript("OnUpdate", function(self, delta)
 		self._elapsed = (self._elapsed or 0) + delta
 		if self._elapsed < 0.5 then return end
 		self._elapsed = 0
 		self:Refresh()
-	end)
+	end) end
 	table.insert(self._instances, host)
 	return host
 end

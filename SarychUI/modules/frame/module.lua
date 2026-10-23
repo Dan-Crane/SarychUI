@@ -1104,11 +1104,14 @@ function module:ApplyFrameScale()
         return
     end
     
-    local scale = GetSetting('frameScale', 1.0)
-    if PlayerFrame then PlayerFrame:SetScale(scale) end
-    if TargetFrame then TargetFrame:SetScale(scale) end
-    if FocusFrame then FocusFrame:SetScale(scale) end
-    ApplyPetFrameScale(scale)
+    local legacyScale = GetSetting('frameScale', 1.0)
+    local playerScale = GetSetting('playerFrameScale', legacyScale)
+    local targetScale = GetSetting('targetFrameScale', legacyScale)
+    local focusScale = GetSetting('focusFrameScale', legacyScale)
+    if PlayerFrame then PlayerFrame:SetScale(playerScale) end
+    if TargetFrame then TargetFrame:SetScale(targetScale) end
+    if FocusFrame then FocusFrame:SetScale(focusScale) end
+    ApplyPetFrameScale(playerScale)
 end
 
 function module:ResetFrameScale()

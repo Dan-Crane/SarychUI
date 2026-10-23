@@ -369,11 +369,17 @@ function NP:GetUnitTypeFromUnit(unit)
 end
 
 function NP:GetGUIDByName(name, unitType)
+	local now = GetTime()
+	local found
 	for guid, info in pairs(self.GUIDList) do
-		if info.name == name and info.unitType == unitType then
-			return guid
+		if info.seenAt and now - info.seenAt > 600
+			and not (info.active and info.active.guid == guid and info.active:IsShown()) then
+			self.GUIDList[guid] = nil
+		elseif not found and info.name == name and info.unitType == unitType then
+			found = guid
 		end
 	end
+	return found
 end
 
 function NP:GetKnownPlayerGUID(name)
@@ -404,7 +410,7 @@ function NP:BindNameplateUnit(frame, unit)
 	frame.isGroupUnit = true
 	frame.guid = guid
 	if frame.UnitName and frame.UnitType then
-		self.GUIDList[guid] = {name = frame.UnitName, unitType = frame.UnitType}
+		self.GUIDList[guid] = {name = frame.UnitName, unitType = frame.UnitType, seenAt = GetTime(), active = frame}
 	end
 	return true
 end
@@ -419,7 +425,10 @@ function NP:LearnPlayerIdentity(guid, name, flags)
 	end
 	local shortName = match(name, "^(.-)-") or name
 	local known = self.GUIDList[guid]
-	if known and known.name == shortName then return end
+	if known and known.name == shortName then
+		known.seenAt = GetTime()
+		return
+	end
 	local matched
 	for frame in pairs(self.VisiblePlates) do
 		if frame.UnitName == shortName
@@ -433,7 +442,7 @@ function NP:LearnPlayerIdentity(guid, name, flags)
 	if not matched or (matched.guid and matched.guid ~= guid) then return end
 
 	matched.guid = guid
-	self.GUIDList[guid] = {name = matched.UnitName, unitType = matched.UnitType}
+	self.GUIDList[guid] = {name = matched.UnitName, unitType = matched.UnitType, seenAt = GetTime(), active = matched}
 	matched.UnitClass = self:GetUnitClassByGUID(matched, guid) or matched.UnitClass
 	self:Update_Name(matched, true)
 	self:Update_HealthColor(matched)
@@ -485,7 +494,7 @@ function NP:OnShow(isConfig, dontHideHighlight)
 		if not frame.guid and (unitType == "FRIENDLY_PLAYER" or unitType == "ENEMY_PLAYER") then
 			frame.guid = NP:GetKnownPlayerGUID(frame.UnitName)
 			if frame.guid then
-				NP.GUIDList[frame.guid] = {name = frame.UnitName, unitType = unitType}
+				NP.GUIDList[frame.guid] = {name = frame.UnitName, unitType = unitType, seenAt = GetTime(), active = frame}
 			end
 		end
 	end
@@ -545,12 +554,13 @@ function NP:OnShow(isConfig, dontHideHighlight)
 end
 
 function NP:OnHide(isConfig, dontHideHighlight)
-	if not IsNamePlatesRuntimeActive() then
-		return
-	end
-
 	local frame = self.UnitFrame
 	NP.VisiblePlates[frame] = nil
+	local guidInfo = frame.guid and NP.GUIDList[frame.guid]
+	if guidInfo and guidInfo.active == frame then
+		guidInfo.active = nil
+		guidInfo.seenAt = GetTime()
+	end
 
 	frame.unit = nil
 	frame.isGroupUnit = nil
@@ -1174,10 +1184,19 @@ end
 
 function NP:PLAYER_ENTERING_WORLD()
 	twipe(self.Healers)
+	local now = GetTime()
+	for guid, info in pairs(self.GUIDList) do
+		if info.seenAt and now - info.seenAt > 600
+			and not (info.active and info.active.guid == guid and info.active:IsShown()) then
+			self.GUIDList[guid] = nil
+		end
+	end
 	local inInstance, instanceType = IsInInstance()
 	if inInstance and (instanceType == "pvp") and self.db.units.ENEMY_PLAYER.markHealers then
 		self:RegisterEvent("UPDATE_BATTLEFIELD_SCORE", "CheckBGHealers")
-		self.CheckHealerTimer = self:ScheduleRepeatingTimer("CheckBGHealers", 3)
+		if not self.CheckHealerTimer then
+			self.CheckHealerTimer = self:ScheduleRepeatingTimer("CheckBGHealers", 3)
+		end
 	else
 		self:UnregisterEvent("UPDATE_BATTLEFIELD_SCORE")
 		if self.CheckHealerTimer then
@@ -1199,7 +1218,7 @@ function NP:UPDATE_MOUSEOVER_UNIT()
 		for frame in pairs(self.VisiblePlates) do
 			if frame.UnitName == name and frame.UnitType == unitType then
 				if not self.GUIDList[guid] then
-					self.GUIDList[guid] = {name = name, unitType = frame.UnitType}
+					self.GUIDList[guid] = {name = name, unitType = frame.UnitType, seenAt = GetTime(), active = frame}
 					self.OnShow(frame:GetParent(), nil, true)
 					break
 				end
@@ -1214,6 +1233,7 @@ function NP:NAME_PLATE_UNIT_ADDED(_, unit)
 	end
 
 	local function BindVisiblePlate()
+		if not IsNamePlatesRuntimeActive() then return false end
 		if not UnitExists(unit) then return false end
 		local root = C_NamePlate.GetNamePlateForUnit(unit)
 		local frame = root and root.UnitFrame
@@ -1247,7 +1267,7 @@ function NP:PLAYER_FOCUS_CHANGED()
 		self.NameByUnit.focus = name
 
 		if not self.GUIDList[guid] then
-			self.GUIDList[guid] = {name = name, unitType = self:GetUnitTypeFromUnit("focus")}
+			self.GUIDList[guid] = {name = name, unitType = self:GetUnitTypeFromUnit("focus"), seenAt = GetTime()}
 		end
 
 		unitName = name
@@ -1470,7 +1490,9 @@ function NP:Initialize()
 
 	self:UpdateCVars()
 
+	if not self.TestFrame then
 	local ENP_Test = CreateFrame("Button", "ENP_Test")
+	self.TestFrame = ENP_Test
 	ENP_Test:Point("BOTTOM", UIParent, "BOTTOM", 0, 250)
 	ENP_Test:SetMovable(true)
 	ENP_Test:RegisterForDrag("LeftButton", "RightButton")
@@ -1500,6 +1522,10 @@ function NP:Initialize()
 	castbar.Icon.texture:SetTexture([[Interface\Icons\Spell_Holy_Penance]])
 	castbar:SetStatusBarColor(self.db.colors.castColor.r, self.db.colors.castColor.g, self.db.colors.castColor.b)
 	ENP_Test:Hide()
+	else
+		local castbar = self.TestFrame.UnitFrame.CastBar
+		castbar:SetStatusBarColor(self.db.colors.castColor.r, self.db.colors.castColor.g, self.db.colors.castColor.b)
+	end
 
 	if not self.Frame then
 		self.Frame = CreateFrame("Frame")
@@ -1539,6 +1565,13 @@ function NP:Initialize()
 	self:RegisterEvent("UNIT_NAME_UPDATE", "CacheGroupPetUnits")
 
 	-- Aura tracking (LibAuraInfo callbacks) removed: this addon never shows auras.
+	-- Hooks survive runtime toggles, so shown plates need their state restored.
+	for plate in pairs(self.CreatedPlates) do
+		if plate:IsShown() and plate.UnitFrame then
+			self.OnShow(plate, true)
+		end
+	end
+	self:PLAYER_ENTERING_WORLD()
 end
 
 local function InitializeCallback()

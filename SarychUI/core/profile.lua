@@ -45,7 +45,7 @@ local function overlayProfileTable(base, overlay)
 	return dest
 end
 
-local SARYCH_2K_PRODUCT_DEFAULTS_REV = 14
+local SARYCH_2K_PRODUCT_DEFAULTS_REV = 15
 
 local function resolveBuiltinProfile(name, overlay)
 	overlay = overlay or (SarychUI.BuiltinProfiles and SarychUI.BuiltinProfiles[name])
@@ -129,6 +129,21 @@ function SarychUI:ApplySarych2KProductDefaults(profile)
 		compact = { side = "RIGHT", growth = "RIGHT", x = 6, y = 13, size = 20, spacing = 4, perRow = 5,
 			showBorders = true, cooldownEdge = true },
 	}
+
+	modules.arena = modules.arena or {}
+	modules.arena.frameSpacing = 40
+	modules.arena.enemyAbilities = modules.arena.enemyAbilities or {}
+	local enemy = modules.arena.enemyAbilities
+	enemy.displayMode = "cooldown"
+	enemy.anchorMode = "auto"
+	enemy.layout = enemy.layout or {}
+	enemy.layout.autoX = 7
+	enemy.layout.autoY = 0
+	enemy.layout.spacing = 5
+	enemy.layout.perRow = 5
+	enemy.layout.size = 24
+	enemy.layout.showBorders = true
+	enemy.layout.cooldownEdge = true
 
 	modules.cc = modules.cc or {}
 	modules.cc.partyAbilitiesExempt = true

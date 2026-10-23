@@ -75,8 +75,10 @@ function lib.callbacks:OnUsed(target, eventname)
 	
 	lib.callbacksUsed[eventname] = lib.callbacksUsed[eventname] or {}
 	table_insert(lib.callbacksUsed[eventname], #lib.callbacksUsed[eventname]+1, target)
+	if not lib.trackAuras then lib:PruneStaleGUIDs() end
 	lib.trackAuras = true
 	lib.frame:RegisterEvent('COMBAT_LOG_EVENT_UNFILTERED')
+	lib.frame:RegisterEvent('PLAYER_ENTERING_WORLD')
 	
 	lib.frame:RegisterEvent('UPDATE_MOUSEOVER_UNIT')
 	lib.frame:RegisterEvent('PLAYER_TARGET_CHANGED')
@@ -106,6 +108,7 @@ function lib.callbacks:OnUnused(target, eventname)
 	end
 	lib.trackAuras = false
 	lib.frame:UnregisterEvent('COMBAT_LOG_EVENT_UNFILTERED')
+	lib.frame:UnregisterEvent('PLAYER_ENTERING_WORLD')
 	
 	lib.frame:UnregisterEvent('UPDATE_MOUSEOVER_UNIT')
 	lib.frame:UnregisterEvent('PLAYER_TARGET_CHANGED')
@@ -155,9 +158,7 @@ local function CheckUnitAuras(unitID, filterType)
 	
 	--Since we have a unitID, lets clear our aura table and use 100% accurate aura info.
 	if lib.trackAuras == true and lib.GUIDAuras[dstGUID] then
-		for i=#lib.GUIDAuras[dstGUID], 1, -1 do 
-			table_remove(lib.GUIDAuras[dstGUID], i)
-		end
+		lib.GUIDAuras[dstGUID] = nil
 	end
 
 	while true do 
@@ -761,22 +762,44 @@ lib.GUIDAuras = lib.GUIDAuras or {}
 
 lib.GUIDData_name = {}
 lib.GUIDData_flags = {}
+lib.GUIDData_seen = lib.GUIDData_seen or {}
 local function SaveGUIDInfo(guid, name, flags)
 	lib.GUIDData_name[guid] = name
 	lib.GUIDData_flags[guid] = flags
+end
+
+function lib:PruneStaleGUIDs()
+	local now = GetTime()
+	for guid, seenAt in pairs(self.GUIDData_seen) do
+		if now - seenAt > 600 then
+			self:RemoveExpiredAuras(guid)
+			if not self.GUIDAuras[guid] then
+				self.GUIDData_name[guid] = nil
+				self.GUIDData_flags[guid] = nil
+				self.GUIDData_seen[guid] = nil
+			end
+		end
+	end
+end
+
+function lib.frame:PLAYER_ENTERING_WORLD()
+	lib:PruneStaleGUIDs()
 end
 
 
 function lib.frame:COMBAT_LOG_EVENT_UNFILTERED(event, ...)
 	--timestamp, eventType, srcGUID, srcName, srcFlags, dstGUID, dstName, dstFlags
 	local timestamp, eventType, srcGUID, srcName, srcFlags, dstGUID, dstName, dstFlags  = ...-- ***
+	local now = GetTime()
 
 	if srcGUID and not lib.GUIDData_name[srcGUID] then
 		SaveGUIDInfo(srcGUID, srcName, srcFlags)
 	end
+	if srcGUID and srcName then lib.GUIDData_seen[srcGUID] = now end
 	if dstGUID and not lib.GUIDData_name[dstGUID] then
 		SaveGUIDInfo(dstGUID, dstName, dstFlags)
 	end
+	if dstGUID and dstName then lib.GUIDData_seen[dstGUID] = now end
 	
 	if self[eventType] then
 		self[eventType](self, eventType, ...)
@@ -795,6 +818,9 @@ function lib:RemoveExpiredAuras(dstGUID)	--
 			if getTime > data.expirationTime then
 				table_remove(self.GUIDAuras[dstGUID], i)
 			end
+		end
+		if #self.GUIDAuras[dstGUID] == 0 then
+			self.GUIDAuras[dstGUID] = nil
 		end
 	end
 end
@@ -978,6 +1004,7 @@ local function RemoveAuraFromGUID(dstGUID, spellID, srcGUID)	--
 				if data.spellID == spellID and srcGUID == data.srcGUID then
 --~ 					debugPrint("RemoveAuraFromGUID", spellName, srcGUID, data.srcGUID, "match:"..tostring(srcGUID == data.srcGUID))
 					table_remove(lib.GUIDAuras[dstGUID], i)
+					if #lib.GUIDAuras[dstGUID] == 0 then lib.GUIDAuras[dstGUID] = nil end
 					return
 				end
 			end
@@ -987,6 +1014,7 @@ local function RemoveAuraFromGUID(dstGUID, spellID, srcGUID)	--
 			data = lib.GUIDAuras[dstGUID][i]
 			if data.spellID == spellID  then
 				table_remove(lib.GUIDAuras[dstGUID], i)
+				if #lib.GUIDAuras[dstGUID] == 0 then lib.GUIDAuras[dstGUID] = nil end
 				
 				--[===[@debug@
 				local newName = lib:GetGUIDInfo(srcGUID)
@@ -1009,9 +1037,7 @@ function lib:RemoveAllAurasFromGUID(dstGUID)		--
 -- Remove all auras on a GUID. They must have died.	--
 ------------------------------------------------------
 	if self.GUIDAuras[dstGUID] then
-		for i=#self.GUIDAuras[dstGUID], 1, -1 do 
-			table_remove(self.GUIDAuras[dstGUID], i)
-		end
+		self.GUIDAuras[dstGUID] = nil
 	end
 end
 
@@ -1126,9 +1152,14 @@ end
 
 
 function lib.frame:UNIT_DIED(event, timestamp, eventType, srcGUID, srcName, srcFlags, dstGUID, dstName, dstFlags, ...)
-	if lib.GUIDAuras[dstGUID] then
+	if dstGUID then
 		lib:RemoveAllAurasFromGUID(dstGUID)
 		lib.callbacks:Fire("LibAuraInfo_AURA_CLEAR", dstGUID)
+	end
+	if dstGUID and dstFlags and bit_band(dstFlags, COMBATLOG_OBJECT_TYPE_PLAYER) == 0 then
+		lib.GUIDData_name[dstGUID] = nil
+		lib.GUIDData_flags[dstGUID] = nil
+		lib.GUIDData_seen[dstGUID] = nil
 	end
 end
 

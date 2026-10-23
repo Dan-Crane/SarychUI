@@ -622,6 +622,11 @@ end
 function E:ShutdownRuntime()
 	local NP = self:GetModule("NamePlates", true)
 	if NP and NP.Initialized then
+		if NP.CheckHealerTimer then
+			NP:CancelTimer(NP.CheckHealerTimer)
+			NP.CheckHealerTimer = nil
+		end
+		if NP.UnregisterEvent then NP:UnregisterEvent("UPDATE_BATTLEFIELD_SCORE") end
 		if NP.UnregisterCastEvents and NP.CreatedPlates then
 			for plate in pairs(NP.CreatedPlates) do
 				local unitFrame = plate and plate.UnitFrame
@@ -632,6 +637,10 @@ function E:ShutdownRuntime()
 		end
 		if NP.UnregisterCastEvents and NP.VisiblePlates then
 			for unitFrame in pairs(NP.VisiblePlates) do
+				local plate = unitFrame and unitFrame.GetParent and unitFrame:GetParent()
+				if plate and (not plate:IsShown() or not unitFrame:IsShown()) then
+					NP.OnHide(plate)
+				end
 				if unitFrame and unitFrame.isEventsRegistered then
 					NP:UnregisterCastEvents(unitFrame)
 				end

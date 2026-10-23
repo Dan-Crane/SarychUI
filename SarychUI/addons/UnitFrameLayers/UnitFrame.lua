@@ -404,86 +404,76 @@ local function UnitFrame_RegisterCallback(self)
 	HealComm.RegisterCallback(self, "HealComm_GUIDDisappeared", LibEventCallback, self);
 end
 
-local function UnitFrameLayer_Initialize(self, myHealPredictionBar, otherHealPredictionBar, totalAbsorbBar, totalAbsorbBarOverlay,
-	overAbsorbGlow, overHealAbsorbGlow, healAbsorbBar, healAbsorbBarLeftShadow, healAbsorbBarRightShadow, myManaCostPredictionBar)
-
-	self.myHealPredictionBar = myHealPredictionBar;
-	self.otherHealPredictionBar = otherHealPredictionBar
-	self.totalAbsorbBar = totalAbsorbBar;
-	self.totalAbsorbBarOverlay = totalAbsorbBarOverlay;
-	self.overAbsorbGlow = overAbsorbGlow;
-	self.overHealAbsorbGlow = overHealAbsorbGlow;
-	self.healAbsorbBar = healAbsorbBar;
-	self.healAbsorbBarLeftShadow = healAbsorbBarLeftShadow;
-	self.healAbsorbBarRightShadow = healAbsorbBarRightShadow;
-	self.myManaCostPredictionBar = myManaCostPredictionBar;
-
-	if ( self.unit == "player" ) then 
-		self.myManaCostPredictionBar:ClearAllPoints();
-
-		self:RegisterEvent("UNIT_SPELLCAST_START");
-		self:RegisterEvent("UNIT_SPELLCAST_STOP");
-		self:RegisterEvent("UNIT_SPELLCAST_FAILED");
-		self:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED");
-	else
-		self.myManaCostPredictionBar:Hide();
+-- Keep gain/loss feedback below the artwork, but draw the full-power pulse
+-- above it so the alert remains visible when the resource reaches maximum.
+local function UnitFrameLayers_UpdatePlayerPowerFXLevel(bar)
+	if not bar or not bar.FeedbackFrame or not bar.FullPowerFrame then
+		return
 	end
-
-    self.myHealPredictionBar:ClearAllPoints();
-
-    self.otherHealPredictionBar:ClearAllPoints();
-
-    self.totalAbsorbBar:ClearAllPoints();
-
-    self.totalAbsorbBar.overlay = self.totalAbsorbBarOverlay;
-    self.totalAbsorbBarOverlay:SetAllPoints(self.totalAbsorbBar);
-    self.totalAbsorbBarOverlay.tileSize = 32;
-
-    self.overAbsorbGlow:ClearAllPoints();
-	self.overAbsorbGlow:SetWidth(16);
-    self.overAbsorbGlow:SetPoint("TOPLEFT", self.healthbar, "TOPRIGHT", -7, 0);
-    self.overAbsorbGlow:SetPoint("BOTTOMLEFT", self.healthbar, "BOTTOMRIGHT",  -7, 0);
-
-    self.healAbsorbBar:ClearAllPoints();
-    self.healAbsorbBar:SetTexture("Interface\\RaidFrame\\Absorb-Fill", true, true);
-
-    self.overHealAbsorbGlow:ClearAllPoints();
-    self.overHealAbsorbGlow:SetPoint("BOTTOMRIGHT", self.healthbar, "BOTTOMLEFT", 7, 0);
-    self.overHealAbsorbGlow:SetPoint("TOPRIGHT", self.healthbar, "TOPLEFT", 7, 0);
-
-    self.healAbsorbBarLeftShadow:ClearAllPoints();
-
-    self.healAbsorbBarRightShadow:ClearAllPoints();
-
-	self:RegisterEvent("UNIT_MAXHEALTH");
-    UnitFrame_RegisterCallback(self);
-
-	if ( self.unit == "player" ) then
-		self.PlayerFrameHealthBarAnimatedLoss = CreateFrame("StatusBar", nil, self, "PlayerFrameHealthBarAnimatedLossTemplate");
-		self.PlayerFrameHealthBarAnimatedLoss:SetUnitHealthBar("player", self.healthbar);
-		self.PlayerFrameHealthBarAnimatedLoss:SetFrameLevel(self.healthbar:GetFrameLevel() - 1)
-
-		if ( self.manabar ) then
-			self.manabar.FeedbackFrame = CreateFrame("Frame", nil, self.manabar, "BuilderSpenderFrame");
-			self.manabar.FeedbackFrame:SetAllPoints();
-			self.manabar.FeedbackFrame:SetFrameLevel(self:GetParent():GetFrameLevel() + 2);
-
-			self.manabar.FullPowerFrame = CreateFrame("Frame", nil, self.manabar, "FullPowerFrameTemplate");
-			self.manabar:SetScript("OnUpdate", UnitFrameManaBar_OnUpdate);
-		end
+	local barLevel = bar:GetFrameLevel()
+	local border = _G.PlayerFrameTexture
+	local borderFrame = border and border:GetParent()
+	local borderLevel = borderFrame and borderFrame:GetFrameLevel()
+	local feedbackLevel = barLevel + 1
+	if borderLevel and borderLevel > barLevel then
+		feedbackLevel = math.min(feedbackLevel, borderLevel - 1)
 	end
+	local pulseLevel = math.max(barLevel + 1, borderLevel or 0)
+	if bar._uflFeedbackLevel == feedbackLevel and bar._uflPulseLevel == pulseLevel then
+		return
+	end
+	bar._uflFeedbackLevel = feedbackLevel
+	bar._uflPulseLevel = pulseLevel
+	bar.FeedbackFrame:SetFrameLevel(feedbackLevel)
+	bar.FullPowerFrame:SetFrameLevel(pulseLevel)
+	bar.FullPowerFrame.SpikeFrame:SetFrameLevel(pulseLevel + 1)
+	bar.FullPowerFrame.PulseFrame:SetFrameLevel(pulseLevel + 1)
+end
 
-	UnitFrame_Update(self);
+local borderTextures = {
+	PlayerFrame = "PlayerFrameTexture",
+	TargetFrame = "TargetFrameTextureFrameTexture",
+	FocusFrame = "FocusFrameTextureFrameTexture",
+	PetFrame = "PetFrameTexture",
+}
+
+local function UnitFrameLayers_UpdatePredictionLevel(frame)
+	local pred = frame and frame.uflPredictionFrame
+	local healthbar = frame and frame.healthbar
+	if not pred or not healthbar then return end
+	local barLevel = healthbar:GetFrameLevel()
+	if frame.manabar then
+		barLevel = math.max(barLevel, frame.manabar:GetFrameLevel())
+	end
+	local borderName = borderTextures[frame:GetName()]
+	local border = borderName and _G[borderName]
+	local borderFrame = border and border:GetParent()
+	local borderLevel = borderFrame and borderFrame:GetFrameLevel()
+	local predictionLevel = barLevel + 1
+	local glowLevel = barLevel + 2
+	if borderLevel and borderLevel > barLevel then
+		predictionLevel = math.min(predictionLevel, borderLevel - 1)
+		glowLevel = math.max(glowLevel, borderLevel + 1)
+	end
+	if frame._uflPredictionLevel ~= predictionLevel then
+		pred:SetFrameLevel(predictionLevel)
+		frame._uflPredictionLevel = predictionLevel
+	end
+	local glow = frame.uflOverAbsorbFrame
+	if glow and frame._uflGlowLevel ~= glowLevel then
+		glow:SetFrameLevel(glowLevel)
+		frame._uflGlowLevel = glowLevel
+	end
 end
 
 --------------------------------------------------------------------
 -- Public API for custom (non-Blizzard) unit frames, e.g. SarychUI player plate.
 -- Requirements: frame has a global name, frame.unit and frame.healthbar (StatusBar).
--- Draw order: loss bar = healthbar level-1, prediction textures = level+1,
--- over-absorb glow = level+2. The healthbar must not own its own opaque
+-- Draw order: loss bar = healthbar level-1; prediction textures stay below
+-- the unit-frame artwork. The healthbar must not own its own opaque
 -- background (put it on the parent) or the loss bar will be hidden by it.
 --------------------------------------------------------------------
-function UnitFrameLayers_AttachHealPrediction(frame)
+function UnitFrameLayers_AttachHealPrediction(frame, skipColor)
 	if ( not frame or not frame.unit or not frame.healthbar ) then
 		return nil;
 	end
@@ -496,28 +486,27 @@ function UnitFrameLayers_AttachHealPrediction(frame)
 	end
 
 	local healthbar = frame.healthbar;
-	local pred = CreateFrame("Frame", nil, frame, "StatusBarHealPredictionTemplate");
+	local predictionName = name.."UFLPrediction";
+	local pred = _G[predictionName] or CreateFrame("Frame", predictionName, frame, "StatusBarHealPredictionTemplate");
 	pred:ClearAllPoints();
 	pred:SetAllPoints(healthbar);
-	pred:SetFrameLevel(healthbar:GetFrameLevel() + 1);
 	frame.uflPredictionFrame = pred;
-	frame.uflSkipColor = true;
+	frame.uflSkipColor = skipColor ~= false;
 
-	local glowFrame = _G[name.."FrameOverAbsorb"];
-	if ( glowFrame ) then
-		glowFrame:SetFrameLevel(healthbar:GetFrameLevel() + 2);
-	end
+	local glowFrame = _G[predictionName.."FrameOverAbsorb"];
+	frame.uflOverAbsorbFrame = glowFrame;
+	UnitFrameLayers_UpdatePredictionLevel(frame);
 
-	frame.myHealPredictionBar = _G[name.."FrameMyHealPredictionBar"];
-	frame.otherHealPredictionBar = _G[name.."FrameOtherHealPredictionBar"];
-	frame.totalAbsorbBar = _G[name.."TotalAbsorbBar"];
-	frame.totalAbsorbBarOverlay = _G[name.."TotalAbsorbBarOverlay"];
-	frame.overAbsorbGlow = _G[name.."FrameOverAbsorbGlow"];
-	frame.overHealAbsorbGlow = _G[name.."OverHealAbsorbGlow"];
-	frame.healAbsorbBar = _G[name.."HealAbsorbBar"];
-	frame.healAbsorbBarLeftShadow = _G[name.."HealAbsorbBarLeftShadow"];
-	frame.healAbsorbBarRightShadow = _G[name.."HealAbsorbBarRightShadow"];
-	frame.myManaCostPredictionBar = _G[name.."FrameManaCostPredictionBar"];
+	frame.myHealPredictionBar = _G[predictionName.."FrameMyHealPredictionBar"];
+	frame.otherHealPredictionBar = _G[predictionName.."FrameOtherHealPredictionBar"];
+	frame.totalAbsorbBar = _G[predictionName.."TotalAbsorbBar"];
+	frame.totalAbsorbBarOverlay = _G[predictionName.."TotalAbsorbBarOverlay"];
+	frame.overAbsorbGlow = _G[predictionName.."FrameOverAbsorbGlow"];
+	frame.overHealAbsorbGlow = _G[predictionName.."OverHealAbsorbGlow"];
+	frame.healAbsorbBar = _G[predictionName.."HealAbsorbBar"];
+	frame.healAbsorbBarLeftShadow = _G[predictionName.."HealAbsorbBarLeftShadow"];
+	frame.healAbsorbBarRightShadow = _G[predictionName.."HealAbsorbBarRightShadow"];
+	frame.myManaCostPredictionBar = _G[predictionName.."FrameManaCostPredictionBar"];
 
 	if ( frame.myManaCostPredictionBar ) then
 		frame.myManaCostPredictionBar:ClearAllPoints();
@@ -556,9 +545,9 @@ function UnitFrameLayers_AttachHealPrediction(frame)
 
 	UnitFrame_RegisterCallback(frame);
 
-	if ( frame.unit == "player" and not frame.PlayerFrameHealthBarAnimatedLoss ) then
+	if ( not frame.PlayerFrameHealthBarAnimatedLoss ) then
 		local loss = CreateFrame("StatusBar", nil, frame, "PlayerFrameHealthBarAnimatedLossTemplate");
-		loss:SetUnitHealthBar("player", healthbar);
+		loss:SetUnitHealthBar(frame.unit, healthbar);
 		loss:SetFrameLevel(math.max(healthbar:GetFrameLevel() - 1, 0));
 		frame.PlayerFrameHealthBarAnimatedLoss = loss;
 	end
@@ -596,23 +585,31 @@ end
 
 -- Never replace FrameXML's global handler: Blizzard_ArenaUI reads it while
 -- constructing secure arena buttons, and an addon-owned value taints OnLoad.
-local function UnitFrameLayers_HealthBar_OnUpdate(self)
+local function UnitFrameLayers_HealthBar_OnUpdate(self, unitFrame)
 	if not IsEnabled() then
 		return;
 	end
 	if ( not self.disconnected and not self.lockValues) then
 		local currValue = UnitHealth(self.unit);
 		local animatedLossBar = self.AnimatedLossBar;
-		if ( currValue ~= self.currValue ) then
-			if ( not self.ignoreNoUnit or UnitGUID(self.unit) ) then
-				if animatedLossBar then
-					animatedLossBar:UpdateHealth(currValue, self.currValue);
-				end
+		local guid = UnitGUID(self.unit)
+		if guid ~= self._uflHealthGUID then
+			self._uflHealthGUID = guid
+			self._uflPrevHealth = nil
+			if animatedLossBar then animatedLossBar:CancelAnimation() end
+		end
+		local oldValue = self._uflPrevHealth
+		if ( currValue ~= oldValue and (not self.ignoreNoUnit or guid) ) then
+			if animatedLossBar and oldValue ~= nil then
+				animatedLossBar:UpdateHealth(currValue, oldValue);
+			end
+			self._uflPrevHealth = currValue
+			if currValue ~= self.currValue then
 				self:SetValue(currValue);
 				self.currValue = currValue;
 				TextStatusBar_UpdateTextString(self);
-				UnitFrameHealPredictionBars_Update(self:GetParent());
 			end
+			UnitFrameHealPredictionBars_Update(unitFrame or self:GetParent());
 		end
 		if animatedLossBar then
 			animatedLossBar:UpdateLossAnimation(currValue);
@@ -620,29 +617,33 @@ local function UnitFrameLayers_HealthBar_OnUpdate(self)
 	end
 end
 
-local function UnitFrameLayers_ManaBar_OnUpdate(self)
+local function UnitFrameLayers_ManaBar_OnUpdate(self, unitFrame)
 	if not IsEnabled() then
 		return;
 	end
 	if ( not self.disconnected and not self.lockValues ) then
-		local predictedCost = self:GetParent().predictedPowerCost;
-		local currValue = UnitPower(self.unit, self.powerType);
+		local predictedCost = (unitFrame or self:GetParent()).predictedPowerCost;
+		local actualValue = UnitPower(self.unit, self.powerType);
+		local currValue = actualValue;
 		if (predictedCost) then
 			currValue = currValue - Round(predictedCost);
 		end
+		local oldValue = self._uflPrev;
+		if ( oldValue ~= nil and oldValue ~= actualValue and (not self.ignoreNoUnit or UnitGUID(self.unit)) ) then
+			if ( self.FeedbackFrame ) then
+				local maxValue = self.FeedbackFrame.maxValue or 0;
+				if ( maxValue > 0 and math.abs(actualValue - oldValue) / maxValue > 0.1 ) then
+					self.FeedbackFrame:StartFeedbackAnim(oldValue, actualValue);
+				end
+			end
+			if ( self.FullPowerFrame and self.FullPowerFrame.active ) then
+				self.FullPowerFrame:StartAnimIfFull(oldValue, actualValue);
+			end
+		end
+		self._uflPrev = actualValue;
 		if ( currValue ~= self.currValue or self.forceUpdate ) then
 			self.forceUpdate = nil;
 			if ( not self.ignoreNoUnit or UnitGUID(self.unit) ) then
-				if ( self.FeedbackFrame ) then
-					-- Only show anim if change is more than 10%
-					local oldValue = self.currValue or 0;
-					if ( self.FeedbackFrame.maxValue ~= 0 and math.abs(currValue - oldValue) / self.FeedbackFrame.maxValue > 0.1 ) then
-						self.FeedbackFrame:StartFeedbackAnim(oldValue, currValue);
-					end
-				end
-				if ( self.FullPowerFrame and self.FullPowerFrame.active ) then
-					self.FullPowerFrame:StartAnimIfFull(self.currValue or 0, currValue);
-				end
 				self:SetValue(currValue);
 				self.currValue = currValue;
 				TextStatusBar_UpdateTextString(self);
@@ -750,12 +751,12 @@ UnitFrameManaBar_UpdateType = function(manaBar)
 					manaBar:SetStatusBarColor(info.r, info.g, info.b);
 				end
 			end
-			if ( manaBar.FeedbackFrame ) then
-				manaBar.FeedbackFrame:Initialize(info, manaBar.unit, powerType);
-			end
-			if ( manaBar.FullPowerFrame ) then
-				manaBar.FullPowerFrame:Initialize(info.fullPowerAnim);
-			end
+		end
+		if ( manaBar.FeedbackFrame ) then
+			manaBar.FeedbackFrame:Initialize(info, manaBar.unit, powerType);
+		end
+		if ( manaBar.FullPowerFrame ) then
+			manaBar.FullPowerFrame:Initialize(info.fullPowerAnim);
 		end
 	else
 		if ( not altR) then
@@ -767,7 +768,7 @@ UnitFrameManaBar_UpdateType = function(manaBar)
 			end
 		end
 	end
-	if ( manaBar.powerType ~= powerType or manaBar.powerType ~= powerType ) then
+	if ( manaBar.powerType ~= powerType or manaBar.powerToken ~= powerToken ) then
 		manaBar.powerType = powerType;
 		manaBar.powerToken = powerToken;
 		if ( manaBar.FullPowerFrame ) then
@@ -776,7 +777,8 @@ UnitFrameManaBar_UpdateType = function(manaBar)
 		if manaBar.FeedbackFrame then
 			manaBar.FeedbackFrame:StopFeedbackAnim();
 		end
-		manaBar.currValue = UnitPower("player", powerType);
+		manaBar.currValue = UnitPower(manaBar.unit, powerType);
+		manaBar._uflPrev = manaBar.currValue;
 		if unitFrame.myManaCostPredictionBar then
 			unitFrame.myManaCostPredictionBar:Hide();
 		end
@@ -824,14 +826,19 @@ local function RefreshUnitFrameLayers(self, event, ...)
 		return
 	end
 
-	if not self.myHealPredictionBar and self.GetName and self:GetName() then
-		CreateFrame("Frame", nil, self, "StatusBarHealPredictionTemplate")
-		local thisName = self:GetName()
-		UnitFrameLayer_Initialize(self, _G[thisName.."FrameMyHealPredictionBar"], _G[thisName.."FrameOtherHealPredictionBar"],
-									_G[thisName.."TotalAbsorbBar"], _G[thisName.."TotalAbsorbBarOverlay"],
-									_G[thisName.."FrameOverAbsorbGlow"], _G[thisName.."OverHealAbsorbGlow"],
-									_G[thisName.."HealAbsorbBar"], _G[thisName.."HealAbsorbBarLeftShadow"],
-									_G[thisName.."HealAbsorbBarRightShadow"], _G[thisName.."FrameManaCostPredictionBar"])
+	if not self.myHealPredictionBar and self.GetName and self:GetName() and self.healthbar then
+		UnitFrameLayers_AttachHealPrediction(self, false)
+	end
+	if self.myHealPredictionBar then
+		UnitFrameLayers_UpdatePredictionLevel(self)
+	end
+	if self.unit == "player" and self.manabar and not self.manabar.FeedbackFrame then
+		local manaBar = self.manabar
+		manaBar.FeedbackFrame = CreateFrame("Frame", nil, manaBar, "BuilderSpenderFrame")
+		manaBar.FeedbackFrame:SetAllPoints(manaBar)
+		manaBar.FullPowerFrame = CreateFrame("Frame", nil, manaBar, "FullPowerFrameTemplate")
+		UnitFrameLayers_UpdatePlayerPowerFXLevel(manaBar)
+		UnitFrameManaBar_Update(manaBar, self.unit)
 	end
 
 	if self.healthbar and self.healthbar.AnimatedLossBar then
@@ -839,10 +846,12 @@ local function RefreshUnitFrameLayers(self, event, ...)
 	end
 	UnitFrameHealPredictionBars_UpdateMax(self)
 	UnitFrameHealPredictionBars_Update(self)
-	UnitFrameManaCostPredictionBars_Update(self)
+	if self.unit == "player" then
+		UnitFrameManaCostPredictionBars_Update(self)
+	end
 	UpdateHealthBarColor(self)
 
-	if event == "UNIT_SPELLCAST_START" or event == "UNIT_SPELLCAST_STOP" or event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_SUCCEEDED" then
+	if self.unit == "player" and (event == "UNIT_SPELLCAST_START" or event == "UNIT_SPELLCAST_STOP" or event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_SUCCEEDED") then
 		local unit = ...
 		if unit and UnitIsUnit(unit, "player") then
 			local name, _, _, _, startTime, endTime = UnitCastingInfo(unit)
@@ -897,9 +906,13 @@ frame:SetScript("OnUpdate", function()
 			local unitFrame = GetUnitFrameByUnit(unit)
 			if unitFrame then
 				local healthbar = unitFrame.healthbar
-				if healthbar and healthbar.unit then UnitFrameLayers_HealthBar_OnUpdate(healthbar) end
+				if healthbar and healthbar.unit then UnitFrameLayers_HealthBar_OnUpdate(healthbar, unitFrame) end
+				if unitFrame.myHealPredictionBar then UnitFrameLayers_UpdatePredictionLevel(unitFrame) end
 				local manabar = unitFrame.manabar
-				if manabar and manabar.unit then UnitFrameLayers_ManaBar_OnUpdate(manabar) end
+				if manabar and manabar.unit then
+					if unit == "player" then UnitFrameLayers_UpdatePlayerPowerFXLevel(manabar) end
+					UnitFrameLayers_ManaBar_OnUpdate(manabar, unitFrame)
+				end
 			end
 		end
 	end

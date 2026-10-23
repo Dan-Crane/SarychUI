@@ -22,10 +22,14 @@ local UIParent = UIParent
 -- which cannot be loaded without tainting Blizzard protected unit frames.
 local function SetEditBoxEnabled(edit, enabled)
 	if not edit then return end
-	edit:ClearFocus()
-	edit:EnableMouse(enabled and true or false)
-	if edit.EnableKeyboard then
-		edit:EnableKeyboard(enabled and true or false)
+	enabled = enabled and true or false
+	if not enabled and edit.HasFocus and edit:HasFocus() then
+		edit:ClearFocus()
+	end
+	if edit._suiInputEnabled ~= enabled then
+		edit._suiInputEnabled = enabled
+		edit:EnableMouse(enabled)
+		if edit.EnableKeyboard then edit:EnableKeyboard(enabled) end
 	end
 end
 
@@ -1550,8 +1554,8 @@ function W:Slider(parent, text, minV, maxV, step, get, set, previewKey, tooltipF
 		row.help = help
 	end
 
-	-- Editable numeric value. The EditBox lives in a scroll frame, and on 3.3.5
-	-- that frame does not paint EditBox text. A FontString on a plain frame does.
+	-- On 3.3.5 the scroll child does not paint native EditBox text correctly.
+	-- Keep the EditBox on UIParent from creation so focus and selection survive.
 	local editW = 56
 	local ac = T.colors.accent
 	local box = CreateFrame("Frame", nil, row)
@@ -1580,15 +1584,20 @@ function W:Slider(parent, text, minV, maxV, step, get, set, previewKey, tooltipF
 		label:SetWidth(math.max(1, math.min(titleWidth, available)))
 	end
 
-	local edit = CreateFrame("EditBox", nil, box)
+	local edit = CreateFrame("EditBox", nil, UIParent)
 	row.edit = edit
 	edit:SetAllPoints(box)
+	edit:SetFrameStrata("FULLSCREEN_DIALOG")
 	edit:SetAutoFocus(false)
 	edit:SetFontObject(T.fonts.small)
 	edit:SetJustifyH("RIGHT")
 	edit:SetTextInsets(2, 4, 0, 0)
 	edit:SetNumeric(false)
 	edit:SetTextColor(ac[1], ac[2], ac[3], 0)
+	-- The FontString shows the idle value; focused editing uses native text and selection.
+	if edit.SetHighlightColor then
+		edit:SetHighlightColor(ac[1], ac[2], ac[3], 0.25)
+	end
 	edit:SetScript("OnTextChanged", function(self)
 		valueFS:SetText(self:GetText() or "")
 	end)
@@ -1814,6 +1823,8 @@ function W:Slider(parent, text, minV, maxV, step, get, set, previewKey, tooltipF
 	end)
 
 	edit:SetScript("OnEditFocusGained", function()
+		valueFS:Hide()
+		edit:SetTextColor(ac[1], ac[2], ac[3], 1)
 		BeginOptionsTextEdit()
 	end)
 	edit:SetScript("OnEnterPressed", function()
@@ -1824,6 +1835,8 @@ function W:Slider(parent, text, minV, maxV, step, get, set, previewKey, tooltipF
 		if not row._externalSync and not (row._disabled or row._committing or row._dragging) then
 			CommitTyped()
 		end
+		edit:SetTextColor(ac[1], ac[2], ac[3], 0)
+		valueFS:Show()
 		EndOptionsTextEdit()
 	end)
 	edit:SetScript("OnEscapePressed", function(self)
@@ -1850,7 +1863,7 @@ function W:Slider(parent, text, minV, maxV, step, get, set, previewKey, tooltipF
 			SetEditBoxEnabled(edit, true)
 			T:SetTextColor(label, "text")
 			valueFS:SetTextColor(ac[1], ac[2], ac[3], 1)
-			edit:SetTextColor(ac[1], ac[2], ac[3], 0)
+			edit:SetTextColor(ac[1], ac[2], ac[3], edit:HasFocus() and 1 or 0)
 		end
 	end
 
@@ -1868,7 +1881,18 @@ function W:Slider(parent, text, minV, maxV, step, get, set, previewKey, tooltipF
 		PlaceHelpAfterLabel()
 		RefreshShownValue()
 	end)
-	row:SetScript("OnShow", PlaceHelpAfterLabel)
+	row:SetScript("OnShow", function()
+		if edit:GetParent() ~= UIParent then edit:SetParent(UIParent) end
+		edit:Show()
+		PlaceHelpAfterLabel()
+	end)
+	row:SetScript("OnHide", function()
+		row._externalSync = true
+		if edit:HasFocus() then edit:ClearFocus() end
+		row._externalSync = nil
+		edit:Hide()
+		edit:SetParent(nil)
+	end)
 	PlaceHelpAfterLabel()
 	row:Refresh()
 	return row
@@ -2646,6 +2670,48 @@ function W:Dropdown(parent, text, values, get, set, placeholder, flagPathFn, inl
 	row.list = list
 	row.btn = btn
 
+	local listScroll = CreateFrame("ScrollFrame", nil, list)
+	listScroll:SetPoint("TOPLEFT", 4, -4)
+	listScroll:SetPoint("BOTTOMRIGHT", -20, 4)
+	local listContent = CreateFrame("Frame", nil, listScroll)
+	listContent:SetWidth(((T.sizes and T.sizes.controlMaxW) or 320) - 24)
+	listContent:SetHeight(1)
+	listScroll:SetScrollChild(listContent)
+	local listSlider = CreateFrame("Slider", nil, list)
+	listSlider:SetWidth(12)
+	listSlider:SetPoint("TOPRIGHT", -4, -5)
+	listSlider:SetPoint("BOTTOMRIGHT", -4, 5)
+	listSlider:SetOrientation("VERTICAL")
+	listSlider:SetMinMaxValues(0, 1)
+	listSlider:SetValueStep(1)
+	T:ApplyFlat(listSlider, T.colors.scrollTrack or T.colors.inputBg, T.colors.borderSoft)
+	local listThumb = listSlider:CreateTexture(nil, "OVERLAY")
+	listThumb:SetTexture("Interface\\Buttons\\WHITE8X8")
+	listThumb:SetSize(10, 24)
+	local thumbColor = T.colors.scrollThumb or T.colors.buttonBg
+	listThumb:SetVertexColor(thumbColor[1], thumbColor[2], thumbColor[3], thumbColor[4] or 1)
+	listSlider:SetThumbTexture(listThumb)
+	listSlider:SetScript("OnEnter", function()
+		local color = T.colors.scrollThumbHover or T.colors.buttonHover
+		listThumb:SetVertexColor(color[1], color[2], color[3], color[4] or 1)
+	end)
+	listSlider:SetScript("OnLeave", function()
+		local color = T.colors.scrollThumb or T.colors.buttonBg
+		listThumb:SetVertexColor(color[1], color[2], color[3], color[4] or 1)
+	end)
+	listSlider:SetScript("OnValueChanged", function(_, value)
+		listScroll:SetVerticalScroll(value)
+	end)
+	local function ScrollList(_, delta)
+		local maxScroll = listScroll:GetVerticalScrollRange() or 0
+		local nextValue = math.max(0, math.min(maxScroll, (listScroll:GetVerticalScroll() or 0) - delta * 44))
+		listSlider:SetValue(nextValue)
+	end
+	list:EnableMouseWheel(true)
+	list:SetScript("OnMouseWheel", ScrollList)
+	listScroll:EnableMouseWheel(true)
+	listScroll:SetScript("OnMouseWheel", ScrollList)
+
 	local function SyncListWidth()
 		local w = btn:GetWidth() or 0
 		if w < 40 then
@@ -2655,6 +2721,7 @@ function W:Dropdown(parent, text, values, get, set, placeholder, flagPathFn, inl
 			w = (T.sizes and T.sizes.controlMaxW) or 320
 		end
 		list:SetWidth(w)
+		listContent:SetWidth(math.max(1, w - (listSlider:IsShown() and 24 or 8)))
 		return w
 	end
 
@@ -2754,7 +2821,7 @@ function W:Dropdown(parent, text, values, get, set, placeholder, flagPathFn, inl
 		if #keys == 0 then
 			local item = list._buttons[1]
 			if not item then
-				item = CreateFrame("Button", nil, list)
+				item = CreateFrame("Button", nil, listContent)
 				item:SetHeight(22)
 				local icon = item:CreateTexture(nil, "OVERLAY")
 				icon:SetSize(12, 8)
@@ -2768,8 +2835,8 @@ function W:Dropdown(parent, text, values, get, set, placeholder, flagPathFn, inl
 			end
 			item:Show()
 			item:ClearAllPoints()
-			item:SetPoint("TOPLEFT", list, "TOPLEFT", 4, y)
-			item:SetPoint("TOPRIGHT", list, "TOPRIGHT", -4, y)
+			item:SetPoint("TOPLEFT", listContent, "TOPLEFT", 0, y + 4)
+			item:SetPoint("TOPRIGHT", listContent, "TOPRIGHT", 0, y + 4)
 			item.label:SetText(TUI("Нет доступных профилей"))
 			T:SetTextColor(item.label, "textDim")
 			if item.flagIcon then
@@ -2782,13 +2849,18 @@ function W:Dropdown(parent, text, values, get, set, placeholder, flagPathFn, inl
 			item:SetScript("OnEnter", nil)
 			item:SetScript("OnLeave", nil)
 			list:SetHeight(30)
+			listContent:SetHeight(22)
+			listSlider:Hide()
+			listScroll:ClearAllPoints()
+			listScroll:SetPoint("TOPLEFT", 4, -4)
+			listScroll:SetPoint("BOTTOMRIGHT", -4, 4)
 			return
 		end
 		for _, key in ipairs(keys) do
 			i = i + 1
 			local item = list._buttons[i]
 			if not item then
-				item = CreateFrame("Button", nil, list)
+				item = CreateFrame("Button", nil, listContent)
 				item:SetHeight(22)
 				local icon = item:CreateTexture(nil, "OVERLAY")
 				icon:SetSize(12, 8)
@@ -2803,8 +2875,8 @@ function W:Dropdown(parent, text, values, get, set, placeholder, flagPathFn, inl
 			end
 			item:Show()
 			item:ClearAllPoints()
-			item:SetPoint("TOPLEFT", list, "TOPLEFT", 4, y)
-			item:SetPoint("TOPRIGHT", list, "TOPRIGHT", -4, y)
+			item:SetPoint("TOPLEFT", listContent, "TOPLEFT", 0, y + 4)
+			item:SetPoint("TOPRIGHT", listContent, "TOPRIGHT", 0, y + 4)
 			item.label:SetText(LabelFor(key, map))
 			T:SetTextColor(item.label, "text")
 			local hasFlag = ApplyFlag(item.flagIcon, key)
@@ -2821,12 +2893,26 @@ function W:Dropdown(parent, text, values, get, set, placeholder, flagPathFn, inl
 				W:CloseOpenDropdown()
 				row:Refresh()
 			end)
+			item:EnableMouseWheel(true)
+			item:SetScript("OnMouseWheel", ScrollList)
 			EnsureDropdownItemHighlight(item):Hide()
 			item:SetScript("OnEnter", DropdownItem_OnEnter)
 			item:SetScript("OnLeave", DropdownItem_OnLeave)
 			y = y - 22
 		end
-		list:SetHeight(math.max(30, 8 + i * 22))
+		local contentHeight = math.max(22, i * 22)
+		local maxHeight = math.min(8 + 11 * 22, (UIParent:GetHeight() or 600) * 0.45)
+		local height = math.max(30, math.min(8 + contentHeight, maxHeight))
+		list:SetHeight(height)
+		listContent:SetHeight(contentHeight)
+		listScroll:SetVerticalScroll(0)
+		listSlider:SetMinMaxValues(0, math.max(0, contentHeight - (height - 8)))
+		listSlider:SetValue(0)
+		local scrollable = 8 + contentHeight > height
+		if scrollable then listSlider:Show() else listSlider:Hide() end
+		listScroll:ClearAllPoints()
+		listScroll:SetPoint("TOPLEFT", 4, -4)
+		listScroll:SetPoint("BOTTOMRIGHT", scrollable and -20 or -4, 4)
 	end
 
 	btn:SetScript("OnClick", function()

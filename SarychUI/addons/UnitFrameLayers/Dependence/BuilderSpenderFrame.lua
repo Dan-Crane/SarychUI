@@ -184,6 +184,7 @@ function FullResourcePulse:Initialize(active)
 	else
 		self:UnregisterEvent("PLAYER_REGEN_ENABLED");
 		self:SetScript("OnEvent", nil);
+		self:RemoveAnims();
 	end
 end
 
@@ -194,7 +195,7 @@ end
 function FullResourcePulse_OnEvent(self, event)
 	-- Fade out anims if they are playing and player goes out of combat
 	if ( event == "PLAYER_REGEN_ENABLED" ) then
-		if ( self.SpikeFrame.SpikeAnim:IsPlaying() or self.PulseFrame.PulseAnim:IsPlaying() ) then
+		if ( not self.FadeoutAnim:IsPlaying() and (self.SpikeFrame.SpikeAnim:IsPlaying() or self.PulseFrame.PulseAnim:IsPlaying()) ) then
 			self.FadeoutAnim:Play();
 		end
 	end
@@ -203,7 +204,10 @@ end
 function FullResourcePulse:StartAnimIfFull(oldValue, newValue)
 	-- If going to max and in combat, show alert/pulse animations
 	if ( newValue == self.maxValue and UnitAffectingCombat("player") ) then
-		if ( self.FadeoutAnim:IsPlaying() or not self.PulseFrame.PulseAnim:IsPlaying() ) then
+		local fading = self.FadeoutAnim:IsPlaying();
+		local pulsing = self.PulseFrame.PulseAnim:IsPlaying();
+		if ( fading or not pulsing ) then
+			self.FadeoutAnim:Stop();
 			self.SpikeFrame.BigSpikeGlow:SetAlpha(1);
 			self.SpikeFrame.AlertSpikeStay:SetAlpha(1);
 
@@ -211,18 +215,20 @@ function FullResourcePulse:StartAnimIfFull(oldValue, newValue)
 			self.SpikeFrame.AlertSpikeStay:Show();
 
 			self.SpikeFrame.SpikeAnim:Play();
+			self:SetAlpha(1);
+			self.PulseFrame.PulseAnim:Play();
 		end
-		self.FadeoutAnim:Stop();
-		self:SetAlpha(1);
-		self.PulseFrame.PulseAnim:Play();
-	-- If going from max to less than max and anims are playing, fade out anims
-	elseif ( oldValue == self.maxValue and (self.PulseFrame.PulseAnim:IsPlaying() or self.SpikeFrame.SpikeAnim:IsPlaying()) ) then
+	-- Fade out when power is no longer full or combat has ended.
+	elseif ( not self.FadeoutAnim:IsPlaying() and (self.PulseFrame.PulseAnim:IsPlaying() or self.SpikeFrame.SpikeAnim:IsPlaying()) ) then
 		self.FadeoutAnim:Play();
 	end
 end
 
 function FullResourcePulse:RemoveAnims()
+	self.FadeoutAnim:Stop();
 	self:SetAlpha(0);
 	self.PulseFrame.PulseAnim:Stop();
 	self.SpikeFrame.SpikeAnim:Stop();
+	self.SpikeFrame.BigSpikeGlow:Hide();
+	self.SpikeFrame.AlertSpikeStay:Hide();
 end

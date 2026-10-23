@@ -30,7 +30,7 @@
 
   <Frame name="StatusBarHealPredictionTemplate" frameLevel="1" setAllPoints="true" virtual="true">
     <Layers>
-      <Layer level="BACKGOURND">
+      <Layer level="BACKGROUND">
         <Texture name="$parentTotalAbsorbBar" inherits="TotalAbsorbBarTemplate"/>
         <Texture name="$parentHealAbsorbBarRightShadow" inherits="HealAbsorbBarRightShadowTemplate"/>
         <Texture name="$parentHealAbsorbBarLeftShadow" inherits="HealAbsorbBarLeftShadowTemplate"/>
@@ -42,7 +42,7 @@
         <Texture name="$parentFrameOtherHealPredictionBar" inherits="OtherHealPredictionBarTemplate"/>
         <Texture name="$parentFrameManaCostPredictionBar" inherits="MyManaCostPredictionBarTemplate"/>
       </Layer>
-      <Layer level="ATWORK">
+      <Layer level="ARTWORK">
         <Texture name="$parentTotalAbsorbBarOverlay" inherits="TotalAbsorbBarOverlayTemplate"/>
       </Layer>
     </Layers>

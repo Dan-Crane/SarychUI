@@ -102,8 +102,10 @@ function mod:SetPaperDollSlotCooldown(slotId, start, duration, enable)
     if not cooldown then return end
     -- Включаем спираль
     if start and duration and duration > 0 and enable and enable ~= 0 then
-        CooldownFrame_Set(cooldown, start, duration, 1)
+        CooldownFrame_SetTimer(cooldown, start, duration, 1)
+        if SarychUI_NotifyCooldown then SarychUI_NotifyCooldown(cooldown, start, duration, 1) end
     else
-        CooldownFrame_Set(cooldown, 0, 0, 0)
+        CooldownFrame_SetTimer(cooldown, 0, 0, 0)
+        if SarychUI_NotifyCooldown then SarychUI_NotifyCooldown(cooldown, 0, 0, 0) end
     end
 end;

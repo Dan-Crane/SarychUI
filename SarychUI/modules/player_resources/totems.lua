@@ -28,10 +28,9 @@ local PULSE_BACKDROP = {
 local PULSE_BACKDROP_COLOR = { 0, 0, 0, 0.6 }
 local PULSE_BORDER_COLOR = { 1, 1, 1 }
 
--- Tools → «Затемнение текстур интерфейса (LortiUI)»: tint icon borders and
--- pulse frame borders with the LortiUI color, like unit frames / class rings.
-local function LortiColor()
-	local L = SarychUI_LortiUI
+-- Match totem borders to the active interface style.
+local function InterfaceStyleColor()
+	local L = SarychUI_InterfaceStyle
 	if L and L.IsSettingOn and L.IsSettingOn() and L.GetColor then
 		local r, g, b, a = L.GetColor()
 		return r, g, b, a or 1
@@ -324,7 +323,7 @@ function module:RefreshTotems()
 		pulse:SetPoint("BOTTOMLEFT", button, "TOPLEFT", 0, gap)
 		pulse:SetPoint("BOTTOMRIGHT", button, "TOPRIGHT", 0, gap)
 		pulse:SetBackdropColor(unpack(PULSE_BACKDROP_COLOR))
-		local lr, lg, lb, la = LortiColor()
+		local lr, lg, lb, la = InterfaceStyleColor()
 		if lr then
 			pulse:SetBackdropBorderColor(lr, lg, lb, la)
 			button.border:SetVertexColor(lr, lg, lb, la)
@@ -345,8 +344,8 @@ function module:RefreshTotems()
 	end
 end
 
--- Called by LortiUI Apply/Disable to re-tint borders without a full refresh.
-function module:ApplyTotemsDarkMode()
+-- Called by InterfaceStyle Apply/Disable to re-tint borders without a full refresh.
+function module:ApplyTotemsInterfaceStyle()
 	if holder and module:Flag("totems", "enabled", false) then
 		self:RefreshTotems()
 	end

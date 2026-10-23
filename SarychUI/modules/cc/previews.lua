@@ -634,6 +634,76 @@ local function MakeBlizzardCastBar(parent, style, spellName, iconPath)
 	return wrap, bar
 end
 
+local DF_TEXTURE_PATH = "Interface\\AddOns\\SarychUI\\media\\castbar\\"
+local function MakeDragonflightCastBar(parent, style, spellName, iconPath)
+	local isTarget = style == "target"
+	local width, height = isTarget and 150 or 256, isTarget and 10 or 16
+	local wrap = CreateFrame("Frame", nil, parent)
+	wrap:SetSize(width + (isTarget and 36 or 24), 58)
+	local bar = CreateFrame("StatusBar", nil, wrap)
+	bar:SetSize(width, height)
+	bar:SetPoint("CENTER", wrap, "CENTER", isTarget and 8 or 0, 10)
+	bar:SetMinMaxValues(0, 1)
+	bar:SetValue(0.62)
+	bar:SetStatusBarTexture(DF_TEXTURE_PATH .. "CastingBarStandard2")
+	bar:SetStatusBarColor(1, 0.7, 0, 1)
+
+	local atlas = DF_TEXTURE_PATH .. "uicastingbar2x"
+	local bg = bar:CreateTexture(nil, "BACKGROUND")
+	bg:SetTexture(atlas)
+	bg:SetTexCoord(0.0009765625, 0.4130859375, 0.3671875, 0.41796875)
+	bg:SetPoint("TOPLEFT", bar, "TOPLEFT", -2, 0)
+	bg:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 2, 0)
+	local border = bar:CreateTexture(nil, "ARTWORK")
+	border:SetTexture(atlas)
+	border:SetTexCoord(0.412109375, 0.828125, 0.001953125, 0.060546875)
+	border:SetPoint("TOPLEFT", bar, "TOPLEFT", -2, 2)
+	border:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 2, -2)
+
+	local textBg = bar:CreateTexture(nil, "ARTWORK")
+	textBg:SetTexture(isTarget and DF_TEXTURE_PATH .. "uicastingbar" or atlas)
+	if isTarget then
+		textBg:SetTexCoord(0.001953125, 0.412109375, 0.00390625, 0.11328125)
+	else
+		textBg:SetTexCoord(0.001953125, 0.410109375, 0.00390625, 0.11328125)
+	end
+	textBg:SetSize(width, isTarget and 20 or 22)
+	textBg:SetPoint("TOP", bar, "BOTTOM", 0, isTarget and 8 or 6)
+	local name = bar:CreateFontString(nil, "OVERLAY", isTarget and "GameFontHighlightSmall" or "GameFontHighlight")
+	name:SetPoint("BOTTOMLEFT", textBg, "BOTTOMLEFT", 8, 2)
+	name:SetPoint("BOTTOMRIGHT", textBg, "BOTTOMRIGHT", -8, 2)
+	name:SetJustifyH("CENTER")
+	name:SetText(Tr(spellName or ""))
+
+	local iconSize = isTarget and 20 or 27
+	local playerIconSetting = GetCastbarSetting("showPlayerIcon", false)
+	local showIcon = isTarget or playerIconSetting == true or playerIconSetting == 1
+	if showIcon then
+		local icon = bar:CreateTexture(nil, "ARTWORK")
+		icon:SetTexture(iconPath or SAMPLE_ICON_FIREBALL)
+		icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+		icon:SetSize(iconSize, iconSize)
+		if isTarget then
+			icon:SetPoint("RIGHT", bar, "LEFT", -5, -4)
+		else
+			icon:SetPoint("TOPLEFT", bar, "TOPLEFT", -(iconSize + 6), -1)
+		end
+		local iconBorder = bar:CreateTexture(nil, "OVERLAY")
+		iconBorder:SetTexture("Interface\\Buttons\\UI-Quickslot2")
+		iconBorder:SetTexCoord(0.05, 0.95, 0.05, 0.95)
+		iconBorder:SetVertexColor(0.8, 0.8, 0.8, 1)
+		iconBorder:SetSize(iconSize * 1.7, iconSize * 1.7)
+		iconBorder:SetPoint("CENTER", icon, "CENTER")
+	end
+
+	local spark = bar:CreateTexture(nil, "OVERLAY")
+	spark:SetTexture(DF_TEXTURE_PATH .. "CastingBarSpark")
+	spark:SetBlendMode("ADD")
+	spark:SetSize(height, height * 2)
+	spark:SetPoint("CENTER", bar, "LEFT", width * 0.62, 0)
+	return wrap, bar
+end
+
 local function AttachCastTimer(bar, offsetX, offsetY, fontSize, text)
 	local timer = bar:CreateFontString(nil, "OVERLAY")
 	SafeSetFont(timer, FALLBACK_FONT, fontSize, "")
@@ -666,6 +736,9 @@ function CastPreview:Create(parent)
 	local playerWrap, playerBar = MakeBlizzardCastBar(stage, "player", FLASH_OF_LIGHT, SAMPLE_ICON_FLASH)
 	playerWrap:SetPoint("TOP", stage, "TOP", 0, -16)
 	local playerTimer = AttachCastTimer(playerBar, 0, -20, 13, " 1.2 / 1.5 ")
+	local dfPlayerWrap, dfPlayerBar = MakeDragonflightCastBar(stage, "player", FLASH_OF_LIGHT, SAMPLE_ICON_FLASH)
+	dfPlayerWrap:SetPoint("TOP", stage, "TOP", 0, -16)
+	local dfPlayerTimer = AttachCastTimer(dfPlayerBar, 0, -20, 13, " 1.2 / 1.5 ")
 
 	local targetLabel = stage:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 	targetLabel:SetPoint("TOP", stage, "TOP", 0, -78)
@@ -675,21 +748,47 @@ function CastPreview:Create(parent)
 	local targetWrap, targetBar = MakeBlizzardCastBar(stage, "target", FIREBALL, SAMPLE_ICON_FIREBALL)
 	targetWrap:SetPoint("TOP", stage, "TOP", 0, -92)
 	local targetTimer = AttachCastTimer(targetBar, 92, 0, 12, " 2.4 ")
+	local dfTargetWrap, dfTargetBar = MakeDragonflightCastBar(stage, "target", FIREBALL, SAMPLE_ICON_FIREBALL)
+	dfTargetWrap:SetPoint("TOP", stage, "TOP", 0, -92)
+	local dfTargetTimer = AttachCastTimer(dfTargetBar, 92, 0, 12, " 2.4 ")
 
 	host._playerTimer = playerTimer
 	host._targetTimer = targetTimer
 
 	local function Layout()
+		local dragonflight = GetCastbarSetting("barStyle", "classic") == "dragonflight"
+		if dragonflight then
+			playerWrap:Hide()
+			targetWrap:Hide()
+			dfPlayerWrap:Show()
+			dfTargetWrap:Show()
+		else
+			playerWrap:Show()
+			targetWrap:Show()
+			dfPlayerWrap:Hide()
+			dfTargetWrap:Hide()
+		end
+		local scale = tonumber(GetCastbarSetting("scale", 1)) or 1
+		dfPlayerWrap:SetScale(scale)
+		dfTargetWrap:SetScale(scale)
+		local timerY = tonumber(GetCastbarSetting("playerTimerOffsetY", 0)) or 0
+		local timerX = tonumber(GetCastbarSetting("playerTimerOffsetX", 0)) or 0
+		dfPlayerTimer:ClearAllPoints()
+		dfPlayerTimer:SetPoint("CENTER", dfPlayerBar, "CENTER", timerX, -20 + timerY)
 		local master = IsCastbarFlagOn("enableCastbarTimers")
 		if master and IsCastbarFlagOn("enableCastbarPlayer") then
 			playerTimer:Show()
+			dfPlayerTimer:Show()
 		else
 			playerTimer:Hide()
+			dfPlayerTimer:Hide()
 		end
 		if master and IsCastbarFlagOn("enableCastbarTarget") then
 			targetTimer:Show()
+			dfTargetTimer:Show()
 		else
 			targetTimer:Hide()
+			dfTargetTimer:Hide()
 		end
 	end
 

@@ -332,7 +332,7 @@ local function PaintBadge(f, point, specIcon, highlight)
 		badge.ring:SetVertexColor(1, 0.92, 0.35)
 	else
 		badge.icon:SetVertexColor(1, 1, 1)
-		local L = SarychUI_LortiUI
+		local L = SarychUI_InterfaceStyle
 		if L and L.IsSettingOn and L.IsSettingOn() and L.GetColor then
 			local r, g, b, a = L.GetColor()
 			badge.ring:SetVertexColor(r, g, b, a or 1)
@@ -928,7 +928,7 @@ function Preview:Create(parent)
 			else
 				icon:SetVertexColor(1, 1, 1)
 				if ring then
-					local L = SarychUI_LortiUI
+					local L = SarychUI_InterfaceStyle
 					if classIconSeparate and L and L.IsSettingOn and L.IsSettingOn() and L.GetColor then
 						local r, g, b, a = L.GetColor()
 						ring:SetVertexColor(r, g, b, a or 1)

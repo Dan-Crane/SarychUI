@@ -1161,6 +1161,10 @@ function R:RenderControl(parent, key, opt, path, y, padX, handler)
 			else
 				widget = W:Description(parent, "|cffff8080Combat text preview unavailable|r")
 			end
+		elseif opt.suiPlayerResourcesPreview
+			and SarychUI.PlayerResourcesPreview and SarychUI.PlayerResourcesPreview.Create then
+			widget = SarychUI.PlayerResourcesPreview:Create(parent)
+			compactW = nil
 		elseif opt.suiCastbarTimerPreview
 			and (SUI.CastbarTimerPreview or SarychUI.CastbarTimerPreview) then
 			local CastPreview = SUI.CastbarTimerPreview or SarychUI.CastbarTimerPreview

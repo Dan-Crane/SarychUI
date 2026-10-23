@@ -97,7 +97,7 @@ local Preview = SarychUI.ArenaPreview
 -- Blizzard ArenaEnemyFrameTemplate: 102x32
 local ROW_W, ROW_H = 102, 32
 local ICON = 26
-local GAP = 8
+local GAP = 40
 
 local SAMPLES = {
 	{ name = "Воин", class = "WARRIOR", hp = 0.82, mana = 0.35 },
@@ -357,19 +357,28 @@ function Preview:Create(parent)
 	host._t = 0
 
 	local function LayoutLive()
-		local scale = tonumber(Live("scale", 1.0)) or 1.0
-		if scale < 0.5 then scale = 0.5 elseif scale > 2 then scale = 2 end
+		local gap = tonumber(Live("frameSpacing", GAP)) or GAP
+		if gap < 0 then gap = 0 elseif gap > 60 then gap = 60 end
+		if host._gap ~= gap then
+			host._gap = gap
+			for i = 2, #rows do
+				rows[i]:ClearAllPoints()
+				rows[i]:SetPoint("TOPLEFT", rows[i - 1], "BOTTOMLEFT", 0, -gap)
+			end
+			local height = #rows * ROW_H + (#rows - 1) * gap
+			stack:SetHeight(height)
+			host:SetHeight(height + 24)
+		end
 		local classColor = LiveFlag("classColorHP", true)
 		local trinketsOn, racialOn, iconScale = TrinketsDB()
 		local distanceAlpha = LiveFlag("distanceAlpha", false) and LiveFlag("useAwesomeWotlk", false)
 		local farAlpha = distanceAlpha and 0.5 or 1.0
-		local lorti = SarychUI_LortiUI
+		local style = SarychUI_InterfaceStyle
 		local borderR, borderG, borderB, borderA = 1, 1, 1, 1
-		if lorti and lorti.IsSettingOn and lorti.IsSettingOn() and lorti.GetColor then
-			borderR, borderG, borderB, borderA = lorti.GetColor()
+		if style and style.IsSettingOn and style.IsSettingOn() and style.GetColor then
+			borderR, borderG, borderB, borderA = style.GetColor()
 		end
 
-		stack:SetScale(scale)
 		stack:ClearAllPoints()
 		stack:SetPoint("CENTER", stage, "CENTER", 0, 0)
 

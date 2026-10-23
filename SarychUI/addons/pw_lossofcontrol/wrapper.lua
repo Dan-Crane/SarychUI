@@ -114,6 +114,10 @@ end
 -- Enable the addon
 function wrapper:Enable()
 	if self.enabled then
+		-- Initialize already marked this addon enabled; still apply the loaded profile.
+		if LossOfControlFrame_RefreshOptions then
+			LossOfControlFrame_RefreshOptions()
+		end
 		return
 	end
 	

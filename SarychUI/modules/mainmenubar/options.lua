@@ -4,12 +4,27 @@
 local moduleName = "mainmenubar"
 local L = SarychUI.L
 
+local function InterfaceStyleActive()
+	local style = _G.SarychUI_InterfaceStyle
+	return style and style.enabled and style.UseStyleTextures and style.UseStyleTextures()
+end
+
 local function NotifyOptionsChange()
 	if SarychUI.NotifySarychUIOptionsChange then
 		SarychUI:NotifySarychUIOptionsChange()
 	elseif SarychUI.RefreshConfig then
 		SarychUI:RefreshConfig()
 	end
+end
+
+local function ToolsDB()
+    local modules = SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.modules
+    return modules and modules.tools
+end
+
+local function ToolsFpsEnabled()
+    local db = ToolsDB()
+    return db and (db.enableAltFPS == 1 or db.enableAltFPS == true) or false
 end
 
 local function RefreshStylePreviews()
@@ -105,12 +120,13 @@ local function GetOptions()
 							bar_style = {
 								type = "select",
 								name = "",
-								desc = "Классические панели WoW или классическая раскладка с оформлением BFA. Для смены типа требуется /reload.",
+								desc = "Выбор расположения панелей. Для смены типа требуется /reload.",
 								order = 1,
 								values = {
-									__order = { "classic", "bfa" },
+									__order = { "classic", "bfa", "dragon" },
 									classic = "Классические",
 									bfa = "Классические BFA",
+									dragon = "Центральные многоуровневые",
 								},
 								get = function()
 									return SarychUI.db.profile.modules.mainmenubar.barStyle or "classic"
@@ -541,6 +557,9 @@ local function GetOptions()
                                     order = 1,
                                     width = "full",
                                     suiActionBarAppearancePreview = true,
+                                    hidden = function()
+                                        return SarychUI.db.profile.modules.mainmenubar.barStyle == "dragon"
+                                    end,
                                 },
 
                                 gryphonsBox = {
@@ -548,6 +567,9 @@ local function GetOptions()
                                     name = "Грифоны",
                                     order = 10,
                                     inline = true,
+                                    hidden = function()
+                                        return SarychUI.db.profile.modules.mainmenubar.barStyle == "dragon"
+                                    end,
                                     args = {
                                         hide_gryphons = {
                                             type = "toggle",
@@ -576,6 +598,9 @@ local function GetOptions()
                                     name = "Фоновые текстуры",
                                     order = 20,
                                     inline = true,
+                                    hidden = function()
+                                        return SarychUI.db.profile.modules.mainmenubar.barStyle == "dragon"
+                                    end,
                                     args = {
 										hide_actionbar_backgrounds = {
                                             type = "toggle",
@@ -657,6 +682,109 @@ local function GetOptions()
                                     },
                                 },
 
+                                dragonSpacingBox = {
+                                    type = "group",
+                                    name = "Отступы панелей",
+                                    order = 25,
+                                    inline = true,
+                                    hidden = function()
+                                        return SarychUI.db.profile.modules.mainmenubar.barStyle ~= "dragon"
+                                    end,
+                                    args = {
+                                        spacing = {
+                                            type = "range",
+                                            name = "Расстояние между кнопками и панелями",
+                                            desc = "Один отступ для кнопок и промежутков между рядами панелей.",
+                                            order = 1,
+                                            min = 0,
+                                            max = 20,
+                                            step = 1,
+                                            get = function()
+                                                return SarychUI.db.profile.modules.mainmenubar.dragonSpacing or 6
+                                            end,
+                                            set = function(_, value)
+                                                SarychUI.db.profile.modules.mainmenubar.dragonSpacing = value
+                                                local bars = SarychUI.modules and SarychUI.modules.mainmenubar
+                                                if bars and bars.DragonStyle and bars.DragonStyle.active then
+                                                    bars.DragonStyle:Layout()
+                                                end
+                                            end,
+                                        },
+                                    },
+                                },
+
+                                microMenuStyleBox = {
+                                    type = "group",
+                                    name = "Микроменю",
+                                    order = 28,
+                                    inline = true,
+                                    args = {
+                                        microMenuStyle = {
+                                            type = "select",
+                                            name = "Внешний вид",
+                                            desc = "Текстуры кнопок микроменю. Расположение и размер не меняются.",
+                                            order = 1,
+                                            width = "full",
+                                            values = {
+                                                classic = "Классические",
+                                                dragonflight = "Dragonflight",
+                                            },
+                                            get = function()
+                                                return SarychUI.db.profile.modules.mainmenubar.microMenuStyle or "dragonflight"
+                                            end,
+                                            set = function(_, value)
+                                                local db = SarychUI.db.profile.modules.mainmenubar
+                                                local previous = db.microMenuStyle or "dragonflight"
+                                                if previous == value then return end
+                                                db.microMenuStyle = value
+                                                if SarychUI.modules and SarychUI.modules.mainmenubar then
+                                                    SarychUI.modules.mainmenubar:ApplyAppearanceSettings()
+                                                end
+                                                if SarychUI.ActionBarTransparencyPreview and SarychUI.ActionBarTransparencyPreview.RefreshAll then
+                                                    SarychUI.ActionBarTransparencyPreview:RefreshAll()
+                                                end
+                                                NotifyOptionsChange()
+                                                local text = "Для применения внешнего вида микроменю требуется перезагрузка интерфейса."
+                                                local function revert()
+                                                    db.microMenuStyle = previous
+                                                    if SarychUI.modules and SarychUI.modules.mainmenubar then
+                                                        SarychUI.modules.mainmenubar:ApplyAppearanceSettings()
+                                                    end
+                                                    if SarychUI.ActionBarTransparencyPreview and SarychUI.ActionBarTransparencyPreview.RefreshAll then
+                                                        SarychUI.ActionBarTransparencyPreview:RefreshAll()
+                                                    end
+                                                    NotifyOptionsChange()
+                                                end
+                                                if SarychUI.ShowReloadPopup then
+                                                    SarychUI:ShowReloadPopup(text, revert)
+                                                elseif StaticPopup_Show then
+                                                    StaticPopup_Show("SARYCHUI_RELOAD_UI")
+                                                end
+                                            end,
+                                        },
+                                        microMenuHideGreenLatency = {
+                                            type = "toggle",
+                                            name = "Скрывать индикатор при зелёной сети",
+                                            desc = "Прячет индикатор задержки на кнопке меню, пока пинг зелёный. При жёлтом или красном - показывает. Только для внешнего вида Dragonflight.",
+                                            order = 2,
+                                            width = "full",
+                                            hidden = function()
+                                                local db = SarychUI.db.profile.modules.mainmenubar
+                                                return (db.microMenuStyle or "dragonflight") ~= "dragonflight"
+                                            end,
+                                            get = function()
+                                                local db = SarychUI.db.profile.modules.mainmenubar
+                                                return db.microMenuHideGreenLatency ~= false
+                                            end,
+                                            set = function(_, value)
+                                                SarychUI.db.profile.modules.mainmenubar.microMenuHideGreenLatency = value and true or false
+                                                if SarychUI.modules and SarychUI.modules.mainmenubar then
+                                                    SarychUI.modules.mainmenubar:ApplyAppearanceSettings()
+                                                end
+                                            end,
+                                        },
+                                    },
+                                },
                                 interfaceBox = {
                                     type = "group",
                                     name = "Элементы интерфейса",
@@ -836,6 +964,7 @@ local function GetOptions()
                                     name = L["Button_Border_Alpha"],
                                     order = 10,
                                     inline = true,
+                                    disabled = InterfaceStyleActive,
                                     args = {
                                         button_border_alpha_enabled = {
                                             type = "toggle",
@@ -843,6 +972,7 @@ local function GetOptions()
                                             desc = L["Button_Border_Alpha_Desc"],
                                             order = 1,
                                             width = "full",
+                                            disabled = InterfaceStyleActive,
                                             get = function(info)
                                                 return SarychUI.db.profile.modules.mainmenubar.buttonBorderAlphaEnabled
                                             end,
@@ -867,7 +997,8 @@ local function GetOptions()
                                             step = 0.05,
                                             width = "full",
                                             disabled = function()
-                                                return not SarychUI.db.profile.modules.mainmenubar.buttonBorderAlphaEnabled
+                                                return InterfaceStyleActive()
+                                                    or not SarychUI.db.profile.modules.mainmenubar.buttonBorderAlphaEnabled
                                             end,
                                             get = function(info)
                                                 return SarychUI.db.profile.modules.mainmenubar.buttonBorderAlpha
@@ -936,6 +1067,24 @@ local function GetOptions()
                                                 end
                                             end,
                                         },
+                                        micro_menu_show_on_mouseover = {
+                                            type = "toggle",
+                                            name = "Отображать при наведении мышью",
+                                            desc = "При наведении на кнопки микроменю показывает их с прозрачностью 1.",
+                                            order = 3,
+                                            width = "full",
+                                            disabled = function()
+                                                return not SarychUI.db.profile.modules.mainmenubar.microMenuAlphaEnabled
+                                            end,
+                                            get = function()
+                                                return SarychUI.db.profile.modules.mainmenubar.microMenuShowOnMouseover == true
+                                            end,
+                                            set = function(_, value)
+                                                SarychUI.db.profile.modules.mainmenubar.microMenuShowOnMouseover = value and true or false
+                                                local bars = SarychUI.modules and SarychUI.modules.mainmenubar
+                                                if bars then bars:ApplyAppearanceSettings() end
+                                            end,
+                                        },
                                     },
                                 },
 
@@ -988,6 +1137,24 @@ local function GetOptions()
                                                 if SarychUI.ActionBarTransparencyPreview and SarychUI.ActionBarTransparencyPreview.RefreshAll then
                                                     SarychUI.ActionBarTransparencyPreview:RefreshAll()
                                                 end
+                                            end,
+                                        },
+                                        bag_show_on_mouseover = {
+                                            type = "toggle",
+                                            name = "Отображать при наведении мышью",
+                                            desc = "При наведении на сумки показывает их с прозрачностью 1.",
+                                            order = 3,
+                                            width = "full",
+                                            disabled = function()
+                                                return not SarychUI.db.profile.modules.mainmenubar.bagAlphaEnabled
+                                            end,
+                                            get = function()
+                                                return SarychUI.db.profile.modules.mainmenubar.bagShowOnMouseover == true
+                                            end,
+                                            set = function(_, value)
+                                                SarychUI.db.profile.modules.mainmenubar.bagShowOnMouseover = value and true or false
+                                                local bars = SarychUI.modules and SarychUI.modules.mainmenubar
+                                                if bars then bars:ApplyAppearanceSettings() end
                                             end,
                                         },
                                     },
@@ -1247,75 +1414,90 @@ local function GetOptions()
                             name = "Другое",
                             order = 4,
                             args = {
-                                microMenuStyleBox = {
+                                fpsBox = {
                                     type = "group",
-                                    name = "Микроменю",
-                                    order = 1,
+                                    name = "FPS",
+                                    desc = "Настройки индикатора FPS при зажатом Alt",
+                                    order = 20,
                                     inline = true,
+                                    suiTwoCol = true,
+                                    suiHelpIcon = SarychUI.DOTA_ALT_HELP_ICON,
                                     args = {
-                                        microMenuStyle = {
-                                            type = "select",
-                                            name = "Внешний вид",
-                                            desc = "Текстуры кнопок микроменю. Расположение и размер не меняются.",
+                                        enableAltFPS = {
+                                            type = "toggle",
+                                            name = "Показывать FPS при зажатом |cFFFFD700Alt|r",
+                                            desc = "Показывает FPS в левом верхнем углу при зажатой клавише |cFFFFD700Alt|r",
                                             order = 1,
                                             width = "full",
-                                            values = {
-                                                classic = "Классические",
-                                                dragonflight = "Dragonflight",
-                                            },
-                                            get = function()
-                                                return SarychUI.db.profile.modules.mainmenubar.microMenuStyle or "dragonflight"
-                                            end,
-                                            set = function(_, value)
-                                                local db = SarychUI.db.profile.modules.mainmenubar
-                                                local previous = db.microMenuStyle or "dragonflight"
-                                                if previous == value then return end
-                                                db.microMenuStyle = value
-                                                if SarychUI.modules and SarychUI.modules.mainmenubar then
-                                                    SarychUI.modules.mainmenubar:ApplyAppearanceSettings()
-                                                end
-                                                if SarychUI.ActionBarTransparencyPreview and SarychUI.ActionBarTransparencyPreview.RefreshAll then
-                                                    SarychUI.ActionBarTransparencyPreview:RefreshAll()
-                                                end
+                                            suiHelpIcon = SarychUI.DOTA_ALT_HELP_ICON,
+                                            get = function() return ToolsFpsEnabled() end,
+                                            set = function(_, val)
+                                                local db = ToolsDB()
+                                                if not db then return end
+                                                db.enableAltFPS = val and 1 or 0
+                                                local tools = SarychUI.modules and SarychUI.modules.tools
+                                                if tools and tools.ApplyAltFPS then tools:ApplyAltFPS() end
                                                 NotifyOptionsChange()
-                                                local text = "Для применения внешнего вида микроменю требуется перезагрузка интерфейса."
-                                                local function revert()
-                                                    db.microMenuStyle = previous
-                                                    if SarychUI.modules and SarychUI.modules.mainmenubar then
-                                                        SarychUI.modules.mainmenubar:ApplyAppearanceSettings()
-                                                    end
-                                                    if SarychUI.ActionBarTransparencyPreview and SarychUI.ActionBarTransparencyPreview.RefreshAll then
-                                                        SarychUI.ActionBarTransparencyPreview:RefreshAll()
-                                                    end
-                                                    NotifyOptionsChange()
-                                                end
-                                                if SarychUI.ShowReloadPopup then
-                                                    SarychUI:ShowReloadPopup(text, revert)
-                                                elseif StaticPopup_Show then
-                                                    StaticPopup_Show("SARYCHUI_RELOAD_UI")
-                                                end
                                             end,
                                         },
-                                        microMenuHideGreenLatency = {
-                                            type = "toggle",
-                                            name = "Скрывать индикатор при зелёной сети",
-                                            desc = "Прячет индикатор задержки на кнопке меню, пока пинг зелёный. При жёлтом или красном - показывает. Только для внешнего вида Dragonflight.",
+                                        fpsScale = {
+                                            type = "range",
+                                            name = "Масштаб FPS",
+                                            desc = "Размер FPS-индикатора при зажатом |cFFFFD700Alt|r (0.50 - 2.00)",
                                             order = 2,
                                             width = "full",
-                                            hidden = function()
-                                                local db = SarychUI.db.profile.modules.mainmenubar
-                                                return (db.microMenuStyle or "dragonflight") ~= "dragonflight"
-                                            end,
+                                            suiFullRow = true,
+                                            min = 0.5, max = 2.0, step = 0.05,
                                             get = function()
-                                                local db = SarychUI.db.profile.modules.mainmenubar
-                                                return db.microMenuHideGreenLatency ~= false
+                                                local db = ToolsDB()
+                                                return (db and db.fpsScale) or 1.0
                                             end,
-                                            set = function(_, value)
-                                                SarychUI.db.profile.modules.mainmenubar.microMenuHideGreenLatency = value and true or false
-                                                if SarychUI.modules and SarychUI.modules.mainmenubar then
-                                                    SarychUI.modules.mainmenubar:ApplyAppearanceSettings()
-                                                end
+                                            set = function(_, val)
+                                                local db = ToolsDB()
+                                                if not db then return end
+                                                db.fpsScale = val
+                                                local tools = SarychUI.modules and SarychUI.modules.tools
+                                                if tools and tools.ApplyFpsScale then tools:ApplyFpsScale() end
                                             end,
+                                            disabled = function() return not ToolsFpsEnabled() end,
+                                        },
+                                        fpsExtraOffsetX = {
+                                            type = "range",
+                                            name = "Смещение по X",
+                                            desc = "Дополнительное горизонтальное смещение FPS-индикатора относительно базовой позиции",
+                                            order = 3,
+                                            min = -300, max = 300, step = 1,
+                                            get = function()
+                                                local db = ToolsDB()
+                                                return (db and db.fpsExtraOffsetX) or 0
+                                            end,
+                                            set = function(_, val)
+                                                local db = ToolsDB()
+                                                if not db then return end
+                                                db.fpsExtraOffsetX = val
+                                                local tools = SarychUI.modules and SarychUI.modules.tools
+                                                if tools and tools.SetFpsPosition then tools:SetFpsPosition() end
+                                            end,
+                                            disabled = function() return not ToolsFpsEnabled() end,
+                                        },
+                                        fpsExtraOffsetY = {
+                                            type = "range",
+                                            name = "Смещение по Y",
+                                            desc = "Дополнительное вертикальное смещение FPS-индикатора относительно базовой позиции",
+                                            order = 4,
+                                            min = -300, max = 300, step = 1,
+                                            get = function()
+                                                local db = ToolsDB()
+                                                return (db and db.fpsExtraOffsetY) or 0
+                                            end,
+                                            set = function(_, val)
+                                                local db = ToolsDB()
+                                                if not db then return end
+                                                db.fpsExtraOffsetY = val
+                                                local tools = SarychUI.modules and SarychUI.modules.tools
+                                                if tools and tools.SetFpsPosition then tools:SetFpsPosition() end
+                                            end,
+                                            disabled = function() return not ToolsFpsEnabled() end,
                                         },
                                     },
                                 },

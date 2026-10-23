@@ -74,7 +74,7 @@ local function GetFocuserModifier()
     local db = DB()
     if not db then return "ALT" end
     
-    local key = db.focuserModifierKey or 2
+    local key = tonumber(db.focuserModifierKey) or 2
     if key == 1 then
         return "SHIFT"
     elseif key == 2 then
@@ -83,6 +83,15 @@ local function GetFocuserModifier()
         return "CTRL"
     end
     return "ALT"  -- Default to ALT
+end
+
+local function FocuserActionAttributes()
+    local modifier = GetFocuserModifier()
+    if modifier == "ALT" then
+        return "type1", "macrotext"
+    end
+    modifier = modifier:lower() .. "-"
+    return modifier .. "type1", modifier .. "macrotext"
 end
 
 -- EscToOK functionality
@@ -178,6 +187,18 @@ S.blizzMoveDefaults = {
 
 -- 3.3.5 has no [mouseover] macro condition. Unit id mouseover is valid.
 local FOCUSER_MACROTEXT = "/focus mouseover"
+
+local function ConfigureFocuserButton(button)
+    if not button or (InCombatLockdown and InCombatLockdown()) then return end
+    button:SetAttribute("shift-type1", nil)
+    button:SetAttribute("shift-macrotext", nil)
+    button:SetAttribute("ctrl-type1", nil)
+    button:SetAttribute("ctrl-macrotext", nil)
+    local typeAttr, macroAttr = FocuserActionAttributes()
+    button:SetAttribute(typeAttr, "macro")
+    button:SetAttribute(macroAttr, FOCUSER_MACROTEXT)
+end
+
 
 -- Alt+LMB announces only the numeric resource text, not the whole bar.
 local ANNOUNCE_UNIT_TEXTS = {
@@ -377,7 +398,7 @@ local function InstallPlayerBarFrameXMLClickGuard()
                     if S.barAttrGuard[self] then
                         return
                     end
-                    local modKey = GetFocuserModifier() .. "-type" .. mouseButton
+                    local modKey = GetFocuserModifier():lower() .. "-type" .. mouseButton
                     S.barAttrGuard[self] = { parent, modKey, parent:GetAttribute(modKey) }
                     parent:SetAttribute(modKey, nil)
                     S.suppressFocuserForAnnounceBar = true
@@ -415,20 +436,25 @@ local function InstallFocuserAnnounceBarGuard(button)
         if not IsOverAnnounceUnitBar() then
             return
         end
+        local typeAttr, macroAttr = FocuserActionAttributes()
         if self._sarychFocuserOldType1 == nil and self._sarychFocuserOldMacro == nil then
-            self._sarychFocuserOldType1 = self:GetAttribute("type1")
-            self._sarychFocuserOldMacro = self:GetAttribute("macrotext")
+            self._sarychFocuserTypeAttr = typeAttr
+            self._sarychFocuserMacroAttr = macroAttr
+            self._sarychFocuserOldType1 = self:GetAttribute(typeAttr)
+            self._sarychFocuserOldMacro = self:GetAttribute(macroAttr)
         end
-        self:SetAttribute("type1", nil)
-        self:SetAttribute("macrotext", nil)
+        self:SetAttribute(typeAttr, nil)
+        self:SetAttribute(macroAttr, nil)
     end)
     button:HookScript("PostClick", function(self)
         S.suppressFocuserForAnnounceBar = nil
         if self._sarychFocuserOldType1 == nil and self._sarychFocuserOldMacro == nil then
             return
         end
-        self:SetAttribute("type1", self._sarychFocuserOldType1 or "macro")
-        self:SetAttribute("macrotext", self._sarychFocuserOldMacro or FOCUSER_MACROTEXT)
+        self:SetAttribute(self._sarychFocuserTypeAttr, self._sarychFocuserOldType1 or "macro")
+        self:SetAttribute(self._sarychFocuserMacroAttr, self._sarychFocuserOldMacro or FOCUSER_MACROTEXT)
+        self._sarychFocuserTypeAttr = nil
+        self._sarychFocuserMacroAttr = nil
         self._sarychFocuserOldType1 = nil
         self._sarychFocuserOldMacro = nil
     end)
@@ -559,10 +585,13 @@ local function InstallFocuserBothButtonMove(button)
             end
             -- RMB held: never /focus on this click.
             if self._sarychFocuserOldType1 == nil and self._sarychFocuserOldMacro == nil then
-                self._sarychFocuserOldType1 = self:GetAttribute("type1")
-                self._sarychFocuserOldMacro = self:GetAttribute("macrotext")
-                self:SetAttribute("type1", nil)
-                self:SetAttribute("macrotext", nil)
+                local typeAttr, macroAttr = FocuserActionAttributes()
+                self._sarychFocuserTypeAttr = typeAttr
+                self._sarychFocuserMacroAttr = macroAttr
+                self._sarychFocuserOldType1 = self:GetAttribute(typeAttr)
+                self._sarychFocuserOldMacro = self:GetAttribute(macroAttr)
+                self:SetAttribute(typeAttr, nil)
+                self:SetAttribute(macroAttr, nil)
             end
         end)
         button.__SarychUIBothButtonMove = true
@@ -631,7 +660,7 @@ local function SetFocusHotkey(frame)
     if InCombatLockdown and InCombatLockdown() then
         return
     end
-    local attr = GetFocuserModifier() .. "-type" .. mouseButton
+    local attr = GetFocuserModifier():lower() .. "-type" .. mouseButton
     local prev = S.focusAttrByFrame[frame]
     if prev and prev ~= attr then
         frame:SetAttribute(prev, nil)
@@ -1114,6 +1143,14 @@ local function ClearArenaRightClickFocus(frame)
     frame:SetAttribute("type2", nil)
 end
 
+-- Rebind only the chosen modifier when the option changes.
+function module:ApplyFocuserModifier()
+    if IsFocuserEnabled() then
+        ConfigureFocuserButton(S.focuserButton)
+        SetFocuserOverrideMode("focus")
+    end
+end
+
 -- Apply focuser settings
 function module:ApplyFocuser()
     local db = DB()
@@ -1146,6 +1183,7 @@ function module:EnableFocuser()
         S.focuserButton:SetAttribute("type1", "macro")
         S.focuserButton:SetAttribute("macrotext", FOCUSER_MACROTEXT)
     end
+    ConfigureFocuserButton(S.focuserButton)
     InstallFocuserAnnounceBarGuard(S.focuserButton)
     InstallPlayerBarFrameXMLClickGuard()
     InstallFocuserBothButtonMove(S.focuserButton)
@@ -3020,7 +3058,7 @@ InstallCompactResourceAnnounce = function(frame)
         if InCombatLockdown and InCombatLockdown() then
             return
         end
-        local attr = GetFocuserModifier() .. "-type" .. mouseButton
+        local attr = GetFocuserModifier():lower() .. "-type" .. mouseButton
         QueueCompactAttrRestore(self, attr, self:GetAttribute(attr))
         self:SetAttribute(attr, nil)
     end)
@@ -4074,13 +4112,14 @@ function module:EnableShowFlightTimes()
         S.flightTimesTracker.active = false
         S.flightTimesTracker.startTime = 0
         S.flightTimesTracker.duration = 0
+        S.flightTimesTracker.routeKey = nil
         S.flightAcc = 0  -- Reset accumulator
         S.flightIconPulsePhase = 0
         S.flightTimesFrame:Hide()
     end
     
     -- Start flight times
-    S.startFlightTimesFunc = function(duration)
+    S.startFlightTimesFunc = function(duration, routeKey)
         if not IsFlightTimesEnabled() then return end
         if S.flightTimesTracker.active then S.stopFlightTimesFunc() end
         
@@ -4091,6 +4130,7 @@ function module:EnableShowFlightTimes()
         S.flightTimesTracker.active = true
         S.flightTimesTracker.startTime = GetTime()  -- Store start time
         S.flightTimesTracker.duration = duration or 300 -- Default 5 minutes if unknown
+        S.flightTimesTracker.routeKey = routeKey
         
         -- Show frame and set initial text
         S.flightTimesFrame:Show()
@@ -4106,6 +4146,7 @@ function module:EnableShowFlightTimes()
     local FLIGHT_TICK = 0.02  -- Update interval (same as S.INVITE_TICK)
     local FLIGHT_ICON_PULSE_PERIOD = 2.35 -- секунды на один цикл «дыхания»
     local TWO_PI = 6.2831853071796
+    local FinishFlight
     S.flightTimesFrame:SetScript("OnUpdate", function(self, elapsed)
         -- ПРОВЕРЯЕМ, ВКЛЮЧЕН ЛИ МОДУЛЬ
         local checkDb = SarychUI and SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.modules and SarychUI.db.profile.modules[moduleName]
@@ -4116,6 +4157,12 @@ function module:EnableShowFlightTimes()
         if not S.flightTimesTracker.active then 
             S.flightAcc = 0
             return 
+        end
+
+        -- Hide the countdown on the first frame after leaving the taxi.
+        if not UnitOnTaxi("player") then
+            FinishFlight()
+            return
         end
 
         -- Плавная пульсация иконки распорядителя (каждый кадр, не привязано к FLIGHT_TICK)
@@ -4154,7 +4201,6 @@ function module:EnableShowFlightTimes()
         S.flightTimesFrame.text:SetTextColor(1, 1, 1)
         S.flightTimesFrame.text:SetText(timeText)
         
-        -- Only stop if we're definitely not on taxi anymore (checked by S.flightCheckFrame)
     end)
     
     -- Load flight data from our own files
@@ -4191,11 +4237,20 @@ function module:EnableShowFlightTimes()
     
     -- Helper function to get flight duration from flight data or calculate route
     local function GetFlightDuration(node)
+        local flightLib = LibStub and LibStub("LibFlightTime-1.0", true)
+        local routeKey
+        if flightLib then
+            local duration
+            duration, routeKey = flightLib:GetDuration(node)
+            if duration then return duration, routeKey end
+        end
+
+        -- Older coordinate-based data covers custom or renamed taxi nodes.
         -- Load flight data
         local data = LoadFlightDataIfNeeded()
         
         if not data then
-            return 300 -- Data not available, use default
+            return 300, routeKey -- Data not available, use default
         end
         
         if data then
@@ -4225,7 +4280,7 @@ function module:EnableShowFlightTimes()
             
             -- Verify faction
             if not faction then
-                return 300
+                return 300, routeKey
             end
             
             local continent = GetCurrentMapContinent()
@@ -4264,7 +4319,7 @@ function module:EnableShowFlightTimes()
                             if data[faction][continent][routeString] then
                                 local duration = data[faction][continent][routeString]
                                 if duration and type(duration) == "number" then
-                                    return duration
+                                    return duration, routeKey
                                 end
                             end
                         end
@@ -4277,7 +4332,7 @@ function module:EnableShowFlightTimes()
         end
         
         -- Fallback: use default duration
-        return 300 -- 5 minutes default
+        return 300, routeKey -- 5 minutes default
     end
     
     -- Hook TakeTaxiNode to detect flight start (like Leatrix_Plus)
@@ -4287,7 +4342,7 @@ function module:EnableShowFlightTimes()
         end
         
         -- Get flight duration IMMEDIATELY when TakeTaxiNode is called (like Leatrix_Plus does)
-        local flightDuration = GetFlightDuration(node)
+        local flightDuration, routeKey = GetFlightDuration(node)
         
         -- Record the moment TakeTaxiNode was clicked
         local timeStart = GetTime()
@@ -4323,7 +4378,7 @@ function module:EnableShowFlightTimes()
             if UnitOnTaxi("player") then
                 seenAirborne = true
                 -- Flight started - start timer with the duration we got at TakeTaxiNode
-                S.startFlightTimesFunc(flightDuration)
+                S.startFlightTimesFunc(flightDuration, routeKey)
                 self:Hide()
                 ticker = nil
                 return
@@ -4345,14 +4400,26 @@ function module:EnableShowFlightTimes()
         S.stopFlightTimesFunc()
     end)
     
-    -- Periodic landing check (via Runtime dispatcher when available)
+    -- Keep the periodic check as a backup when the timer frame is not updating.
+    FinishFlight = function()
+        local tracker = S.flightTimesTracker
+        if tracker and tracker.active and tracker.routeKey and tracker.startTime then
+            local measured = GetTime() - tracker.startTime
+            if measured >= tracker.duration * 0.85 then
+                local flightLib = LibStub and LibStub("LibFlightTime-1.0", true)
+                if flightLib then
+                    flightLib:RecordDuration(tracker.routeKey, measured, tracker.duration)
+                end
+            end
+        end
+        S.stopFlightTimesFunc()
+    end
+
     local function FlightCheckTick()
         if not IsFlightTimesEnabled() then return end
         if not S.flightTimesTracker or not S.flightTimesTracker.active then return end
         if not UnitOnTaxi("player") then
-            if S.stopFlightTimesFunc then
-                S.stopFlightTimesFunc()
-            end
+            FinishFlight()
         end
     end
     if SarychUI and SarychUI.Runtime and SarychUI.Runtime.RegisterUpdate then
@@ -4370,7 +4437,7 @@ function module:EnableShowFlightTimes()
             if flightCheckAcc < 0.5 then return end
             flightCheckAcc = 0
             if not UnitOnTaxi("player") then
-                S.stopFlightTimesFunc()
+                FinishFlight()
             end
         end)
         S.flightCheckFrame:Show()
@@ -7064,40 +7131,6 @@ function module:DisableBlizzMove()
     S.blizzMoveInitialized = false
 end
 
--- ============================================================================
--- DarkMode Functionality (Lorti UI)
--- ============================================================================
-
-function module:ApplyDarkMode()
-    local db = DB()
-    local Lorti = _G.SarychUI_LortiUI
-    if not Lorti then return end
-    if not db or not db.enabled or db.enableDarkMode ~= 1 then
-        Lorti:Disable()
-    else
-        Lorti:Enable()
-    end
-    local mm = SarychUI.modules and SarychUI.modules.mainmenubar
-    if mm and mm.ApplyButtonBorderAlpha then
-        mm.ApplyButtonBorderAlpha()
-    end
-end
-
-function module:EnableDarkMode()
-    self:ApplyDarkMode()
-end
-
-function module:DisableDarkMode()
-    local Lorti = _G.SarychUI_LortiUI
-    if Lorti then
-        Lorti:Disable()
-    end
-    local mm = SarychUI.modules and SarychUI.modules.mainmenubar
-    if mm and mm.ApplyButtonBorderAlpha then
-        mm.ApplyButtonBorderAlpha()
-    end
-end
-
 function module:ApplyLootRollCounts()
     local db = DB()
     local lrc = _G.SarychUI_LootRollCounts
@@ -7221,7 +7254,6 @@ function module:ApplyAllSettings()
         self:ApplyErrorFilter()
     end
     self:ApplyBlizzMove()
-    self:ApplyDarkMode()
     self:ApplyPvpScoreboardClassNames()
     self:ApplyEasyGlyph()
     self:ApplyTranslitAliases()
@@ -7464,8 +7496,6 @@ function module:Disable()
     -- Disable BlizzMove
     self:DisableBlizzMove()
     
-    -- Disable DarkMode
-    self:DisableDarkMode()
 
     if self.ApplyEasyGlyph then
         self:ApplyEasyGlyph()

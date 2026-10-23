@@ -87,44 +87,65 @@ local function State(frame)
     return state
 end
 
+local function HideCountdown(state)
+    if state.text then state.text:Hide() end
+    if state.host then state.host:Hide() end
+end
+
+local function ClearCountdown(state)
+    state.start = nil
+    state.duration = nil
+    state.nextUpdate = nil
+    HideCountdown(state)
+end
+
+local ensureText
+
 -- Per-frame update
 local function cooldown_OnUpdate(frame, elapsed)
     local state = ccState[frame]
     local textObj = state and state.text
-	-- Проверяем, включен ли модуль
-	if not isEnabledFlag then
-		if textObj then textObj:Hide() end
-        if state and state.host then state.host:Hide() end
-		return
-	end
-
-    if not textObj or not textObj:IsShown() then return end
+    if not state or not state.start then return end
+    local remain = state.start + state.duration - GetTime()
+    if remain <= 0.5 then
+        ClearCountdown(state)
+        return
+    end
+    local owner = frame:GetParent()
+    if not isEnabledFlag or not (owner and owner:IsVisible()) then
+        HideCountdown(state)
+        state.nextUpdate = 0
+        return
+    end
 
     state.nextUpdate = (state.nextUpdate or 0) - elapsed
     if state.nextUpdate > 0 then return end
 
+    if state.duration <= getSetting("minDuration", 3) or frame.__sary_cc_noCount then
+        HideCountdown(state)
+        state.nextUpdate = 0
+        return
+    end
+
     if not PartyAbilityExempt(frame) then
         local minIconSize = getSetting("minIconSize", 23)
         if frame:GetWidth() < minIconSize or frame:GetHeight() < minIconSize then
-            textObj:SetText("")
-            textObj:Hide()
+            HideCountdown(state)
+            state.nextUpdate = 0
             return
         end
 
         local minScale = getSetting("minScale", 0.5)
         if (frame:GetEffectiveScale() / UIParent:GetEffectiveScale()) < minScale then
-            textObj:SetText("")
-            state.nextUpdate = 1
+            HideCountdown(state)
+            state.nextUpdate = 0
             return
         end
     end
 
-    local start = state.start or 0
-    local duration = state.duration or 0
-    local remain = duration - ((GetTime and GetTime() or 0) - start)
-    if floor(remain + 0.5) <= 0 then
-        textObj:Hide()
-        if state.host then state.host:Hide() end
+    textObj = textObj or ensureText(frame)
+    if not textObj then
+        state.nextUpdate = 0
         return
     end
 
@@ -134,34 +155,60 @@ local function cooldown_OnUpdate(frame, elapsed)
     local fontFlags = getSetting("fontFlags", "OUTLINE")
     local scale = min((frame:GetParent() and frame:GetParent():GetWidth() or 36) / 36, 1)
     local adjustedSize = max(fontSize * scale, 1)
-    textObj:SetFont(fontPath, adjustedSize, fontFlags)
-    textObj:SetText(displayText)
-    textObj:SetTextColor(color[1], color[2], color[3], color[4] or 1)
-    textObj:SetWidth(50)
-    textObj:SetJustifyH("CENTER")
+    if state.fontPath ~= fontPath or state.fontSize ~= adjustedSize or state.fontFlags ~= fontFlags then
+        textObj:SetFont(fontPath, adjustedSize, fontFlags)
+        state.fontPath, state.fontSize, state.fontFlags = fontPath, adjustedSize, fontFlags
+    end
+    if state.displayText ~= displayText then
+        textObj:SetText(displayText)
+        state.displayText = displayText
+    end
+    local alpha = color[4] or 1
+    if state.colorR ~= color[1] or state.colorG ~= color[2] or state.colorB ~= color[3] or state.colorA ~= alpha then
+        textObj:SetTextColor(color[1], color[2], color[3], alpha)
+        state.colorR, state.colorG, state.colorB, state.colorA = color[1], color[2], color[3], alpha
+    end
+    local strata = frame:GetFrameStrata() or "MEDIUM"
+    if strata == "BACKGROUND" or strata == "LOW" or strata == "MEDIUM" then
+        strata = "HIGH"
+    end
+    local level = (frame:GetFrameLevel() or 0) + 5
+    if state.action then
+        -- Action effects may use HIGH levels above 100 during another cast.
+        -- Keep the countdown above those effects and below tooltips.
+        strata, level = "DIALOG", 1
+    end
+    if state.strata ~= strata then
+        state.host:SetFrameStrata(strata)
+        state.strata = strata
+    end
+    if state.level ~= level then
+        state.host:SetFrameLevel(level)
+        state.level = level
+    end
+    -- The text is a UIParent child, so button fades must never affect it.
+    if state.host:GetAlpha() ~= 1 then state.host:SetAlpha(1) end
+    if textObj:GetAlpha() ~= 1 then textObj:SetAlpha(1) end
+    state.host:Show()
+    textObj:Show()
 
     state.nextUpdate = interval
 end
 
-local function ensureText(frame)
+ensureText = function(frame)
     local state = State(frame)
     if state.text then return state.text end
-    if frame.__sary_cc_noCount or state.noCount then return nil end
+    if frame.__sary_cc_noCount then return nil end
 
-    local minScale = getSetting("minScale", 0.5)
     local parent = frame:GetParent()
     local pWidth = parent and parent:GetWidth() or 36
     local scale = min(pWidth / 36, 1)
-    if not PartyAbilityExempt(frame) and scale < minScale then
-        state.noCount = true
-        return nil
-    end
-    state.noCount = nil
 
     local host = CreateFrame("Frame", nil, UIParent)
     host:SetAllPoints(frame)
     host:SetFrameStrata(frame:GetFrameStrata() or "MEDIUM")
     host:SetFrameLevel((frame:GetFrameLevel() or 0) + 5)
+    host:SetAlpha(1)
     host:EnableMouse(false)
     state.host = host
 
@@ -184,37 +231,18 @@ local function ensureText(frame)
 end
 
 -- Central SetCooldown bridge
-local function handleSetCooldown(frame, start, duration)
-	if not isEnabledFlag then return end
+local function handleSetCooldown(frame, start, duration, enable)
 	if not frame then return end
-
-	local minDuration = getSetting("minDuration", 3)
     local state = State(frame)
-    if PartyAbilityExempt(frame) then
-        state.noCount = nil
+    if not isEnabledFlag or enable == 0 or type(start) ~= "number" or type(duration) ~= "number"
+        or start <= 0 or duration <= 0 or start + duration <= GetTime() + 0.5 then
+        ClearCountdown(state)
+        return
     end
-    if frame.__sary_cc_noCount then
-        state.noCount = true
-    end
-    if start and start > 0 and duration and duration > minDuration then
+    if state.start ~= start or state.duration ~= duration then
         state.start = start
         state.duration = duration
         state.nextUpdate = 0
-        if not state.noCount and not frame.__sary_cc_noCount then
-            local text = state.text or ensureText(frame)
-            if text then
-                if state.host then
-                    state.host:SetAllPoints(frame)
-                    state.host:SetFrameStrata(frame:GetFrameStrata() or "MEDIUM")
-                    state.host:SetFrameLevel((frame:GetFrameLevel() or 0) + 5)
-                    state.host:Show()
-                end
-                text:Show()
-            end
-        end
-    else
-        if state.text then state.text:Hide() end
-        if state.host then state.host:Hide() end
     end
 end
 
@@ -227,80 +255,200 @@ local BAR_PREFIXES = {
     "BonusActionButton",
 }
 
-local function PollBars()
+local INVENTORY_SLOT_NAMES = {
+    "AmmoSlot", "HeadSlot", "NeckSlot", "ShoulderSlot", "ShirtSlot",
+    "ChestSlot", "WaistSlot", "LegsSlot", "FeetSlot", "WristSlot",
+    "HandsSlot", "Finger0Slot", "Finger1Slot", "Trinket0Slot",
+    "Trinket1Slot", "BackSlot", "MainHandSlot", "SecondaryHandSlot",
+    "RangedSlot", "TabardSlot",
+}
+local inventorySlotIDs = {}
+local function CaptureActionButton(button, cooldown)
+    if not cooldown then return end
+    local state = State(cooldown)
+    local action = button and button.action
+    if state.action ~= action then
+        ClearCountdown(state)
+        state.action = action
+    end
+    if button and button.action and button.action > 0 and GetActionCooldown then
+        local start, duration, enable = GetActionCooldown(button.action)
+        local currentEnd = state.start and state.duration and (state.start + state.duration)
+        if currentEnd and currentEnd > GetTime() + 0.5 then
+            local incomingEnd = type(start) == "number" and type(duration) == "number" and (start + duration)
+            if not incomingEnd or enable == 0 or start <= 0 or duration <= 0
+                or incomingEnd <= GetTime() + 0.5
+                or (duration <= 2 and state.duration > 2 and incomingEnd < currentEnd - 0.5) then
+                -- An action update can briefly report no cooldown or just the GCD.
+                return
+            end
+        end
+        handleSetCooldown(cooldown, start, duration, enable)
+    else
+        handleSetCooldown(cooldown, 0, 0)
+    end
+end
+
+local function CaptureCooldownSources()
     if not isEnabledFlag then return end
     for p = 1, #BAR_PREFIXES do
         local prefix = BAR_PREFIXES[p]
         for i = 1, 12 do
             local button = _G[prefix .. i]
             local cooldown = _G[prefix .. i .. "Cooldown"]
-            if button and cooldown and button.action and button.action > 0 and GetActionCooldown then
-                local start, duration = GetActionCooldown(button.action)
-                handleSetCooldown(cooldown, start, duration)
-            end
+            CaptureActionButton(button, cooldown)
         end
+    end
+    for i = 1, 120 do
+        local button = _G["SarychUIActionButton" .. i]
+        if button then
+            CaptureActionButton(button, button.cooldown or button.Cooldown
+                or _G["SarychUIActionButton" .. i .. "Cooldown"])
+        end
+    end
+    local bars = SarychUI and SarychUI.FrostAtomBars
+    if bars and bars.IsActive and bars.IsActive() and bars.ForEachStyledButton then
+        bars.ForEachStyledButton(function(button)
+            if button then
+                local name = button.GetName and button:GetName()
+                CaptureActionButton(button, button.cooldown or button.Cooldown
+                    or (name and _G[name .. "Cooldown"]))
+            end
+        end)
     end
     for i = 1, 10 do
         local petCooldown = _G["PetActionButton" .. i .. "Cooldown"]
         if petCooldown and GetPetActionCooldown then
-            local start, duration = GetPetActionCooldown(i)
-            handleSetCooldown(petCooldown, start, duration)
+            local start, duration, enable = GetPetActionCooldown(i)
+            handleSetCooldown(petCooldown, start, duration, enable)
         end
         local formCooldown = _G["ShapeshiftButton" .. i .. "Cooldown"]
         if formCooldown and GetShapeshiftFormCooldown then
-            local start, duration = GetShapeshiftFormCooldown(i)
-            handleSetCooldown(formCooldown, start, duration)
+            local start, duration, enable = GetShapeshiftFormCooldown(i)
+            handleSetCooldown(formCooldown, start, duration, enable)
+        end
+    end
+    if GetInventoryItemCooldown and GetInventorySlotInfo then
+        for i = 1, #INVENTORY_SLOT_NAMES do
+            local name = INVENTORY_SLOT_NAMES[i]
+            local button = _G["Character" .. name]
+            local cooldown = button and (_G["Character" .. name .. "Cooldown"] or button.Cooldown)
+            if cooldown then
+                local slotID = inventorySlotIDs[name]
+                if not slotID then
+                    slotID = GetInventorySlotInfo(name)
+                    inventorySlotIDs[name] = slotID
+                end
+                if slotID then
+                    local start, duration, enable = GetInventoryItemCooldown("player", slotID)
+                    handleSetCooldown(cooldown, start, duration, enable)
+                end
+            end
         end
     end
 end
 
+-- Blizzard updates these cooldowns through CooldownFrame_SetTimer. Read the
+-- aura data after its frame update without hooking that shared timer function.
+local function CaptureFrameAuras(frame)
+    if not isEnabledFlag or (frame ~= TargetFrame and frame ~= FocusFrame) then return end
+    local unit = frame.unit
+    local frameName = frame:GetName()
+    if not unit or not frameName then return end
+
+    local function Capture(kind, count, getter)
+        for i = 1, count do
+            local button = _G[frameName .. kind .. i]
+            local cooldown = _G[frameName .. kind .. i .. "Cooldown"]
+            if cooldown then
+                if button and button:IsShown() then
+                    local _, _, icon, _, _, duration, expirationTime = getter(unit, i)
+                    if icon and duration and duration > 0 and expirationTime then
+                        handleSetCooldown(cooldown, expirationTime - duration, duration, 1)
+                    else
+                        handleSetCooldown(cooldown, 0, 0)
+                    end
+                else
+                    handleSetCooldown(cooldown, 0, 0)
+                end
+            end
+        end
+    end
+
+    Capture("Buff", MAX_TARGET_BUFFS or 32, UnitBuff)
+    Capture("Debuff", MAX_TARGET_DEBUFFS or 16, UnitDebuff)
+end
+
 local driver = CreateFrame("Frame")
 driver:Hide()
-local pollAcc = 0
+driver:SetScript("OnEvent", function(self)
+    self.refreshPending = true
+end)
 driver:SetScript("OnUpdate", function(_, elapsed)
-    pollAcc = pollAcc + elapsed
-    if pollAcc >= 0.1 then
-        pollAcc = 0
-        PollBars()
+    if driver.refreshPending then
+        driver.refreshPending = nil
+        CaptureCooldownSources()
     end
     for frame, state in pairs(ccState) do
-        -- The countdown sits on its own frame. Hide it with the source icon,
-        -- including options previews whose parent window just closed.
-        if not frame:IsVisible() then
-            if state.text then state.text:Hide() end
-            if state.host and state.host:IsShown() then state.host:Hide() end
-        elseif state.text and state.text:IsShown() then
+        if state.start then
             cooldown_OnUpdate(frame, elapsed)
-        elseif state.start and state.duration and state.duration > 0
-            and not state.noCount and not frame.__sary_cc_noCount then
-            local remain = state.duration - ((GetTime and GetTime() or 0) - state.start)
-            if remain > 0 then
-                handleSetCooldown(frame, state.start, state.duration)
-            end
+        elseif state.host and state.host:IsShown() then
+            HideCountdown(state)
         end
     end
 end)
 
--- Blizzard calls CooldownFrame_SetTimer from PetActionBar_UpdateCooldowns and
--- ShapeshiftBar_UpdateState, before the protected button Show/Hide. A
--- hooksecurefunc there taints the rest of that update. Bar numbers are polled
--- from this frame. Our own frames call SarychUI_NotifyCooldown.
+-- Blizzard calls CooldownFrame_SetTimer before protected button updates. Hooking
+-- that shared function can taint Show/Hide, so bar values are read on events.
+-- Our own frames call SarychUI_NotifyCooldown directly.
 function SarychUI_NotifyCooldown(frame, start, duration, enable)
-    if enable == 0 then
-        handleSetCooldown(frame, 0, 0)
-    else
-        handleSetCooldown(frame, start, duration)
-    end
+    handleSetCooldown(frame, start, duration, enable)
+end
+
+-- Transient cooldown owners can drop their widget without leaving an anchored
+-- text host behind for every proc.
+function SarychUI_ReleaseCooldown(frame)
+    local state = frame and ccState[frame]
+    if not state then return end
+    ClearCountdown(state)
+    if state.host then state.host:ClearAllPoints() end
+    ccState[frame] = nil
 end
 
 local function installHooks()
     if hooksInstalled then return end
     hooksInstalled = true
+    for _, event in ipairs({
+        "ACTIONBAR_UPDATE_COOLDOWN", "ACTIONBAR_SLOT_CHANGED", "ACTIONBAR_PAGE_CHANGED",
+        "UPDATE_BONUS_ACTIONBAR", "UPDATE_SHAPESHIFT_FORM", "UPDATE_SHAPESHIFT_COOLDOWN",
+        "PET_BAR_UPDATE_COOLDOWN", "SPELL_UPDATE_COOLDOWN", "BAG_UPDATE_COOLDOWN",
+        "UNIT_INVENTORY_CHANGED", "PLAYER_EQUIPMENT_CHANGED", "PLAYER_ENTERING_WORLD",
+    }) do
+        driver:RegisterEvent(event)
+    end
+    if TargetFrame_UpdateAuras then
+        hooksecurefunc("TargetFrame_UpdateAuras", CaptureFrameAuras)
+    end
+    if FocusFrame_UpdateAuras then
+        hooksecurefunc("FocusFrame_UpdateAuras", CaptureFrameAuras)
+    end
     driver:Show()
 end
 
 function module:ApplySettings()
     isEnabledFlag = DB() and DB().enabled ~= false
+    if hooksInstalled then
+        if isEnabledFlag then
+            driver.refreshPending = true
+            driver:Show()
+        else
+            driver:Hide()
+        end
+    end
+    for _, state in pairs(ccState) do
+        state.nextUpdate = 0
+        if not isEnabledFlag then ClearCountdown(state) end
+    end
     -- Invite / arena countdown UI lives here; runtime stays in tools.
     local tools = SarychUI and SarychUI.modules and SarychUI.modules.tools
     if tools then
@@ -320,8 +468,7 @@ function module:Disable()
     isEnabledFlag = false
     driver:Hide()
     for _, state in pairs(ccState) do
-        if state.text then state.text:Hide() end
-        if state.host then state.host:Hide() end
+        ClearCountdown(state)
     end
 
     -- Invite / arena countdown follow cc enable state.

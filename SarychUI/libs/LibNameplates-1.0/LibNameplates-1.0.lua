@@ -267,6 +267,12 @@ end
 function lib:SetupNameplate(frame)
 	self.isOnScreen[frame] = true
 	self.nameplates[frame] = true
+	local groups = self.onFinishedGroups[frame]
+	if groups and groups.started and frame:IsShown() then
+		for i, group in ipairs(groups) do
+			if not group:IsPlaying() then group:Play() end
+		end
+	end
 
 	if not self.fakePlate[frame] then
 		CheckForFakePlate(frame)
@@ -298,8 +304,13 @@ function lib:NameplateOnHide(frame)
 	-- silly KuiNameplates
 	if frame and frame.MOVING then return end
 	self.isOnScreen[frame] = false
-	for i, group in ipairs(self.onFinishedGroups[frame]) do
-		group:Play()
+	local groups = self.onFinishedGroups[frame]
+	groups.started = true
+	if self:IsMouseover(frame) and not UnitExists("mouseover") then
+		self:HideMouseoverRegion(frame)
+	end
+	for i, group in ipairs(groups) do
+		group:Stop()
 	end
 
 	self:RecycleNameplate(frame)

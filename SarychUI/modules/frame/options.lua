@@ -531,25 +531,60 @@ function module:GetOptions()
                                     RefreshConfig()
                                 end,
                             },
-                            frame_scale = {
+                            playerFrameScale = {
                                 type = "range",
-                                name = "Масштаб",
-                                desc = "Масштаб фреймов игрока, питомца, цели и фокуса (0.5 = 50%, 1.0 = 100%, 2.0 = 200%). Фрейм питомца масштабируется вместе с фреймом игрока.",
+                                name = "Игрок и питомец",
+                                desc = "Масштаб фрейма игрока и привязанного к нему фрейма питомца.",
                                 min = 0.5, max = 2.0, step = 0.05,
                                 order = 2,
                                 width = "full",
                                 get = function()
                                     local db = FrameDB()
-                                    return db and db.frameScale or 1.0
+                                    return db and (db.playerFrameScale or db.frameScale) or 1.0
                                 end,
                                 set = function(_, val)
                                     local db = FrameDB(); if not db then return end
-                                    db.frameScale = val
-                                    db.previousFrameScale = val
+                                    db.playerFrameScale = val
                                     ApplyFrameSettings()
                                 end,
                                 hidden = function() return not isOn("changeScale") end,
                             },
+                            targetFrameScale = {
+                                type = "range",
+                                name = "Цель",
+                                desc = "Масштаб фрейма цели.",
+                                min = 0.5, max = 2.0, step = 0.05,
+                                order = 3,
+                                width = "full",
+                                get = function()
+                                    local db = FrameDB()
+                                    return db and (db.targetFrameScale or db.frameScale) or 1.0
+                                end,
+                                set = function(_, val)
+                                    local db = FrameDB(); if not db then return end
+                                    db.targetFrameScale = val
+                                    ApplyFrameSettings()
+                                end,
+                                hidden = function() return not isOn("changeScale") end,
+                            },
+                            focusFrameScale = {
+                                type = "range",
+                                name = "Фокус",
+                                desc = "Масштаб фрейма фокуса.",
+                                min = 0.5, max = 2.0, step = 0.05,
+                                order = 4,
+                                width = "full",
+                                get = function()
+                                    local db = FrameDB()
+                                    return db and (db.focusFrameScale or db.frameScale) or 1.0
+                                end,
+                                set = function(_, val)
+                                    local db = FrameDB(); if not db then return end
+                                    db.focusFrameScale = val
+                                    ApplyFrameSettings()
+                                end,
+                                hidden = function() return not isOn("changeScale") end,
+                            }
                         },
                     },
                 },
@@ -846,7 +881,11 @@ function module:GetOptions()
                                 width = "full",
                                 suiHelpIcon = SarychUI.DOTA_ALT_HELP_ICON,
                                 get = function() return SarychUI.db.profile.modules.frame.showOnAlt == 1 end,
-                                set = function(_, v) SarychUI.db.profile.modules.frame.showOnAlt = v and 1 or 0; ApplyFrameSettings() end,
+								set = function(_, v)
+									SarychUI.db.profile.modules.frame.showOnAlt = v and 1 or 0
+									ApplyFrameSettings()
+									RefreshConfig()
+								end,
                             },
                             show_in_combat = {
                                 type = "toggle",
@@ -854,6 +893,7 @@ function module:GetOptions()
                                 desc = "Показывать текстовые индикаторы (HP/MP текст) всегда во время боя",
                                 order = 2,
                                 width = "full",
+                                hidden = function() return not isOn("showOnAlt") end,
                                 get = function() return SarychUI.db.profile.modules.frame.showTextIndicatorsInCombat == true end,
                                 set = function(_, v)
                                     SarychUI.db.profile.modules.frame.showTextIndicatorsInCombat = v and true or false
@@ -869,6 +909,7 @@ function module:GetOptions()
                                 desc = "Плавное появление текстовых индикаторов при входе в бой и исчезновение при выходе",
                                 order = 3,
                                 width = "full",
+                                hidden = function() return not isOn("showOnAlt") end,
                                 disabled = function() return SarychUI.db.profile.modules.frame.showTextIndicatorsInCombat ~= true end,
                                 get = function() return SarychUI.db.profile.modules.frame.textIndicatorsFadeAfterCombat == true end,
                                 set = function(_, v)
@@ -885,6 +926,7 @@ function module:GetOptions()
                                 step = 0.1,
                                 order = 4,
                                 width = "full",
+                                hidden = function() return not isOn("showOnAlt") end,
                                 disabled = function() return SarychUI.db.profile.modules.frame.showTextIndicatorsInCombat ~= true or SarychUI.db.profile.modules.frame.textIndicatorsFadeAfterCombat ~= true end,
                                 get = function() return SarychUI.db.profile.modules.frame.textIndicatorsFadeTime or 0.4 end,
                                 set = function(_, v)

@@ -312,6 +312,8 @@ local function HidePlateAuras(plate)
 			end
 		end
 	end
+	if plate._sarAuraGUID then removedPlates[plate._sarAuraGUID] = GetTime() end
+	plate._sarLastAuraGUID = plate._sarAuraGUID or plate._sarLastAuraGUID
 	plate._sarAuraGUID = nil
 end
 _G.sarPlatesAuras_HidePlateAuras = HidePlateAuras
@@ -375,16 +377,20 @@ end
 _G.sarPlatesAuras_GetAllNamePlates = GetAllNamePlates
 
 local frame = CreateFrame("Frame")
--- Register NAME_PLATE events if C_NamePlate is available (for AwesomeWotlk mode)
-if C_NamePlate then
-	frame:RegisterEvent("NAME_PLATE_UNIT_ADDED")
-	frame:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
-end
 
 local namePlates = {}
 local guidToUnitIdMap = {}
 -- Cache auras by GUID (like PlateBuffs does)
 local guidAuras = {}
+_G.sarPlatesAuras_MarkRemovedGUID = function(guid)
+	if guid then removedPlates[guid] = GetTime() end
+end
+_G.sarPlatesAuras_ClearCache = function()
+	wipe(namePlates)
+	wipe(guidToUnitIdMap)
+	wipe(guidAuras)
+	wipe(removedPlates)
+end
 -- LibAuraInfo callback owner (PlateBuffs-style CLEU path)
 local libAuraOwner = {}
 local libAuraInfoRegistered = false
@@ -677,6 +683,9 @@ frame:SetScript("OnEvent", function(self, event, unit)
         if SarychUI_PerfLog then
             SarychUI_PerfLog("Auras", "NAME_PLATE_UNIT_REMOVED", unit)
         end
+        local plate = namePlates[unit]
+        local guid = UnitGUID(unit) or (plate and (plate._sarAuraGUID or plate._sarLastAuraGUID))
+        if guid then removedPlates[guid] = GetTime() end
         namePlates[unit] = nil
     end
 end)
@@ -1604,6 +1613,7 @@ function _G.UpdateAuras(namePlate, unitId, forcedGuid)
         HidePlateAuras(namePlate)
     end
     namePlate._sarAuraGUID = plateGUID
+    removedPlates[plateGUID] = nil
 
     if not namePlate._sarAuraCleanupHooked and namePlate.HookScript then
         namePlate._sarAuraCleanupHooked = true
@@ -1848,9 +1858,11 @@ function _G.UpdateAuras(namePlate, unitId, forcedGuid)
     UpdateCenterFramesPosition(namePlate)
     UpdateMobilityFramesPosition(namePlate)  
 	ApplyAllPlateGlows(namePlate)
-    if C_Timer and C_Timer.After then
+    if C_Timer and C_Timer.After and not namePlate._sarAuraSettlePending then
+        namePlate._sarAuraSettlePending = true
         C_Timer.After(0, function()
-            if namePlate and namePlate.IsShown and namePlate:IsShown() then
+            namePlate._sarAuraSettlePending = nil
+            if namePlate._sarAuraGUID and namePlate.IsShown and namePlate:IsShown() then
 				-- Fallback can paint before ElvUI finishes configuring a recycled
 				-- plate. Run the same final anchor pass Awesome receives after the
 				-- UnitFrame is settled, so size and position share one code path.
@@ -2043,9 +2055,7 @@ end
 
 local function OnNamePlateRemoved(unitId)
 	local unitGUID = UnitGUID(unitId)
-	if not unitGUID then return end
-
-	removedPlates[unitGUID] = GetTime()
+	if unitGUID then removedPlates[unitGUID] = GetTime() end
 
 	if _G["ActiveNameplates"] then
 		_G["ActiveNameplates"][unitId] = nil
@@ -2054,21 +2064,23 @@ end
 
 local function CleanupOldPlates()
 	local currentTime = GetTime()
-	local removedCount = 0
 
 	for guid, disappearTime in pairs(removedPlates) do
         if (currentTime - disappearTime) > 10 then
             local unitId = guidToUnitIdMap[guid]
-            if unitId then
-                local namePlate = GetNamePlateForUnit(unitId)
-                if not namePlate then
-                    if _G["ActiveNameplates"] then
-                        _G["ActiveNameplates"][unitId] = nil
-                    end
+            local currentGUID = unitId and UnitGUID(unitId)
+            local namePlate = unitId and currentGUID == guid and GetNamePlateForUnit(unitId)
+            if namePlate and not namePlate:IsShown() then namePlate = nil end
+            if not namePlate then
+                -- A reused unit token now belongs to a different plate. Never
+                -- clear that plate's unit-indexed state while evicting this GUID.
+                if unitId and not currentGUID then
+                    if _G.ActiveNameplates then _G.ActiveNameplates[unitId] = nil end
                     namePlates[unitId] = nil
-                    guidToUnitIdMap[guid] = nil
-                    removedPlates[guid] = nil
                 end
+                guidToUnitIdMap[guid] = nil
+                guidAuras[guid] = nil
+                removedPlates[guid] = nil
             end
         end
     end    
@@ -2104,6 +2116,8 @@ function _G.sarPlatesAuras_RegisterEvents()
         return
     end
     if C_NamePlate then
+		frame:RegisterEvent("NAME_PLATE_UNIT_ADDED")
+		frame:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
         f:RegisterEvent("NAME_PLATE_UNIT_ADDED")
         f:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
     end
@@ -2115,6 +2129,7 @@ function _G.sarPlatesAuras_RegisterEvents()
 end
 
 function _G.sarPlatesAuras_UnregisterEvents()
+    frame:UnregisterAllEvents()
     f:UnregisterAllEvents()
     f.__sarychEventsRegistered = false
 end

@@ -154,29 +154,30 @@ function mod:CreateProcOverlay(itemID, spellID, start, duration)
     
     
     
-    -- Сохраняем информацию о прока
+    local currentTime = GetTime();
+
+    -- Храним то же начало, что и у кругового и текстового таймера.
     procOverlays[itemID] = {
         frame = overlay,
         cooldown = cooldownFrame,
         border = borderTexture,
-        startTime = start,
+        startTime = currentTime,
         duration = duration,
         itemID = itemID,
         spellID = spellID
     };
     
     -- Устанавливаем кулдаун в стиле edge как у бафов
-    local currentTime = GetTime();
-    CooldownFrame_Set(cooldownFrame, currentTime, duration, 1, true); -- true для drawEdge
+    CooldownFrame_SetTimer(cooldownFrame, currentTime, duration, 1);
+    if SarychUI_NotifyCooldown then
+        SarychUI_NotifyCooldown(cooldownFrame, currentTime, duration, 1);
+    end
     
     -- Позиционируем оверлей
     self:PositionProcOverlay(itemID);
     
-    -- Показываем оверлей
-    overlay:Show();
-
 	-- Сохраняем активный прок в SavedVariables с абсолютным временем окончания
-	self:SaveActiveProc(itemID, spellID, start, duration);
+	self:SaveActiveProc(itemID, spellID, currentTime, duration);
 end;
 
 function mod:PositionProcOverlay(itemID)
@@ -188,9 +189,13 @@ function mod:PositionProcOverlay(itemID)
     if actionButton then
         local size = actionButton.GetWidth and actionButton:GetWidth() or 36;
         if not size or size <= 0 then size = 36; end
-        overlay.frame:ClearAllPoints();
-        overlay.frame:SetPoint("CENTER", actionButton, "CENTER", 0, 0);
-        overlay.frame:SetSize(size, size);
+        if overlay.anchor ~= actionButton or overlay.size ~= size then
+            overlay.frame:ClearAllPoints();
+            overlay.frame:SetPoint("CENTER", actionButton, "CENTER", 0, 0);
+            overlay.frame:SetSize(size, size);
+            overlay.anchor, overlay.size = actionButton, size;
+        end
+        overlay.frame:Show();
         return
     end
 
@@ -199,14 +204,19 @@ function mod:PositionProcOverlay(itemID)
     if slot then
         local slotFrame = _G["Character" .. slot .. "Slot"];
         if slotFrame and slotFrame:IsShown() then
-            overlay.frame:ClearAllPoints();
-            overlay.frame:SetPoint("CENTER", slotFrame, "CENTER", 0, 0);
-            overlay.frame:SetSize(36, 36);
+            if overlay.anchor ~= slotFrame or overlay.size ~= 36 then
+                overlay.frame:ClearAllPoints();
+                overlay.frame:SetPoint("CENTER", slotFrame, "CENTER", 0, 0);
+                overlay.frame:SetSize(36, 36);
+                overlay.anchor, overlay.size = slotFrame, 36;
+            end
+            overlay.frame:Show();
             return
         end
     end
     
     -- Ни кнопки, ни видимого слота — не показываем оверлей, чтобы не рисовать по центру
+    overlay.anchor, overlay.size = nil, nil;
     overlay.frame:Hide();
 end;
 
@@ -218,11 +228,11 @@ function mod:UpdateProcOverlays()
             local remainingTime = overlay.startTime + overlay.duration - currentTime;
             
             if remainingTime > 0 then
-                -- Кулдаун уже установлен при создании, не нужно его обновлять
+                -- Кнопка или окно экипировки могут скрыться или смениться.
+                self:PositionProcOverlay(itemID);
             else
-                -- Прок закончился, удаляем оверлей и показываем кулдаун
+                -- Отсчёт закончился; не запускаем истёкший круг повторно.
                 self:RemoveProcOverlay(itemID);
-                self:ShowItemCooldown(itemID, overlay.startTime, overlay.duration);
             end
         end
     end
@@ -243,23 +253,6 @@ function mod:FindActionButtonWithItem(itemID)
         end
     end);
     return found;
-end;
-
-function mod:ShowItemCooldown(itemID, startTime, duration)
-    -- Показываем кулдаун на кнопке действия
-    local actionButton = self:FindActionButtonWithItem(itemID);
-    if actionButton and actionButton.cooldown then
-        CooldownFrame_Set(actionButton.cooldown, startTime, duration, 1);
-    end
-    
-    -- Показываем кулдаун на экипированном предмете
-    local slot = self:FindEquippedItemSlot(itemID);
-    if slot then
-        local slotFrame = _G["Character" .. slot .. "Slot"];
-        if slotFrame and slotFrame.cooldown then
-            CooldownFrame_Set(slotFrame.cooldown, startTime, duration, 1);
-        end
-    end
 end;
 
 function mod:FindEquippedItemSlot(itemID)
@@ -354,6 +347,11 @@ end;
 function mod:RemoveProcOverlay(itemID)
     local overlay = procOverlays[itemID];
     if overlay and overlay.frame then
+        if overlay.cooldown and SarychUI_ReleaseCooldown then
+            SarychUI_ReleaseCooldown(overlay.cooldown);
+        elseif overlay.cooldown and SarychUI_NotifyCooldown then
+            SarychUI_NotifyCooldown(overlay.cooldown, 0, 0, 0);
+        end
         overlay.frame:Hide();
         overlay.frame:SetParent(nil);
         overlay.frame = nil;

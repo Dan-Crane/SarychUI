@@ -123,6 +123,7 @@ local function MakePreviewButton(parent, index)
 	slot:SetTexture("Interface\\Buttons\\UI-Quickslot2")
 	slot:SetSize(64, 64)
 	slot:SetPoint("CENTER", btn, "CENTER", 0, 0)
+	btn._slot = slot
 
 	local icon = btn:CreateTexture(nil, "ARTWORK")
 	icon:SetTexture(SAMPLE_ICONS[index] or SAMPLE_ICONS[1])
@@ -178,6 +179,20 @@ function Preview:Create(parent)
 		local hideHotkeys = GetSetting("hideHotkeysEnabled", false)
 		local hideMacros = GetSetting("hideMacroNames", false)
 		for _, btn in ipairs(buttons) do
+			local style = SarychUI_InterfaceStyle
+			if style and style.enabled then
+				local black = style:GetTextureMode() == "black"
+				btn._slot:SetTexture(black and style.normalTexture or "Interface\\Buttons\\UI-Quickslot2")
+				btn._slot:SetSize(black and 44 or 64, black and 44 or 64)
+				local r, g, b, a = style.GetColor()
+				local value = black and style:GetGlossBrightness()
+				btn._slot:SetVertexColor(black and value or r,
+					black and value or g, black and value or b, a)
+			else
+				btn._slot:SetTexture("Interface\\Buttons\\UI-Quickslot2")
+				btn._slot:SetSize(64, 64)
+				btn._slot:SetVertexColor(1, 1, 1, 1)
+			end
 			if hideHotkeys then
 				btn._hotkey:SetAlpha(0)
 			else
@@ -250,6 +265,7 @@ local function MakeColorPreviewButton(parent, index)
 	slot:SetTexture("Interface\\Buttons\\UI-Quickslot2")
 	slot:SetSize(64, 64)
 	slot:SetPoint("CENTER", btn, "CENTER", 0, 0)
+	btn._slot = slot
 
 	local icon = btn:CreateTexture(nil, "ARTWORK")
 	icon:SetTexture(SAMPLE_ICONS[index] or SAMPLE_ICONS[1])
@@ -337,6 +353,22 @@ function ColorPreview:Create(parent)
 	host._buttons = buttons
 
 	local function Layout()
+		local style = SarychUI_InterfaceStyle
+		for _, btn in ipairs(buttons) do
+			if style and style.enabled then
+				local black = style:GetTextureMode() == "black"
+				btn._slot:SetTexture(black and style.normalTexture or "Interface\\Buttons\\UI-Quickslot2")
+				btn._slot:SetSize(black and 44 or 64, black and 44 or 64)
+				local r, g, b, a = style.GetColor()
+				local value = black and style:GetGlossBrightness()
+				btn._slot:SetVertexColor(black and value or r,
+					black and value or g, black and value or b, a)
+			else
+				btn._slot:SetTexture("Interface\\Buttons\\UI-Quickslot2")
+				btn._slot:SetSize(64, 64)
+				btn._slot:SetVertexColor(1, 1, 1, 1)
+			end
+		end
 		local cdOn = GetSetting("colorCooldownEnabled", false)
 		local manaOn = GetSetting("colorManaEnabled", false)
 		local rangeOn = GetSetting("colorRangeEnabled", false)
@@ -373,6 +405,7 @@ AppearancePreview._instances = AppearancePreview._instances or {}
 local APPEARANCE_SCALE = 0.42
 local BAR_W, BAR_H = 1024, 53
 local BFA_MEDIA = [[Interface\AddOns\SarychUI\media\mainmenubar\bfa\]]
+local CENTRAL_MULTILEVEL_MEDIA = [[Interface\AddOns\SarychUI\media\mainmenubar\central_multilevel\]]
 -- Extra room for EndCaps (128 tall, extend past bar) + shapeshift strip above.
 local CANVAS_W, CANVAS_H = 1216, 180
 
@@ -945,11 +978,28 @@ function TransparencyPreview:Create(parent)
 	local function Layout()
 		local borderOn = GetSetting("buttonBorderAlphaEnabled", false)
 		local borderAlpha = GetSetting("buttonBorderAlpha", 0.4) or 0.4
-		if borderOn then
-			border:SetAlpha(borderAlpha)
-		else
-			border:SetAlpha(1)
+		local style = SarychUI_InterfaceStyle
+		local newTextures = style and style.enabled and style:GetTextureMode() == "black"
+		local rimPath = newTextures and style.normalTexture or "Interface\\Buttons\\UI-Quickslot2"
+		local function SetRim(rim, classicSize, isBag)
+			rim:SetTexture(isBag and "Interface\\Buttons\\UI-Quickslot2" or rimPath)
+			rim:SetSize(classicSize, classicSize)
+			if style and style.enabled then
+				local r, g, b, a = style.GetColor()
+				if not isBag and newTextures then
+					local value = style:GetGlossBrightness()
+					rim:SetVertexColor(value, value, value, a)
+				else
+					rim:SetVertexColor(r, g, b, a)
+				end
+			else
+				rim:SetVertexColor(1, 1, 1, 1)
+			end
+			rim:SetAlpha(newTextures and 1 or (borderOn and borderAlpha or 1))
 		end
+		SetRim(border, newTextures and 44 or 64)
+		local crop = 0.07
+		icon:SetTexCoord(crop, 1 - crop, crop, 1 - crop)
 
 		local useDf = GetSetting("microMenuStyle", "dragonflight") == "dragonflight"
 		for _, btn in ipairs(microButtons) do
@@ -988,11 +1038,11 @@ function TransparencyPreview:Create(parent)
 		local bagOn = GetSetting("bagAlphaEnabled", false)
 		local bagAlpha = GetSetting("bagAlpha", 0.95) or 0.95
 		local bagA = bagOn and bagAlpha or 1
-		local rimA = borderOn and (borderAlpha or 0.4) or 1
 		for _, btn in ipairs(bagButtons) do
 			btn:SetAlpha(bagA)
+			if btn._icon then btn._icon:SetTexCoord(crop, 1 - crop, crop, 1 - crop) end
 			if btn._rim then
-				btn._rim:SetAlpha(rimA)
+				SetRim(btn._rim, bagSize + 14, true)
 			end
 		end
 	end
@@ -1106,6 +1156,20 @@ function BarsPreview:Create(parent)
 		"BOTTOM", bfaBarsArt, "BOTTOM", 237, 0)
 	MakeTex(bfaBarsArt, "ARTWORK", BFA_MEDIA .. "main_bar_endcap.blp", 256, 256,
 		"BOTTOMRIGHT", bfaBarsArt, "BOTTOMRIGHT", 2, 0)
+	local function MakeDragonStatus(y, fill)
+		local frame = CreateFrame("Frame", nil, canvas)
+		frame:SetSize(466, 14)
+		frame:SetPoint("BOTTOM", canvas, "BOTTOM", 1, y)
+		MakeTex(frame, "BACKGROUND", CENTRAL_MULTILEVEL_MEDIA .. "xp\\Background.tga", 466, 14,
+			"CENTER", frame, "CENTER", 0, 0, 0, 466/842, 0, 1)
+		MakeTex(frame, "ARTWORK", CENTRAL_MULTILEVEL_MEDIA .. fill, 258, 14,
+			"LEFT", frame, "LEFT", 0, 0)
+		MakeTex(frame, "OVERLAY", CENTRAL_MULTILEVEL_MEDIA .. "xp\\Overlay.tga", 466, 16,
+			"CENTER", frame, "CENTER", 0, 0, 0, 466/842, 0, 1)
+		return frame
+	end
+	local dragonXp = MakeDragonStatus(7, "xp\\Main.tga")
+	local dragonRep = MakeDragonStatus(23, "reputation\\RepGreen.tga")
 
 	--------------------------------------------------------------------
 	-- MainMenuExpBar - TOP of MainMenuBar, 1024x13
@@ -1183,13 +1247,14 @@ function BarsPreview:Create(parent)
 
 	local function Layout()
 		local isBFA = GetSetting("barStyle", "classic") == "bfa"
+		local isDragon = GetSetting("barStyle", "classic") == "dragon"
 		local hideRep = GetSetting("hideReputationBar", false)
 		local hideXp = GetSetting("hideExperienceBar", false)
 
 		for _, tex in ipairs(classicArt) do
-			SetShown(tex, not isBFA)
+			SetShown(tex, not isBFA and not isDragon)
 		end
-		SetShown(bfaBarsArt, isBFA)
+		SetShown(bfaBarsArt, isBFA and not isDragon)
 		local xpTexture = isBFA
 			and (BFA_MEDIA .. "experience_bar.blp")
 			or "Interface\\MainMenuBar\\UI-MainMenuBar-Dwarf"
@@ -1203,8 +1268,12 @@ function BarsPreview:Create(parent)
 			tex:SetTexture(repTexture)
 		end
 
-		SetShown(repBar, not hideRep)
-		SetShown(xpBar, not hideXp)
+		SetShown(repBar, not isDragon and not hideRep)
+		SetShown(xpBar, not isDragon and not hideXp)
+		dragonRep:ClearAllPoints()
+		dragonRep:SetPoint("BOTTOM", canvas, "BOTTOM", 1, hideXp and 7 or 23)
+		SetShown(dragonRep, isDragon and not hideRep)
+		SetShown(dragonXp, isDragon and not hideXp)
 
 		local allHidden = hideRep and hideXp
 		SetShown(emptyNotice, allHidden)

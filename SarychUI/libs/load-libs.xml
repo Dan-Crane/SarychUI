@@ -2,6 +2,7 @@
 ..\FrameXML\UI.xsd">
 	<!-- Core Libraries -->
 	<Script file="LibStub\LibStub.lua"/>
+	<Include file="LibFlightTime-1.0\LibFlightTime-1.0.xml"/>
 	<Script file="..\core\ace_embed_guard.lua"/>
 	<Script file="CallbackHandler-1.0\CallbackHandler-1.0.lua"/>
 	

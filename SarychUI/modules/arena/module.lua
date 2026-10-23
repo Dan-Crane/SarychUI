@@ -27,6 +27,7 @@ local arenaContainer
 local eventFrame
 local arenaDefaultPosition = nil
 local firstArenaFramePosition = nil
+local originalArenaFramePositions = {}
 local distanceAlphaUpdateFrame = nil
 local arenaTestContainer = nil
 local arenaTestFrames = {}
@@ -44,9 +45,9 @@ local trinketSuffixes = {"Trinket1", "Trinket2", "Trinket3", "Trinket4"}
 local function ApplyTrinketBorderColor(icon)
     local border = icon and icon._border
     if not border then return end
-    local lorti = SarychUI_LortiUI
-    if lorti and lorti.IsSettingOn and lorti.IsSettingOn() and lorti.GetColor then
-        border:SetVertexColor(lorti.GetColor())
+    local style = SarychUI_InterfaceStyle
+    if style and style.IsSettingOn and style.IsSettingOn() and style.GetColor then
+        border:SetVertexColor(style.GetColor())
     else
         border:SetVertexColor(1, 1, 1, 1)
     end
@@ -581,6 +582,34 @@ function module:PlaceFirstArenaFrame()
 	frame:SetPoint("TOP", UIParent, "BOTTOMLEFT", x, y - 8)
 end
 
+function module:ApplyFrameSpacing()
+	local gap = tonumber(GetSetting("frameSpacing", 40)) or 40
+	if gap < 0 then gap = 0 elseif gap > 60 then gap = 60 end
+	for i = 2, 5 do
+		local testFrame = arenaTestFrames[i]
+		if testFrame then
+			testFrame:ClearAllPoints()
+			testFrame:SetPoint("TOP", arenaTestFrames[i - 1], "BOTTOM", 0, -gap)
+		end
+	end
+	if InCombatLockdown and InCombatLockdown() then
+		if eventFrame then eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED") end
+		return
+	end
+	for i = 2, 5 do
+		local frame = _G["ArenaEnemyFrame" .. i]
+		local previous = _G["ArenaEnemyFrame" .. (i - 1)]
+		if frame and previous then
+			if not originalArenaFramePositions[i] then
+				local point, relativeTo, relativePoint, x, y = frame:GetPoint()
+				if point then originalArenaFramePositions[i] = { point, relativeTo, relativePoint, x, y } end
+			end
+			frame:ClearAllPoints()
+			frame:SetPoint("TOP", previous, "BOTTOM", 0, -gap)
+		end
+	end
+end
+
 -- Create/ensure Blizzard_ArenaUI and attach frames under our container
 function module:InitializeContainer()
 	-- ArenaEnemyFrame* and ArenaEnemyFrames are protected.  Never rebuild their
@@ -642,9 +671,10 @@ function module:InitializeContainer()
 		ArenaEnemyFrames:SetScale(GetSetting('scale', 1.0))
 	end
 
-	-- Keep Blizzard's protected hierarchy intact. Frames 2-5 and all pets
-	-- retain their original relative anchors and visibility parent.
+	-- Keep Blizzard's protected hierarchy intact; only change frame anchors
+	-- out of combat. Blizzard still owns their visibility and pet frames.
 	self:PlaceFirstArenaFrame()
+	self:ApplyFrameSpacing()
 	if MAX_ARENA_ENEMIES then
 		for i = 1, MAX_ARENA_ENEMIES do
 			local frame = _G["ArenaEnemyFrame" .. i]
@@ -716,6 +746,7 @@ function module:ApplyContainerPosition()
         arenaContainer:SetPoint(point, UIParent, relativePoint, xOfs, yOfs)
     end
 	self:PlaceFirstArenaFrame()
+	self:ApplyFrameSpacing()
 end
 
 function module:DeleteArenaFrames()
@@ -748,6 +779,14 @@ function module:RestoreArenaFrames()
 				firstArenaFramePosition.xOfs,
 				firstArenaFramePosition.yOfs
 			)
+		end
+	end
+	for i = 2, 5 do
+		local frame = _G["ArenaEnemyFrame" .. i]
+		local position = originalArenaFramePositions[i]
+		if frame and position then
+			frame:ClearAllPoints()
+			frame:SetPoint(position[1], position[2] or UIParent, position[3], position[4], position[5])
 		end
 	end
 	if ArenaEnemyFrames then
@@ -839,9 +878,40 @@ function module:HideArenaEnemyFrames()
 	-- Hide() or Blizzard event/update functions on ArenaEnemyFrame* taints the
 	-- visibility that Blizzard must change during combat.
 	if arenaTestContainer then arenaTestContainer:Hide() end
+	local abilities = SarychUI.extensions and SarychUI.extensions.party_abilities
+	if abilities and abilities.RefreshConfig then abilities:RefreshConfig() end
 	if SarychUI.DragMode then
 		SarychUI.DragMode:RefreshDragOverlay("arenaContainer")
 	end
+end
+
+function module:GetVisibleTestFrame(index)
+	local frame = arenaTestFrames[index]
+	if arenaTestContainer and arenaTestContainer:IsShown() and frame and frame:IsShown() then
+		return frame
+	end
+end
+
+function module:GetAbilityAnchor(index, test)
+	local db = GetDB()
+	local tr = db and db.Trinkets or {}
+	local anchor
+	if test then
+		if tr.racialEnabled then anchor = _G["SarychUIArenaTestTrinket" .. index .. "Racial"] end
+		if not (anchor and anchor:IsShown()) and tr.enabled then
+			anchor = _G["SarychUIArenaTestTrinket" .. index .. "Trinket1"]
+		end
+	else
+		local prefix = "arena" .. index
+		if tr.racialEnabled then
+			anchor = self.Trinkets[prefix .. "Trinket2"] or self.Trinkets[prefix .. "Trinket4"]
+		end
+		if not (anchor and anchor:IsShown()) and tr.enabled then
+			anchor = self.Trinkets[prefix .. "Trinket1"]
+		end
+	end
+	if anchor and anchor:IsShown() then return anchor end
+	return test and self:GetVisibleTestFrame(index) or _G["ArenaEnemyFrame" .. index]
 end
 
 function module:Test(numOpponents)
@@ -860,7 +930,10 @@ function module:Test(numOpponents)
 	for i = 1, 5 do
 		if i <= numOpponents then arenaTestFrames[i]:Show() else arenaTestFrames[i]:Hide() end
 	end
+	self:ApplyFrameSpacing()
 	arenaTestContainer:Show()
+	local abilities = SarychUI.extensions and SarychUI.extensions.party_abilities
+	if abilities and abilities.RefreshConfig then abilities:RefreshConfig() end
 	if SarychUI.DragMode then
 		SarychUI.DragMode:RefreshDragOverlay("arenaContainer")
 	end
@@ -1835,6 +1908,7 @@ function module:ApplySettings()
 	if arenaTestContainer then
 		arenaTestContainer:SetScale(db.scale or 1.0)
 	end
+	self:ApplyFrameSpacing()
 
 	-- Apply class coloring immediately according to setting
 	self:ApplyClassColoring()
@@ -2006,6 +2080,11 @@ function module:Enable()
 		eventFrame:RegisterEvent("ARENA_OPPONENT_UPDATE")
 		eventFrame:RegisterEvent("UNIT_NAME_UPDATE")
 		eventFrame:SetScript("OnEvent", function(_, event, addonName)
+			if event == "PLAYER_REGEN_ENABLED" then
+				eventFrame:UnregisterEvent("PLAYER_REGEN_ENABLED")
+				self:ApplyFrameSpacing()
+				return
+			end
 			if event == "ARENA_OPPONENT_UPDATE"
 				or (event == "UNIT_NAME_UPDATE" and type(addonName) == "string" and addonName:match("^arena%d+$")) then
 				self:ScheduleSecureFramePaint()

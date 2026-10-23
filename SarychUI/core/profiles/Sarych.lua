@@ -9,7 +9,7 @@ SarychUI.BuiltinProfiles = SarychUI.BuiltinProfiles or {}
 SarychUI.BuiltinProfileMeta = SarychUI.BuiltinProfileMeta or {}
 
 SarychUI.BuiltinProfileMeta["Sarych"] = {
-	revision = 15,
+	revision = 16,
 	displayName = "Sarych (2K)",
 }
 
@@ -1563,6 +1563,20 @@ SarychUI.BuiltinProfiles["Sarych"] = {
 				["arena"] = {
 					["distanceAlpha"] = false,
 					["useAwesomeWotlk"] = true,
+					["frameSpacing"] = 40,
+					["enemyAbilities"] = {
+						["displayMode"] = "cooldown",
+						["anchorMode"] = "auto",
+						["layout"] = {
+							["autoX"] = 7,
+							["autoY"] = 0,
+							["spacing"] = 5,
+							["perRow"] = 5,
+							["size"] = 24,
+							["showBorders"] = true,
+							["cooldownEdge"] = true,
+						},
+					},
 				},
 				["cursor"] = {
 					["enabled"] = true,

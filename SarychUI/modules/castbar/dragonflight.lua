@@ -272,6 +272,8 @@ local function AnchorShieldedIcon(frames, cfg)
 end
 
 local function GetActionButtonBorderAlpha()
+	local style = _G.SarychUI_InterfaceStyle
+	if style and style.enabled and style.UseStyleTextures and style.UseStyleTextures() then return 1 end
 	local profile = SarychUI and SarychUI.db and SarychUI.db.profile
 	local db = profile and profile.modules and profile.modules.mainmenubar
 	if db and (db.buttonBorderAlphaEnabled == true or db.buttonBorderAlphaEnabled == 1) then
@@ -463,11 +465,16 @@ local function LayoutCastbar(unitType)
 	end
 	local cfg = GetCfg(unitType)
 	local blizz = GetBlizzardBar(unitType)
+	local playerOffsetY = 0
+	if unitType == "player" then
+		local db = module.DB and module:DB()
+		playerOffsetY = db and tonumber(db.dragonflightCastbarOffsetY) or 0
+	end
 	frames.container:ClearAllPoints()
 	if blizz then
-		frames.container:SetPoint("CENTER", blizz, "CENTER", 0, 0)
+		frames.container:SetPoint("CENTER", blizz, "CENTER", 0, playerOffsetY)
 	elseif unitType == "player" then
-		frames.container:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 55)
+		frames.container:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 55 + playerOffsetY)
 	elseif unitType == "target" and TargetFrame then
 		frames.container:SetPoint("TOPLEFT", TargetFrame, "BOTTOMLEFT", 25, 7)
 	elseif unitType == "focus" and FocusFrame then
@@ -579,6 +586,10 @@ function DF:ApplyScale()
 			frames.container:SetScale(scale)
 		end
 	end
+end
+
+function DF:ApplyPlayerOffset()
+	if self.active then LayoutCastbar("player") end
 end
 
 function DF:ApplyPlayerIcon()

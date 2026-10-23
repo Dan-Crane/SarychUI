@@ -347,6 +347,9 @@ function module:Disable()
     if _G.sarPlatesAuras_GetAllNamePlates then
         local namePlates = _G.sarPlatesAuras_GetAllNamePlates()
         for _, namePlate in ipairs(namePlates) do
+            if _G.sarPlatesAuras_HidePlateAuras then
+                _G.sarPlatesAuras_HidePlateAuras(namePlate)
+            end
             if namePlate.centerContainer then 
                 namePlate.centerContainer:Hide()
                 if namePlate.controlFrame then namePlate.controlFrame:Hide() end
@@ -361,6 +364,9 @@ function module:Disable()
                 namePlate.playerFrame:Hide()
             end
         end
+    end
+    if _G.sarPlatesAuras_ClearCache then
+        _G.sarPlatesAuras_ClearCache()
     end
 end
 

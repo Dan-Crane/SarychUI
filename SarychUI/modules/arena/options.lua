@@ -344,13 +344,12 @@ function module:GetOptions()
 									if not db then return end
 									local val = not (db.showDragFrame == 1)
 									db.showDragFrame = val and 1 or 0
-									if val and db.showGrid ~= 1 then
-										db.showGrid = 1
-									end
 									local m = SarychUI.modules[moduleName]
 									if m and m.ApplySettings then
 										m:ApplySettings()
 									end
+									local panel = SarychUI.PositionDragPanel
+									if panel and panel.Toggle then panel:Toggle("arenaContainer", val) end
 									RefreshArenaOptions()
 								end,
 								suiResetDefaults = function()
@@ -358,46 +357,19 @@ function module:GetOptions()
 									local def = SarychUI.defaults and SarychUI.defaults.profile.modules.arena
 									db.arenaX = (def and def.arenaX) or -311
 									db.arenaY = (def and def.arenaY) or 131
+									db.arenaA = (def and def.arenaA) or "RIGHT"
+									db.arenaR = (def and def.arenaR) or "RIGHT"
 									local m = SarychUI.modules[moduleName]
 									if m and m.ApplySettings then
 										m:ApplySettings()
 									end
+									local panel = SarychUI.PositionDragPanel
+									if panel and panel.SyncDraftIfOpen then
+										panel:SyncDraftIfOpen("arenaContainer", db.arenaX, db.arenaY, db.arenaA, db.arenaR)
+									end
 									RefreshArenaOptions()
 								end,
 							},
-							showGrid = {
-								type = "toggle",
-								name = "Показать сетку выравнивания",
-								desc = "Показать вспомогательную сетку при перемещении",
-								order = 2,
-								width = "full",
-								disabled = function()
-									local db = GetDB()
-									return not (db and db.showDragFrame == 1)
-								end,
-								hidden = function()
-									local db = GetDB()
-									return not (db and db.showDragFrame == 1)
-								end,
-								get = function()
-									local db = GetDB()
-									return db and db.showGrid == 1
-								end,
-								set = function(_, value)
-									local db = GetDB()
-									if db then
-										db.showGrid = value and 1 or 0
-										local m = SarychUI.modules[moduleName]
-										if m and m.ApplySettings then
-											m:ApplySettings()
-										end
-									end
-								end,
-							},
-							gridStep = SarychUI.DragMode and SarychUI.DragMode:GridStepOption(2.5, function()
-								local db = GetDB()
-								return not (db and db.showDragFrame == 1 and db.showGrid == 1)
-							end) or nil,
 							test2 = {
 								type = "toggle",
 								name = "Показать 2 арена фрейма",
@@ -413,8 +385,9 @@ function module:GetOptions()
 									local m = SarychUI.modules[moduleName]
 									if not db or not m then return end
 									if value then
+										local oldMode = db.testMode or 0
 										db.testMode = 2
-										if m.Test then m:Test(2) end
+										if not (m.Test and m:Test(2)) then db.testMode = oldMode end
 									else
 										db.testMode = 0
 										if m.HideArenaEnemyFrames then m:HideArenaEnemyFrames() end
@@ -436,8 +409,9 @@ function module:GetOptions()
 									local m = SarychUI.modules[moduleName]
 									if not db or not m then return end
 									if value then
+										local oldMode = db.testMode or 0
 										db.testMode = 3
-										if m.Test then m:Test(3) end
+										if not (m.Test and m:Test(3)) then db.testMode = oldMode end
 									else
 										db.testMode = 0
 										if m.HideArenaEnemyFrames then m:HideArenaEnemyFrames() end
@@ -459,8 +433,9 @@ function module:GetOptions()
 									local m = SarychUI.modules[moduleName]
 									if not db or not m then return end
 									if value then
+										local oldMode = db.testMode or 0
 										db.testMode = 5
-										if m.Test then m:Test(5) end
+										if not (m.Test and m:Test(5)) then db.testMode = oldMode end
 									else
 										db.testMode = 0
 										if m.HideArenaEnemyFrames then m:HideArenaEnemyFrames() end

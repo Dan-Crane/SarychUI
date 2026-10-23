@@ -252,10 +252,15 @@ function CompactUnitFrame_SetUpClicks(frame)
     CompactUnitFrame_SetMenuFunc(frame, CompactUnitFrameDropDown_Initialize);
 end
 
+local AttachSecureFocusMenuButton
+
 function CompactUnitFrame_SetMenuFunc(frame, menuFunc)
     UIDropDownMenu_Initialize(frame.dropDown, menuFunc, "MENU");
     frame.menu = function()
         ToggleDropDownMenu(1, nil, frame.dropDown, frame:GetName(), 0, 0);
+        if AttachSecureFocusMenuButton then
+            AttachSecureFocusMenuButton(frame.unit);
+        end
     end
 end
 
@@ -1376,6 +1381,76 @@ function CompactUnitFrame_UtilSetDispelDebuff(dispellDebuffFrame, debuffType, in
     dispellDebuffFrame:SetID(index);
 end
 --Dropdown
+local compactFocusMenuButton
+AttachSecureFocusMenuButton = function(unit)
+    if not unit or (InCombatLockdown and InCombatLockdown()) then return end
+    local list = _G.DropDownList1
+    if not list or not list:IsShown() then return end
+    if compactFocusMenuButton then compactFocusMenuButton:Hide() end
+
+    local focusItem
+    for i = 1, list.numButtons or 0 do
+        local button = _G["DropDownList1Button" .. i]
+        if button and button.value == "SET_FOCUS" and button:IsShown() then
+            focusItem = button
+            break
+        end
+    end
+    if not focusItem then return end
+
+    if not compactFocusMenuButton then
+        -- No protected parent or anchor in the shared dropdown hierarchy.
+        compactFocusMenuButton = CreateFrame("Button", "SarychUICompactRaidSecureFocusMenuButton", UIParent, "SecureActionButtonTemplate")
+        compactFocusMenuButton:SetFrameStrata("FULLSCREEN_DIALOG")
+        compactFocusMenuButton:RegisterForClicks("AnyUp")
+        compactFocusMenuButton:SetAttribute("type1", "focus")
+        compactFocusMenuButton:EnableMouse(true)
+        RegisterStateDriver(compactFocusMenuButton, "visibility", "[combat] hide")
+
+        local hover = compactFocusMenuButton:CreateTexture(nil, "OVERLAY")
+        hover:SetAllPoints(compactFocusMenuButton)
+        hover:SetTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
+        hover:SetBlendMode("ADD")
+        hover:Hide()
+        compactFocusMenuButton.hover = hover
+
+        compactFocusMenuButton:SetScript("OnEnter", function(self)
+            if not self.focusItem or (InCombatLockdown and InCombatLockdown()) then return end
+            self.hover:Show()
+            UIDropDownMenu_StopCounting(list)
+        end)
+        compactFocusMenuButton:SetScript("OnLeave", function(self)
+            if InCombatLockdown and InCombatLockdown() then return end
+            self.hover:Hide()
+            UIDropDownMenu_StartCounting(list)
+            GameTooltip:Hide()
+        end)
+        compactFocusMenuButton:SetScript("OnUpdate", function(self)
+            if not list:IsShown() and not (InCombatLockdown and InCombatLockdown()) then
+                self:Hide()
+            end
+        end)
+        compactFocusMenuButton:HookScript("OnClick", function(self)
+            if self.focusItem and not self.focusItem.noClickSound then
+                PlaySound("UChatScrollButton")
+            end
+            CloseDropDownMenus()
+        end)
+    end
+
+    local left, top = focusItem:GetLeft(), focusItem:GetTop()
+    if not left or not top then return end
+    local scale = focusItem:GetEffectiveScale() / UIParent:GetEffectiveScale()
+    compactFocusMenuButton.focusItem = focusItem
+    compactFocusMenuButton:SetAttribute("unit", unit)
+    compactFocusMenuButton.hover:Hide()
+    compactFocusMenuButton:ClearAllPoints()
+    compactFocusMenuButton:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left * scale, top * scale)
+    compactFocusMenuButton:SetSize(focusItem:GetWidth() * scale, focusItem:GetHeight() * scale)
+    compactFocusMenuButton:SetFrameLevel(focusItem:GetFrameLevel() + 1)
+    compactFocusMenuButton:Show()
+end
+
 function CompactUnitFrameDropDown_Initialize(self)
     local unit = self:GetParent().unit;
     if ( not unit ) then
@@ -1407,6 +1482,18 @@ function CompactUnitFrameDropDown_Initialize(self)
     end
     if ( menu ) then
         UnitPopup_ShowMenu(self, menu, unit, name, id);
+        if InCombatLockdown and InCombatLockdown() then
+            local list = _G.DropDownList1
+            if list then
+                for i = 1, list.numButtons or 0 do
+                    local button = _G["DropDownList1Button" .. i]
+                    if button and button.value == "SET_FOCUS" then
+                        button:Disable()
+                        break
+                    end
+                end
+            end
+        end
     end
 end
 ------The default setup function

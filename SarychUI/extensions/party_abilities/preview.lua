@@ -222,9 +222,10 @@ local function NewIcon(parent)
 	local icon = CreateFrame("Frame", nil, parent)
 	icon.texture = icon:CreateTexture(nil, "ARTWORK")
 	icon.texture:SetAllPoints(icon)
-	icon.texture:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	icon.texture:SetTexCoord(0, 1, 0, 1)
 	icon.cooldown = CreateFrame("Cooldown", nil, icon, "CooldownFrameTemplate")
 	icon.cooldown:SetAllPoints(icon)
+	icon.cooldown:SetAlpha(0.65)
 	icon.cooldown.__sary_partyAbility = true
 	extension:PrepareIcon(icon)
 	return icon
@@ -273,7 +274,7 @@ local function RefreshIcons(host, row, layout, frame, shown, cellSize, autoAncho
 				CooldownFrame_SetTimer(icon.cooldown, icon.timerStart, duration, 1)
 				if SarychUI_NotifyCooldown then SarychUI_NotifyCooldown(icon.cooldown, icon.timerStart, duration, 1) end
 			end
-			icon.texture:SetVertexColor(0.55, 0.55, 0.55)
+			icon.texture:SetVertexColor(1, 1, 1)
 		else
 			icon.texture:SetVertexColor(1, 1, 1)
 			if icon.timerStart then

@@ -167,31 +167,20 @@ local function MakeIcon(parent, texture)
 	btn:SetFrameLevel((parent:GetFrameLevel() or 1) + 4)
 
 	local icon = btn:CreateTexture(nil, "ARTWORK")
-	icon:SetSize(ICON - 2, ICON - 2)
-	icon:SetPoint("CENTER", btn, "CENTER", 0, 0)
+	icon:SetAllPoints(btn)
 	icon:SetTexture(texture)
-	icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+	icon:SetTexCoord(0, 1, 0, 1)
 	btn.icon = icon
 
 	local cooldown = CreateFrame("Cooldown", nil, btn)
-	cooldown:SetAllPoints(icon)
+	cooldown:SetAllPoints(btn)
 	cooldown:SetFrameLevel(btn:GetFrameLevel() + 1)
+	cooldown:SetAlpha(0.65)
 	cooldown.__sary_cc_noCount = true
 	if cooldown.SetDrawEdge then
 		cooldown:SetDrawEdge(true)
 	end
 	btn._cooldown = cooldown
-
-	-- Border above icon (and above swipe rim) - same as Панель действий NormalTexture.
-	local borderHost = CreateFrame("Frame", nil, btn)
-	borderHost:SetAllPoints()
-	borderHost:SetFrameLevel(btn:GetFrameLevel() + 3)
-	local slot = borderHost:CreateTexture(nil, "OVERLAY")
-	slot:SetTexture("Interface\\Buttons\\UI-Quickslot2")
-	slot:SetSize(ICON + 14, ICON + 14)
-	slot:SetPoint("CENTER", btn, "CENTER", 0, 0)
-	btn._border = slot
-	btn._borderHost = borderHost
 
 	local textHost = CreateFrame("Frame", nil, btn)
 	textHost:SetAllPoints(btn)
@@ -373,12 +362,6 @@ function Preview:Create(parent)
 		local trinketsOn, racialOn, iconScale = TrinketsDB()
 		local distanceAlpha = LiveFlag("distanceAlpha", false) and LiveFlag("useAwesomeWotlk", false)
 		local farAlpha = distanceAlpha and 0.5 or 1.0
-		local style = SarychUI_InterfaceStyle
-		local borderR, borderG, borderB, borderA = 1, 1, 1, 1
-		if style and style.IsSettingOn and style.IsSettingOn() and style.GetColor then
-			borderR, borderG, borderB, borderA = style.GetColor()
-		end
-
 		stack:ClearAllPoints()
 		stack:SetPoint("CENTER", stage, "CENTER", 0, 0)
 
@@ -393,8 +376,6 @@ function Preview:Create(parent)
 
 			row.trinket:SetScale(iconScale)
 			row.racial:SetScale(iconScale)
-			row.trinket._border:SetVertexColor(borderR, borderG, borderB, borderA)
-			row.racial._border:SetVertexColor(borderR, borderG, borderB, borderA)
 
 			if trinketsOn then
 				row.trinket:Show()

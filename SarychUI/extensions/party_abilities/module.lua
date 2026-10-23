@@ -193,7 +193,7 @@ local function EnemySettings()
 		displayMode = "cooldown",
 		anchorMode = "auto",
 		layout = { side = "RIGHT", growth = "RIGHT", x = 2, y = 6,
-			autoX = 7, autoY = 0, size = 24, spacing = 5, perRow = 5, showBorders = true, cooldownEdge = true },
+			autoX = 7, autoY = 0, size = 24, spacing = 5, perRow = 5, cooldownEdge = true },
 	}
 	return arena.enemyAbilities
 end
@@ -331,9 +331,10 @@ local function NewIcon(key, guid)
 	icon.guid = guid
 	icon.texture = icon:CreateTexture(nil, "ARTWORK")
 	icon.texture:SetAllPoints(icon)
-	icon.texture:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	icon.texture:SetTexCoord(0, 1, 0, 1)
 	icon.cooldown = CreateFrame("Cooldown", nil, icon, "CooldownFrameTemplate")
 	icon.cooldown:SetAllPoints(icon)
+	icon.cooldown:SetAlpha(0.65)
 	icon.cooldown.__sary_partyAbility = true
 	extension:PrepareIcon(icon)
 	icon:SetScript("OnEnter", function(self)
@@ -627,26 +628,6 @@ function extension:PositionIcon(icon, frame, layout, index, data, cellSize, auto
 end
 
 function extension:ApplyIconAppearance(icon, layout)
-	if layout.showBorders == true then
-		if not icon.borderFrame then
-			local borderFrame = CreateFrame("Frame", nil, icon)
-			borderFrame:EnableMouse(false)
-			borderFrame:SetPoint("CENTER", icon, "CENTER", 0, 0)
-			local border = borderFrame:CreateTexture(nil, "OVERLAY")
-			border:SetAllPoints(borderFrame)
-			border:SetTexture([[Interface\Buttons\UI-Quickslot2]])
-			icon.borderFrame = borderFrame
-		end
-		-- Same ratio as an action button: 36px icon, 66px UI-Quickslot2.
-		local size = icon:GetWidth() or tonumber(layout.size) or 24
-		if size < 1 then size = 24 end
-		local edge = size * (66 / 36)
-		icon.borderFrame:SetSize(edge, edge)
-		icon.borderFrame:SetFrameLevel((icon.cooldown and icon.cooldown:GetFrameLevel() or icon:GetFrameLevel()) + 1)
-		icon.borderFrame:Show()
-	elseif icon.borderFrame then
-		icon.borderFrame:Hide()
-	end
 	local drawEdge = layout.cooldownEdge == true
 	if icon.cooldown.SetDrawEdge and icon._drawEdge ~= drawEdge then
 		icon._drawEdge = drawEdge
@@ -730,7 +711,7 @@ function extension:Render()
 				Position(icon, frame, layout, index, item.data, cellSize, autoAnchor, rowCount, member.enemy)
 				self:ApplyIconAppearance(icon, layout)
 				if item.remaining > 0 then
-					icon.texture:SetVertexColor(0.55, 0.55, 0.55)
+					icon.texture:SetVertexColor(1, 1, 1)
 					if icon.timerStart ~= item.state.start or icon.timerDuration ~= item.state.duration then
 						CooldownFrame_SetTimer(icon.cooldown, item.state.start, item.state.duration, 1)
 						if SarychUI_NotifyCooldown then SarychUI_NotifyCooldown(icon.cooldown, item.state.start, item.state.duration, 1) end

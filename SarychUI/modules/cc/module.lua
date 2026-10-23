@@ -273,16 +273,8 @@ local function CaptureActionButton(button, cooldown)
     end
     if button and button.action and button.action > 0 and GetActionCooldown then
         local start, duration, enable = GetActionCooldown(button.action)
-        local currentEnd = state.start and state.duration and (state.start + state.duration)
-        if currentEnd and currentEnd > GetTime() + 0.5 then
-            local incomingEnd = type(start) == "number" and type(duration) == "number" and (start + duration)
-            if not incomingEnd or enable == 0 or start <= 0 or duration <= 0
-                or incomingEnd <= GetTime() + 0.5
-                or (duration <= 2 and state.duration > 2 and incomingEnd < currentEnd - 0.5) then
-                -- An action update can briefly report no cooldown or just the GCD.
-                return
-            end
-        end
+        -- The action API is authoritative. A reset can turn a long cooldown
+        -- into zero (or only the GCD) before its old end time is reached.
         handleSetCooldown(cooldown, start, duration, enable)
     else
         handleSetCooldown(cooldown, 0, 0)
@@ -380,6 +372,7 @@ local function CaptureFrameAuras(frame)
 end
 
 local driver = CreateFrame("Frame")
+local activeCheckElapsed = 0
 driver:Hide()
 driver:SetScript("OnEvent", function(self)
     self.refreshPending = true
@@ -388,6 +381,16 @@ driver:SetScript("OnUpdate", function(_, elapsed)
     if driver.refreshPending then
         driver.refreshPending = nil
         CaptureCooldownSources()
+    end
+    activeCheckElapsed = activeCheckElapsed + elapsed
+    if activeCheckElapsed >= 0.5 then
+        activeCheckElapsed = 0
+        for frame, state in pairs(ccState) do
+            if state.action and state.start and GetActionCooldown then
+                local start, duration, enable = GetActionCooldown(state.action)
+                handleSetCooldown(frame, start, duration, enable)
+            end
+        end
     end
     for frame, state in pairs(ccState) do
         if state.start then

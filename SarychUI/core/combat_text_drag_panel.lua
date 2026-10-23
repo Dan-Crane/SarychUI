@@ -131,6 +131,20 @@ local FRAME_MAP = {
 	},
 
 	-- Frames
+	arenaContainer = {
+		title = "Фреймы арены",
+		moduleKey = "arena",
+		xKey = "arenaX", yKey = "arenaY",
+		aKey = "arenaA", rKey = "arenaR",
+		dragFlag = "showDragFrame", gridFlag = "showGrid",
+		defaultX = -311, defaultY = 131,
+		defaultA = "RIGHT", defaultR = "RIGHT",
+		min = -2000, max = 2000,
+		onApply = function()
+			local m = SarychUI and SarychUI.modules and SarychUI.modules.arena
+			if m and m.ApplyContainerPosition then m:ApplyContainerPosition() end
+		end,
+	},
 	playerFrame = {
 		title = "Фрейм игрока",
 		moduleKey = "frame",
@@ -893,12 +907,19 @@ function Panel:SetDraft(x, y, fromUI, point, relativePoint, skipAnchor)
 	if not skipAnchor then
 		SetAnchorPosition(session.frameId, meta, session.draft.x, session.draft.y, session.draft.point, session.draft.relativePoint)
 		-- Quest tracker also re-pins WatchFrame after the anchor moves.
-		if session.frameId == "questTracker" and meta.onApply then
+		if (session.frameId == "questTracker" or session.frameId == "arenaContainer") and meta.onApply then
 			meta.onApply()
+			if session.frameId == "arenaContainer" then
+				local db = ConfigDB(meta)
+				if db then
+					session.draft.x = tonumber(db[meta.xKey]) or session.draft.x
+					session.draft.y = tonumber(db[meta.yKey]) or session.draft.y
+				end
+			end
 		end
 	end
 	NotifyPreview(meta, session.draft.x, session.draft.y)
-	if not fromUI and root and root.SyncEditsFromDraft then
+	if (not fromUI or session.frameId == "arenaContainer") and root and root.SyncEditsFromDraft then
 		root.SyncEditsFromDraft()
 	end
 end
@@ -960,8 +981,16 @@ function Panel:Open(frameId)
 	RaisePanel(ui)
 	ui.SyncEditsFromDraft()
 	SetAnchorPosition(frameId, meta, x, y, point, relativePoint)
-	if frameId == "questTracker" and meta.onApply then
+	if (frameId == "questTracker" or frameId == "arenaContainer") and meta.onApply then
 		meta.onApply()
+		if frameId == "arenaContainer" then
+			local live = ConfigDB(meta)
+			if live then
+				session.draft.x = tonumber(live[meta.xKey]) or session.draft.x
+				session.draft.y = tonumber(live[meta.yKey]) or session.draft.y
+				ui.SyncEditsFromDraft()
+			end
+		end
 	end
 	NotifyPreview(meta, x, y)
 end

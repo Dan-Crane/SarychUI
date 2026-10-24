@@ -11,7 +11,6 @@ local myDataVersion = 1277784451;
 if(lib.auraInfo and myDataVersion <= lib.spellIdDataVersion) then return; end
 lib.spellIdDataVersion = myDataVersion;
 
---~ local mem1 = collectgarbage("count")
 lib.auraInfo = {
 [67] = "10;1", --Vindication (Rank 1)
 [118] = "50;1", --Polymorph (Rank 1)
@@ -2345,7 +2344,6 @@ lib.auraInfoPvP = {
 [47865] = 120, --Curse of the Elements (Rank 5)
 }
 
---~ local mem2 = collectgarbage("count")
 --~ local memoryUsed = (mem2 - mem1) * 1024
 --~ print("our spelldata table's using. "..memoryUsed.." bytes")
 
@@ -2355,6 +2353,5 @@ lib.auraInfoPvP = {
 --~ 	newTbl[spellID] = {x=1,y=1}
 --~ end
 
---~ local mem3 = collectgarbage("count")
 --~ local memoryUsed = (mem3 - mem2) * 1024
 --~ print("our spelldata if we were using tables. "..memoryUsed.." bytes")

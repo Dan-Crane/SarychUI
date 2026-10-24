@@ -1,6 +1,5 @@
 -- SarychUI client capability detection.
--- Runtime owns wow_optimize detection/backend selection; this module only
--- renders that result beside the optional nameplate APIs in System overview.
+-- Report DLL presence in the System overview without invoking optional DLL APIs.
 
 local pairs, type = pairs, type
 local CreateFrame, GetTime = CreateFrame, GetTime
@@ -55,6 +54,16 @@ local function GetStatusLabel(state)
 	local L = SarychUI and SarychUI.L
 	local key = STATUS_LABEL_KEYS[state]
 	return (L and key and L[key]) or STATUS_LABEL_FALLBACK[state] or STATUS_LABEL_FALLBACK.not_detected
+end
+
+-- Presence only: inspecting exported globals never calls the booster or changes GC.
+function Compat:DetectWowOptimizeDll()
+	for key in pairs(_G) do
+		if type(key) == "string" and (key:match("^LUABOOST_DLL_") or key:match("^LuaBoostC_")) then
+			return true
+		end
+	end
+	return false
 end
 
 function Compat:DetectAwesomeWotlkDll()
@@ -155,7 +164,7 @@ end
 
 function Compat:TryScanNameplateRangeFramesThrottled()
 	if self._nameplateRangeConfirmed then return true end
-	local now = SarychUI and SarychUI.Runtime and SarychUI.Runtime:GetTimeCached() or GetTime()
+	local now = GetTime()
 	if self._lastRangeScanTime and (now - self._lastRangeScanTime) < RANGE_SCAN_THROTTLE then
 		return self._lastRangeScanResult == true
 	end
@@ -204,8 +213,8 @@ end
 function Compat:StopNameplateRangePoll()
 	if not self._rangePollActive then return end
 	self._rangePollActive = false
-	if SarychUI and SarychUI.Runtime then
-		SarychUI.Runtime:UnregisterUpdate("compat.nameplate_range")
+	if SarychUI and SarychUI.UpdateScheduler then
+		SarychUI.UpdateScheduler:UnregisterUpdate("compat.nameplate_range")
 	end
 	if rangePollFrame then
 		rangePollFrame:SetScript("OnUpdate", nil)
@@ -217,11 +226,11 @@ function Compat:StartNameplateRangePoll()
 	if self._nameplateRangeConfirmed or self._nameplateRangeNotDetected or self._rangePollActive then return end
 	self._rangePollActive = true
 	self._nameplateVisibleMisses = 0
-	if SarychUI and SarychUI.Runtime then
-		SarychUI.Runtime:RegisterUpdate("compat.nameplate_range", 2, function() Compat:PollNameplateRange() end)
+	if SarychUI and SarychUI.UpdateScheduler then
+		SarychUI.UpdateScheduler:RegisterUpdate("compat.nameplate_range", 2, function() Compat:PollNameplateRange() end)
 		return
 	end
-	-- Early fallback; Runtime replaces this path once the addon finishes loading.
+	-- Fallback for early initialization.
 	rangePollFrame = CreateFrame("Frame")
 	local elapsed = 0
 	rangePollFrame:SetScript("OnUpdate", function(_, delta)
@@ -232,12 +241,7 @@ end
 
 function Compat:GetDllDetectionState(id)
 	if id == "wow_optimize" then
-		local runtime = SarychUI and SarychUI.Runtime
-		if not runtime or not runtime.GetDLLState then return "not_detected" end
-		local state = runtime:GetDLLState()
-		if state == runtime.WOW_OPTIMIZE_SUPPORTED then return "supported" end
-		if state == runtime.WOW_OPTIMIZE_INCOMPATIBLE then return "inactive" end
-		return "not_detected"
+		return self:DetectWowOptimizeDll() and "detected" or "not_detected"
 	end
 	if id == "awesome_wotlk" then
 		return self:DetectAwesomeWotlkDll() and "detected" or "not_detected"
@@ -268,19 +272,13 @@ function Compat:FormatDllStatusLine(entry)
 		or (state == "inactive" and "ffcc00")
 		or (state == "waiting_for_nameplates" and "ffcc00" or "ff4444")
 	local label = entry.label
-	-- The Runtime keeps "supported" as an internal capability state, but the
-	-- System overview reports the user-facing fact that the DLL was detected.
-	local displayState = entry.id == "wow_optimize" and state == "supported" and "detected" or state
+	local displayState = state
 	local status = GetStatusLabel(displayState)
-	if entry.id == "wow_optimize" then
-		local info = SarychUI and SarychUI.Runtime and SarychUI.Runtime:GetDLLInfo()
-		if info and info.version then label = label .. " v" .. tostring(info.version) end
-	end
 	return string.format("|cffcccccc%s:|r |cff%s%s|r", label, color, status)
 end
 
 function Compat:GetDllDetectionDetails(id)
-	if id == "wow_optimize" then return "LUABOOST_DLL_* / LuaBoostC_*" end
+	if id == "wow_optimize" then return "LUABOOST_DLL_* / LuaBoostC_* (presence only)" end
 	if id == "awesome_wotlk" then return "C_NamePlate.GetNamePlates / CVar nameplateDistance" end
 	if id == "nameplate_range" then return "WorldFrame child .guid + .range" end
 	return nil
@@ -303,8 +301,7 @@ function Compat:GetDllRegistry()
 	return DLL_REGISTRY
 end
 
--- Kept for callers that use compatibility-adjusted intervals. Native runtime
--- throttling is now the only optimization layer, so the normal value wins.
+-- Keep the standard interval for callers that request one.
 function Compat:GetInterval(_, fallbackNormal)
 	return fallbackNormal or 0.1
 end

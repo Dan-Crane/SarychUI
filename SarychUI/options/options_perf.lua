@@ -29,8 +29,9 @@ local function NowMs()
 end
 
 local function MemKB()
-	if collectgarbage then
-		return collectgarbage("count")
+	if UpdateAddOnMemoryUsage and GetAddOnMemoryUsage then
+		UpdateAddOnMemoryUsage()
+		return GetAddOnMemoryUsage("SarychUI") or 0
 	end
 	return 0
 end

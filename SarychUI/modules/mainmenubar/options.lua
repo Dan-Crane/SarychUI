@@ -583,7 +583,7 @@ local function GetOptions()
                                             set = function(info, value)
                                                 SarychUI.db.profile.modules.mainmenubar.hideGryphons = value
                                                 if SarychUI.modules and SarychUI.modules.mainmenubar then
-                                                    SarychUI.modules.mainmenubar:ApplyAppearanceSettings()
+                                                    SarychUI.modules.mainmenubar:RefreshVisualImprovements()
                                                 end
                                                 if SarychUI.ActionBarAppearancePreview and SarychUI.ActionBarAppearancePreview.RefreshAll then
                                                     SarychUI.ActionBarAppearancePreview:RefreshAll()
@@ -614,7 +614,7 @@ local function GetOptions()
                                             set = function(info, value)
                                                 SarychUI.db.profile.modules.mainmenubar.hideActionBarBackgrounds = value
                                                 if SarychUI.modules and SarychUI.modules.mainmenubar then
-                                                    SarychUI.modules.mainmenubar:ApplyAppearanceSettings()
+                                                    SarychUI.modules.mainmenubar:RefreshVisualImprovements()
                                                 end
                                                 if SarychUI.ActionBarAppearancePreview and SarychUI.ActionBarAppearancePreview.RefreshAll then
                                                     SarychUI.ActionBarAppearancePreview:RefreshAll()
@@ -636,7 +636,7 @@ local function GetOptions()
 											set = function(_, value)
 												SarychUI.db.profile.modules.mainmenubar.hideBagMicroMenuBackground = value and true or false
 												if SarychUI.modules and SarychUI.modules.mainmenubar then
-													SarychUI.modules.mainmenubar:ApplyAppearanceSettings()
+													SarychUI.modules.mainmenubar:RefreshVisualImprovements()
 												end
 												RefreshStylePreviews()
 											end,
@@ -653,7 +653,7 @@ local function GetOptions()
                                             set = function(info, value)
                                                 SarychUI.db.profile.modules.mainmenubar.hideSecondaryPanelsBackgrounds = value
                                                 if SarychUI.modules and SarychUI.modules.mainmenubar then
-                                                    SarychUI.modules.mainmenubar:ApplyAppearanceSettings()
+                                                    SarychUI.modules.mainmenubar:RefreshVisualImprovements()
                                                 end
                                                 if SarychUI.ActionBarAppearancePreview and SarychUI.ActionBarAppearancePreview.RefreshAll then
                                                     SarychUI.ActionBarAppearancePreview:RefreshAll()
@@ -672,7 +672,7 @@ local function GetOptions()
                                             set = function(info, value)
                                                 SarychUI.db.profile.modules.mainmenubar.hideMaxLevelBar = value
                                                 if SarychUI.modules and SarychUI.modules.mainmenubar then
-                                                    SarychUI.modules.mainmenubar:ApplyAppearanceSettings()
+                                                    SarychUI.modules.mainmenubar:RefreshVisualImprovements()
                                                 end
                                                 if SarychUI.ActionBarAppearancePreview and SarychUI.ActionBarAppearancePreview.RefreshAll then
                                                     SarychUI.ActionBarAppearancePreview:RefreshAll()

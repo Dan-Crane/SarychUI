@@ -1573,7 +1573,6 @@ SarychUI.BuiltinProfiles["Sarych"] = {
 							["spacing"] = 5,
 							["perRow"] = 5,
 							["size"] = 24,
-							["showBorders"] = true,
 							["cooldownEdge"] = true,
 						},
 					},

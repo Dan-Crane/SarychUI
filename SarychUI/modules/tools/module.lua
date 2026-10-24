@@ -106,12 +106,35 @@ S.dispelEventFrame, S.dispelUpdateFrame = nil, nil
 -- actual refresh, so this does not need to run at frame rate.
 local DISPEL_TICK = 0.1
 
--- Class-based dispel capabilities
 local _, playerClass = UnitClass("player")
-local CAN_REMOVE = {
-    Magic  = (playerClass=="PRIEST" or playerClass=="SHAMAN" or playerClass=="PALADIN" or playerClass=="MAGE" or playerClass=="WARRIOR"),
-    Enrage = (playerClass=="HUNTER" or playerClass=="DRUID" or playerClass=="ROGUE" or playerClass=="WARRIOR" or playerClass=="SHAMAN"),
-}
+
+-- DispelBorder's enemy-buff rules, adapted for the 3.3.5 client. In particular,
+-- paladins cannot purge enemy Magic buffs, and warriors need Shield Slam.
+local function CanRemoveEnemyBuff(dtype, isStealable)
+    if dtype == "Magic" then
+        if playerClass == "MAGE" then
+            return isStealable and true or false
+        elseif playerClass == "PRIEST" then
+            return IsSpellKnown and IsSpellKnown(527) or false
+        elseif playerClass == "SHAMAN" then
+            return IsSpellKnown and IsSpellKnown(370) or false
+        elseif playerClass == "HUNTER" then
+            return IsSpellKnown and IsSpellKnown(19801) or false
+        elseif playerClass == "WARRIOR" then
+            return IsSpellKnown and IsSpellKnown(23922) or false
+        elseif playerClass == "WARLOCK" then
+            return IsSpellKnown and IsSpellKnown(19505, true) or false
+        end
+    elseif dtype == "Enrage" then
+        if playerClass == "HUNTER" then
+            return IsSpellKnown and IsSpellKnown(19801) or false
+        elseif playerClass == "DRUID" then
+            return IsSpellKnown and IsSpellKnown(2908) or false
+        end
+        return playerClass == "ROGUE"
+    end
+    return false
+end
 
 -- Pet name shortening functionality
 S.petNameShorteningHooked = false
@@ -1600,7 +1623,7 @@ function MarkDispellablesOnFrame(frame, unit)
     local hostile = UnitCanAttack("player", unit)
 
     for idx = 1, 32 do
-        local name, _, _, _, dtype = UnitBuff(unit, idx)
+        local name, _, _, _, dtype, _, _, _, isStealable = UnitBuff(unit, idx)
         local button = buffFrames and buffFrames[idx] or (frameName and _G[frameName .. "Buff" .. idx])
         if not name or not button then break end
 
@@ -1612,7 +1635,7 @@ function MarkDispellablesOnFrame(frame, unit)
 
         if border then
             border:Hide()  -- всегда гасим сначала
-            if hostile and dtype and CAN_REMOVE[dtype] then
+            if hostile and CanRemoveEnemyBuff(dtype, isStealable) then
                 border:Show()
             end
         end
@@ -1671,6 +1694,8 @@ function module:EnableDispelHighlight()
     S.dispelEventFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
     S.dispelEventFrame:RegisterEvent("UNIT_AURA")
     S.dispelEventFrame:RegisterEvent("UNIT_FACTION")
+    S.dispelEventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
+    S.dispelEventFrame:RegisterEvent("PET_BAR_UPDATE")
     S.dispelEventFrame:SetScript("OnEvent", function(self, event, unit)
         if not IsDispelHighlightEnabled() then return end
         if (event == "UNIT_AURA" or event == "UNIT_FACTION") and unit ~= "target" and unit ~= "focus" then return end
@@ -3737,28 +3762,6 @@ function module:DisableAltFPS()
 end
 
 -- ============================================================================
--- SpeedyLoad (native Runtime service)
--- ============================================================================
-
--- Loading-screen event suppression is owned by core/runtime.lua. Tools keeps
--- these delegates so profile application and older callers retain the same API.
-function module:ApplySpeedyLoad()
-    if SarychUI and SarychUI.Runtime then
-        SarychUI.Runtime:RefreshSpeedyLoad()
-    end
-end
-
-function module:EnableSpeedyLoad()
-    self:ApplySpeedyLoad()
-end
-
-function module:DisableSpeedyLoad()
-    if SarychUI and SarychUI.Runtime then
-        SarychUI.Runtime:RestoreSpeedyLoad()
-    end
-end
-
--- ============================================================================
 -- Tooltip Cursor Functionality
 -- ============================================================================
 
@@ -4422,9 +4425,9 @@ function module:EnableShowFlightTimes()
             FinishFlight()
         end
     end
-    if SarychUI and SarychUI.Runtime and SarychUI.Runtime.RegisterUpdate then
-        SarychUI.Runtime:RegisterUpdate("tools.flightCheck", 0.5, FlightCheckTick)
-        S.flightCheckUsesRuntime = true
+    if SarychUI and SarychUI.UpdateScheduler and SarychUI.UpdateScheduler.RegisterUpdate then
+        SarychUI.UpdateScheduler:RegisterUpdate("tools.flightCheck", 0.5, FlightCheckTick)
+        S.flightCheckUsesScheduler = true
         S.flightCheckFrame = nil
     else
         S.flightCheckFrame = CreateFrame("Frame")
@@ -4441,7 +4444,7 @@ function module:EnableShowFlightTimes()
             end
         end)
         S.flightCheckFrame:Show()
-        S.flightCheckUsesRuntime = false
+        S.flightCheckUsesScheduler = false
     end
     
     S.flightTimesEnabled = true
@@ -4457,10 +4460,10 @@ function module:DisableShowFlightTimes()
         S.flightTimesFrame:SetScript("OnUpdate", nil)
     end
     
-    -- Hide check frame / unregister runtime callback
-    if S.flightCheckUsesRuntime and SarychUI and SarychUI.Runtime and SarychUI.Runtime.UnregisterUpdate then
-        SarychUI.Runtime:UnregisterUpdate("tools.flightCheck")
-        S.flightCheckUsesRuntime = false
+    -- Hide check frame / unregister scheduled callback
+    if S.flightCheckUsesScheduler and SarychUI and SarychUI.UpdateScheduler and SarychUI.UpdateScheduler.UnregisterUpdate then
+        SarychUI.UpdateScheduler:UnregisterUpdate("tools.flightCheck")
+        S.flightCheckUsesScheduler = false
     end
     if S.flightCheckFrame then
         S.flightCheckFrame:Hide()
@@ -7235,7 +7238,6 @@ function module:ApplyAllSettings()
     self:ApplyAltUnitBars()
     self:ApplyAltAuras()
     self:ApplyAltFPS()
-    self:ApplySpeedyLoad()
     self:ApplyTooltipCursor()
     self:ApplyCastbarTimers()
     self:ApplyInviteCountdown()
@@ -7411,15 +7413,15 @@ function module:Enable()
             pcall(UpdateCompactParty)
         end)
         
-        -- Periodic scanning for raid groups (via SarychUI.Runtime dispatcher)
+        -- Periodic scanning for raid groups (via SarychUI.UpdateScheduler dispatcher)
         local function ToolsScannerTick()
             local checkDb = SarychUI and SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.modules and SarychUI.db.profile.modules[moduleName]
             if not checkDb or not checkDb.enabled then return end
             pcall(UpdateCompactParty)
         end
-        if SarychUI and SarychUI.Runtime and SarychUI.Runtime.RegisterUpdate then
-            SarychUI.Runtime:RegisterUpdate("tools.scanner", 2.0, ToolsScannerTick)
-            S.scannerUsesRuntime = true
+        if SarychUI and SarychUI.UpdateScheduler and SarychUI.UpdateScheduler.RegisterUpdate then
+            SarychUI.UpdateScheduler:RegisterUpdate("tools.scanner", 2.0, ToolsScannerTick)
+            S.scannerUsesScheduler = true
         else
             local scanTimer = 0
             S.scannerFrame:SetScript("OnUpdate", function(self, elapsed)
@@ -7431,7 +7433,7 @@ function module:Enable()
                     pcall(UpdateCompactParty)
                 end
             end)
-            S.scannerUsesRuntime = false
+            S.scannerUsesScheduler = false
             if SarychUI and SarychUI.RegisterPerfOnUpdate then
                 SarychUI:RegisterPerfOnUpdate("tools.scanner", S.scannerFrame)
             end
@@ -7470,8 +7472,6 @@ function module:Disable()
     
     -- Disable alt FPS
     self:DisableAltFPS()
-    
-    -- SpeedyLoad is system-level; keep running when tools module is disabled.
     
     -- Disable tooltip cursor
     self:DisableTooltipCursor()
@@ -7513,9 +7513,9 @@ function module:Disable()
         S.scannerFrame:SetScript("OnEvent", nil)
         S.scannerFrame:SetScript("OnUpdate", nil)
     end
-    if S.scannerUsesRuntime and SarychUI and SarychUI.Runtime and SarychUI.Runtime.UnregisterUpdate then
-        SarychUI.Runtime:UnregisterUpdate("tools.scanner")
-        S.scannerUsesRuntime = false
+    if S.scannerUsesScheduler and SarychUI and SarychUI.UpdateScheduler and SarychUI.UpdateScheduler.UnregisterUpdate then
+        SarychUI.UpdateScheduler:UnregisterUpdate("tools.scanner")
+        S.scannerUsesScheduler = false
     end
     
     -- Note: We keep the CreateFrame hook as it checks module status

@@ -76,13 +76,13 @@ local function AuraHideOnUpdate()
 end
 
 local function SetAuraHideTicker(enabled)
-	local runtime = SarychUI and SarychUI.Runtime
-	if runtime and runtime.RegisterUpdate then
+	local scheduler = SarychUI and SarychUI.UpdateScheduler
+	if scheduler and scheduler.RegisterUpdate then
 		focusAuraUpdateFrame:SetScript("OnUpdate", nil)
 		if enabled then
-			runtime:RegisterUpdate("auras.hide_named", 0.10, AuraHideOnUpdate)
+			scheduler:RegisterUpdate("auras.hide_named", 0.10, AuraHideOnUpdate)
 		else
-			runtime:UnregisterUpdate("auras.hide_named")
+			scheduler:UnregisterUpdate("auras.hide_named")
 		end
 		return
 	end

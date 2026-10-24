@@ -869,7 +869,7 @@ local function ResolveAuraTexture(spellId, texture)
     return nil
 end
 
--- Nameplate aura countdowns share Runtime's dispatcher. This replaces one
+-- Nameplate aura countdowns share update scheduler. This replaces one
 -- OnUpdate script per visible aura icon with a single 10 Hz callback.
 local activeCooldownFrames = setmetatable({}, { __mode = "k" })
 
@@ -895,8 +895,8 @@ local function UpdateActiveCooldowns(now)
     end
 end
 
-if SarychUI and SarychUI.Runtime then
-    SarychUI.Runtime:RegisterUpdate("plates_auras.cooldowns", COOLDOWN_TEXT_UPDATE_INTERVAL, UpdateActiveCooldowns)
+if SarychUI and SarychUI.UpdateScheduler then
+    SarychUI.UpdateScheduler:RegisterUpdate("plates_auras.cooldowns", COOLDOWN_TEXT_UPDATE_INTERVAL, UpdateActiveCooldowns)
 end
 
 local function UpdateCooldownText(frame, expirationTime, duration, stackCount)
@@ -940,8 +940,7 @@ local function UpdateCooldownText(frame, expirationTime, duration, stackCount)
     frame.__sarAuraDuration = duration
     frame.__sarAuraLastStackCount = normalizedStack
 
-    local runtime = SarychUI and SarychUI.Runtime
-    local now = runtime and runtime:GetTimeCached() or GetTime()
+    local now = GetTime()
     local initialTimeLeft = expirationTime - now
     if initialTimeLeft > 0 then
         SetCooldownText(frame, FormatTimeLeft(initialTimeLeft))
@@ -950,7 +949,7 @@ local function UpdateCooldownText(frame, expirationTime, duration, stackCount)
         return
     end
 
-    if runtime then
+    if SarychUI and SarychUI.UpdateScheduler then
         frame:SetScript("OnUpdate", nil)
         activeCooldownFrames[frame] = true
     else
@@ -1025,8 +1024,7 @@ local function FindBestAuraFromCache(foundAuras, auraTypes)
 end
 
 local function FindOtherAurasFromCache(foundAuras)
-    local runtime = SarychUI and SarychUI.Runtime
-    local otherAuras = runtime and runtime:AcquireTable("plates-auras") or {}
+    local otherAuras = {}
 
     for spellId, auraData in pairs(foundAuras) do
         if auraData.type == "other" then
@@ -1039,7 +1037,7 @@ local function FindOtherAurasFromCache(foundAuras)
             
             -- Показываем ауру, если она наложена игроком ИЛИ разрешено от других
             if iconTexture and (isPlayerCaster or allowFromOthers) then
-                local entry = runtime and runtime:AcquireTable("plates-auras") or {}
+                local entry = {}
                 entry.iconTexture = iconTexture
                 entry.duration = auraData.duration
                 entry.expirationTime = auraData.expirationTime
@@ -1056,15 +1054,6 @@ local function FindOtherAurasFromCache(foundAuras)
     end)
 
     return otherAuras
-end
-
-local function ReleaseOtherAuras(otherAuras)
-    local runtime = SarychUI and SarychUI.Runtime
-    if not runtime then return end
-    for i = 1, #otherAuras do
-        runtime:ReleaseTable(otherAuras[i], "plates-auras")
-    end
-    runtime:ReleaseTable(otherAuras, "plates-auras")
 end
 
 local function IsSpellGlowEnabled(spellId)
@@ -1468,7 +1457,6 @@ local function UpdateOtherAurasFromCache(namePlate, foundAuras)
     local activeAuraCount = math.min(#otherAuras, MAX_PLAYER_AURAS)
 
     if not namePlate.playerFrame or not namePlate.playerFrame.auraIcons then
-        ReleaseOtherAuras(otherAuras)
         return
     end
     
@@ -1495,7 +1483,6 @@ local function UpdateOtherAurasFromCache(namePlate, foundAuras)
 
     if activeAuraCount == 0 then
         UpdateCenterFramesPosition(namePlate)
-        ReleaseOtherAuras(otherAuras)
         return
     end
 
@@ -1542,17 +1529,12 @@ local function UpdateOtherAurasFromCache(namePlate, foundAuras)
 
     -- Обновляем позиции центральных фреймов
     UpdateCenterFramesPosition(namePlate)
-    ReleaseOtherAuras(otherAuras)
+    -- Temporary aura tables are collected normally.
 end
 
 local lastUnitAuraUpdate = {}
 
 local function ShouldUpdateAura(unitId)
-    local runtime = SarychUI and SarychUI.Runtime
-    if runtime then
-        return runtime:Throttle("plates_auras.unit." .. tostring(unitId), 0.5)
-    end
-    local now = GetTime()
     local lastUpdateTime = lastUnitAuraUpdate[unitId] or 0
     if (now - lastUpdateTime) < 0.5 then return false end
     lastUnitAuraUpdate[unitId] = now
@@ -2094,9 +2076,9 @@ local function CleanupTick()
     CleanupOldPlates()
 end
 
-if SarychUI and SarychUI.Runtime then
+if SarychUI and SarychUI.UpdateScheduler then
     cleanupFrame:SetScript("OnUpdate", nil)
-    SarychUI.Runtime:RegisterUpdate("plates_auras.cleanup", 5, CleanupTick)
+    SarychUI.UpdateScheduler:RegisterUpdate("plates_auras.cleanup", 5, CleanupTick)
 else
     cleanupFrame:SetScript("OnUpdate", function(self, elapsed)
         self.elapsed = (self.elapsed or 0) + elapsed

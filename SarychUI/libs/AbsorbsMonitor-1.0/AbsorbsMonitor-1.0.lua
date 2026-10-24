@@ -379,7 +379,6 @@ function AM_Core.Disable()
 	
 	AM_Public.Enabled = false;
 	
-	collectgarbage("collect");
 end
 
 function AM_Core.RegisterEvent(name)

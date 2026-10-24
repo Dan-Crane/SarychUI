@@ -977,11 +977,11 @@ end
 
 local function EnableBubbleScanner()
 	if bubbleScanFrame then return end
-	local runtime = SarychUI and SarychUI.Runtime
-	if runtime then
-		bubbleScanFrame = "runtime"
+	local scheduler = SarychUI and SarychUI.UpdateScheduler
+	if scheduler then
+		bubbleScanFrame = "scheduler"
 		local lastScan = 0
-		runtime:RegisterUpdate("chat.bubbles", 0.05, function(now)
+		scheduler:RegisterUpdate("chat.bubbles", 0.05, function(now)
 			if (now - lastScan) < GetBubbleScanInterval() then return end
 			lastScan = now
 			if IsBubbleScanNeeded() then ScanChatBubbles() end
@@ -1008,9 +1008,9 @@ end
 
 local function DisableBubbleScanner()
 	if bubbleScanFrame then
-		if bubbleScanFrame == "runtime" then
-			if SarychUI and SarychUI.Runtime then
-				SarychUI.Runtime:UnregisterUpdate("chat.bubbles")
+		if bubbleScanFrame == "scheduler" then
+			if SarychUI and SarychUI.UpdateScheduler then
+				SarychUI.UpdateScheduler:UnregisterUpdate("chat.bubbles")
 			end
 		else
 			bubbleScanFrame:SetScript("OnUpdate", nil)

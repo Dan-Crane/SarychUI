@@ -130,30 +130,8 @@ SarychUI.defaults = {
 
 		-- System (Система) settings
 		system = {
-			enableSpeedyLoad = false,
-			speedyLoadMode = "safe", -- safe | aggressive
-			speedyLoadPostGC = true,
-			speedyLoadRefreshUI = true,
 			lockdownErrorSearch = false,
 			allowOptionsInCombat = false,
-			runtime = {
-				enabled = true,
-				gcEnabled = true,
-				emergencyGCEnabled = true,
-				tablePoolEnabled = true,
-				sharedThrottleEnabled = true,
-				cachedTimeEnabled = true,
-				uiCacheEnabled = true,
-				poolMax = 300,
-				preset = "standard", -- light | standard | heavy
-				frameStepKB = 50,
-				combatStepKB = 15,
-				idleStepKB = 150,
-				loadingStepKB = 300,
-				fullCollectThresholdMB = 300,
-				idleTimeout = 15,
-				debug = false,
-			},
 		},
 		
 		-- Module settings
@@ -173,9 +151,9 @@ SarychUI.defaults = {
 				spells = {},
 				layouts = {
 					blizzard = { side = "RIGHT", growth = "RIGHT", x = 2, y = 6, size = 24, spacing = 3, perRow = 5,
-						showBorders = true, cooldownEdge = true },
+						cooldownEdge = true },
 					compact = { side = "RIGHT", growth = "RIGHT", x = 6, y = 13, size = 20, spacing = 4, perRow = 5,
-						showBorders = true, cooldownEdge = true },
+						cooldownEdge = true },
 				},
 			},
             -- Arena module
@@ -187,7 +165,7 @@ SarychUI.defaults = {
                     displayMode = "cooldown",
                     anchorMode = "auto",
                     layout = { side = "RIGHT", growth = "RIGHT", x = 2, y = 6,
-                        autoX = 7, autoY = 0, size = 24, spacing = 5, perRow = 5, showBorders = true, cooldownEdge = true },
+							autoX = 7, autoY = 0, size = 24, spacing = 5, perRow = 5, cooldownEdge = true },
                 },
                 -- Position (DragMode)
                 arenaA = "RIGHT",
@@ -1313,7 +1291,7 @@ SarychUI.defaults = {
 	
 	-- Global settings (not per character)
 	global = {
-        version = "1.3.4a",
+        version = "1.3.5a",
 		quickStartCatalog = false,
 		quickStartCatalogCleared = false,
 		quickStartMiscEnabled = false,
@@ -1400,33 +1378,17 @@ local function MigrateProfileDefaults(profile)
 		profile.system = CopyTable(SarychUI.defaults.profile.system)
 	else
 		local sysDef = SarychUI.defaults.profile.system
-		if profile.system.enableSpeedyLoad == nil then
-			profile.system.enableSpeedyLoad = sysDef.enableSpeedyLoad
-		end
-		if profile.system.speedyLoadMode == nil then
-			profile.system.speedyLoadMode = sysDef.speedyLoadMode
-		end
-		if profile.system.speedyLoadPostGC == nil then
-			profile.system.speedyLoadPostGC = sysDef.speedyLoadPostGC
-		end
-		if profile.system.speedyLoadRefreshUI == nil then
-			profile.system.speedyLoadRefreshUI = sysDef.speedyLoadRefreshUI
-		end
 		if profile.system.lockdownErrorSearch == nil then
 			profile.system.lockdownErrorSearch = sysDef.lockdownErrorSearch
 		end
 		if profile.system.allowOptionsInCombat == nil then
 			profile.system.allowOptionsInCombat = sysDef.allowOptionsInCombat
 		end
-		if not profile.system.runtime then
-			profile.system.runtime = CopyTable(sysDef.runtime)
-		else
-			for k, v in pairs(sysDef.runtime) do
-				if profile.system.runtime[k] == nil then
-					profile.system.runtime[k] = v
-				end
-			end
-		end
+		profile.system.runtime = nil
+		profile.system.enableSpeedyLoad = nil
+		profile.system.speedyLoadMode = nil
+		profile.system.speedyLoadPostGC = nil
+		profile.system.speedyLoadRefreshUI = nil
 	end
 
 	if not profile.modules then
@@ -2200,7 +2162,6 @@ local function MigrateProfileDefaults(profile)
 
 	-- Removed: weather density override (tools).
 	-- Removed: raid target icons radial menu (tools.rti).
-	-- Moved: SpeedyLoad -> system (Система).
 	-- Moved: invite / arena countdown timers -> cc (Текст перезарядки).
 	-- Moved: castbar timers -> castbar (Кастбар).
 	-- Moved: pet name shortening -> frame (Фреймы).
@@ -2213,9 +2174,6 @@ local function MigrateProfileDefaults(profile)
 		toolsDb.enableWeatherDensity = nil
 		toolsDb.weatherLevel = nil
 		toolsDb.rti = nil
-		if profile.system and profile.system.enableSpeedyLoad == nil and toolsDb.enableSpeedyLoad ~= nil then
-			profile.system.enableSpeedyLoad = toolsDb.enableSpeedyLoad
-		end
 		toolsDb.enableSpeedyLoad = nil
 		if frameDb then
 			if frameDb.enablePetNameShortening == nil and toolsDb.enablePetNameShortening ~= nil then

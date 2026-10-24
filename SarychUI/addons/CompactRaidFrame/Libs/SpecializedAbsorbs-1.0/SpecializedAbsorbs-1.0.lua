@@ -482,7 +482,6 @@ function Core.Disable()
 
 	lib.Enabled = false
 
-	collectgarbage("collect")
 end
 
 function Core.RegisterEvent(name)

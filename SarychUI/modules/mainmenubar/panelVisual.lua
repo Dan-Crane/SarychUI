@@ -64,6 +64,13 @@ local function SafeForLimit(value, fallback)
     return fallback or 0
 end
 
+local function GetNumShapeshiftFormsSafe()
+    if type(GetNumShapeshiftForms) == "function" then
+        return SafeForLimit(GetNumShapeshiftForms(), 0)
+    end
+    return 0
+end
+
 local function IsXPDisabled()
     if type(IsXPUserDisabled) == "function" then
         return IsXPUserDisabled()
@@ -463,6 +470,24 @@ end
 
 -- Кэш регионов для баров (оптимизация производительности)
 local barRegionsCache = {}
+-- Preserve the original file so toggles can restore the exact artwork.
+local backgroundTextures = setmetatable({}, { __mode = "k" })
+
+local function SetDecorTexture(region, hidden, matches)
+    if not region or region:GetObjectType() ~= "Texture" then return end
+    local original = backgroundTextures[region]
+    if not original then
+        local texture = region:GetTexture()
+        if type(texture) ~= "string" or not matches(texture) then return end
+        original = texture
+        backgroundTextures[region] = original
+    end
+    if hidden then
+        region:SetTexture(nil)
+    else
+        region:SetTexture(original)
+    end
+end
 
 -- Функция для получения кэшированных регионов бара
 local function GetBarRegions(bar)
@@ -517,174 +542,57 @@ end
 
 -- Apply action bar backgrounds
 local function ApplyActionBarBackgrounds()
-    local hideActionBarBackgrounds = GetSetting('hideActionBarBackgrounds', false)
-    
-    local actionBars = {
-        "MultiBarBottomLeft", "MultiBarBottomRight", "MultiBarRight", "MultiBarLeft", "MainMenuBar", "BonusActionBarFrame"
-    }
-    
-    for _, barName in ipairs(actionBars) do
+    local hidden = GetSetting('hideActionBarBackgrounds', false)
+    for _, barName in ipairs({
+        "MultiBarBottomLeft", "MultiBarBottomRight", "MultiBarRight",
+        "MultiBarLeft", "MainMenuBar", "BonusActionBarFrame"
+    }) do
         local bar = _G[barName]
         if bar then
-            -- Используем кэшированные регионы вместо повторных вызовов API
-            local regions = GetBarRegions(bar)
-            for _, region in ipairs(regions) do
-                if region and region:GetObjectType() == "Texture" then
-                    local texture = region:GetTexture()
-                    if texture and (texture:find("UI%-ActionBar") or texture:find("ActionBar") or texture:find("Background") or texture:find("MainMenuBar")) then
-                        if hideActionBarBackgrounds then
-                            region:SetTexture(nil)
-                        else
-                            region:SetTexture("Interface\\ActionBar\\UI-ActionBar-Background")
-                        end
-                    end
-                end
-            end
-        end
-    end
-    
-    -- Фон доп. кнопок коллекций и магазина лежит на родителе, не на MainMenuBar.
-    local function SetArtShown(region, shown)
-        if not region or not region.Hide then
-            return
-        end
-        if shown then
-            if region.SetScript then
-                region:SetScript("OnShow", nil)
-            end
-            region:Show()
-        else
-            region:Hide()
-            if region.SetScript then
-                region:SetScript("OnShow", region.Hide)
+            for _, region in ipairs(GetBarRegions(bar)) do
+                SetDecorTexture(region, hidden, function(texture)
+                    return texture:find("UI%-ActionBar") or texture:find("ActionBar")
+                        or texture:find("Background") or texture:find("MainMenuBar")
+                end)
             end
         end
     end
 
-    local function HideArtRegions(frame, hide)
-        if not frame or not frame.GetNumRegions then
-            return
-        end
-        for i = 1, frame:GetNumRegions() do
-            local region = select(i, frame:GetRegions())
-            if region and region.GetObjectType and region:GetObjectType() == "Texture" then
-                SetArtShown(region, not hide)
-            end
-        end
+    -- Keep the parent visible for action buttons and BFA's child artwork.
+    if MainMenuBarArtFrame then
+        if MainMenuBarArtFrame.SetScript then MainMenuBarArtFrame:SetScript("OnShow", nil) end
+        MainMenuBarArtFrame:Show()
     end
 
-    local function SkipBarChild(child)
-        local objType = child.GetObjectType and child:GetObjectType()
-        if objType == "Button" or objType == "CheckButton" or objType == "StatusBar" then
-            return true
-        end
-        local childName = child.GetName and child:GetName() or ""
-        if childName:find("EndCap") or childName:find("Gryphon") or childName:find("Exp")
-            or childName:find("Reputation") or childName:find("Page") or childName:find("Bag")
-            or childName:find("KeyRing") then
-            return true
-        end
-        return false
-    end
-
-    local seenArtParents = {}
-    for _, microName in ipairs({ "CollectionsMicroButton", "StoreMicroButton" }) do
-        local button = _G[microName]
-        local parent = button and button.GetParent and button:GetParent()
-        if parent and not seenArtParents[parent] then
-            seenArtParents[parent] = true
-            HideArtRegions(parent, hideActionBarBackgrounds)
-            if parent.GetChildren then
-                for _, child in ipairs({ parent:GetChildren() }) do
-                    if child ~= button and not SkipBarChild(child) then
-                        local childType = child.GetObjectType and child:GetObjectType()
-                        if childType == "Texture" then
-                            SetArtShown(child, not hideActionBarBackgrounds)
-                        else
-                            HideArtRegions(child, hideActionBarBackgrounds)
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    -- Доп. сервер: декоративный MainMenuBarArtFrame не входит в список текстур.
-    -- На обычном клиенте кнопки действий — его дети, поэтому прячем только сам арт.
-    local artFrame = _G.MainMenuBarArtFrame
-    if artFrame then
-        local ownsButtons = false
-        local button = _G.ActionButton1
-        local parent = button and button.GetParent and button:GetParent()
-        while parent do
-            if parent == artFrame then
-                ownsButtons = true
-                break
-            end
-            parent = parent.GetParent and parent:GetParent()
-        end
-
-        if hideActionBarBackgrounds and not ownsButtons then
-            artFrame:Hide()
-            if artFrame.SetScript then
-                artFrame:SetScript("OnShow", artFrame.Hide)
-            end
-        else
-            if artFrame.SetScript then
-                artFrame:SetScript("OnShow", nil)
-            end
-            if not artFrame:IsShown() then
-                artFrame:Show()
-            end
-        end
-    end
-
-    -- Обрабатываем отдельные текстуры главной панели
-    local mainTextures = {
-        MainMenuBarTexture0, MainMenuBarTexture1, MainMenuBarTexture2, MainMenuBarTexture3,
-        (MainMenuBarArtFrame and MainMenuBarArtFrameTexture0) or nil,
-        (MainMenuBarArtFrame and MainMenuBarArtFrameTexture1) or nil,
-        (MainMenuBarArtFrame and MainMenuBarArtFrameTexture2) or nil,
-        (MainMenuBarArtFrame and MainMenuBarArtFrameTexture3) or nil
-    }
-    
-    -- BFA replaces these stock slices with its own artwork.  Never Show() them
-    -- while that style is active or the classic bar flashes for a frame.
-    local hideClassicMainArt = hideActionBarBackgrounds
-        or (module.BFAStyle and module.BFAStyle.active)
-
-    for i, texture in ipairs(mainTextures) do
+    local bfaActive = module.BFAStyle and module.BFAStyle.active
+    local hideClassicArt = hidden or bfaActive
+    for _, name in ipairs({
+        "MainMenuBarTexture0", "MainMenuBarTexture1",
+        "MainMenuBarTexture2", "MainMenuBarTexture3",
+        "MainMenuBarArtFrameTexture0", "MainMenuBarArtFrameTexture1",
+        "MainMenuBarArtFrameTexture2", "MainMenuBarArtFrameTexture3"
+    }) do
+        local texture = _G[name]
         if texture then
-            if hideClassicMainArt then
+            if hideClassicArt then
                 texture:Hide()
-                if texture.SetScript then
-                    texture:SetScript("OnShow", texture.Hide)
-                end
+                if texture.SetScript then texture:SetScript("OnShow", texture.Hide) end
             else
-                if texture.SetScript then
-                    texture:SetScript("OnShow", nil)
-                end
+                if texture.SetScript then texture:SetScript("OnShow", nil) end
                 texture:Show()
             end
         end
     end
-    
-    -- Обрабатываем текстуры бонусной панели действий
-    local bonusTextures = {
-        BonusActionBarTexture0, BonusActionBarTexture1
-    }
-    for _, texture in ipairs(bonusTextures) do
+
+    for _, name in ipairs({ "BonusActionBarTexture0", "BonusActionBarTexture1" }) do
+        local texture = _G[name]
         if texture then
-            if hideActionBarBackgrounds then
+            if hidden then
                 texture:Hide()
-                if texture.SetScript then
-                    texture:SetScript("OnShow", texture.Hide)
-                end
+                if texture.SetScript then texture:SetScript("OnShow", texture.Hide) end
             else
+                if texture.SetScript then texture:SetScript("OnShow", nil) end
                 texture:Show()
-                if texture.SetScript then
-                    texture:SetScript("OnShow", nil)
-                end
             end
         end
     end
@@ -692,62 +600,60 @@ end
 
 -- Apply secondary panels backgrounds (shapeshift, pet, possess)
 local function ApplySecondaryPanelsBackgrounds()
-    local hideSecondaryPanelsBackgrounds = GetSetting('hideSecondaryPanelsBackgrounds', false)
-    
-    -- Shapeshift bar backgrounds
+    local hidden = GetSetting('hideSecondaryPanelsBackgrounds', false)
+
     if ShapeshiftBarFrame then
-        -- Используем кэшированные регионы вместо повторных вызовов API
-        local regions = GetBarRegions(ShapeshiftBarFrame)
-        for _, region in ipairs(regions) do
-            if region and region:GetObjectType() == "Texture" then
-                local texture = region:GetTexture()
-                if texture and (texture:find("ShapeshiftBar") or texture:find("ShapeshiftBarEnds") or texture:find("SHAPESHIFTBARMIDDLE")) then
-                    if hideSecondaryPanelsBackgrounds then
-                        region:SetTexture(nil)
-                    else
-                        region:SetTexture("Interface\\ShapeshiftBar\\UI-ShapeshiftBar")
-                    end
+        for _, region in ipairs(GetBarRegions(ShapeshiftBarFrame)) do
+            SetDecorTexture(region, hidden, function(texture)
+                return texture:find("ShapeshiftBar") or texture:find("SHAPESHIFTBARMIDDLE")
+            end)
+        end
+        for i = 1, GetNumShapeshiftFormsSafe() do
+            local button = _G["ShapeshiftButton" .. i]
+            if button then
+                local normal = button.GetNormalTexture and button:GetNormalTexture()
+                if normal then
+                    if hidden then normal:SetTexture(nil)
+                    else normal:SetTexture("Interface\\Buttons\\UI-Quickslot2") end
+                end
+                local border = _G["ShapeshiftButton" .. i .. "Border"]
+                if border then
+                    if hidden then border:SetTexture(nil)
+                    else border:SetTexture("Interface\\Buttons\\UI-Quickslot-Depress") end
                 end
             end
         end
-
     end
-    
-    -- Pet bar backgrounds
+
     if PetActionBarFrame then
-        -- Используем кэшированные регионы вместо повторных вызовов API
-        local regions = GetBarRegions(PetActionBarFrame)
-        for _, region in ipairs(regions) do
-            if region and region:GetObjectType() == "Texture" then
-                local texture = region:GetTexture()
-                if texture and texture:find("UI%-PetBar") then
-                    if hideSecondaryPanelsBackgrounds then
-                        region:SetTexture(nil)
-                    else
-                        region:SetTexture("Interface\\PetBar\\UI-PetBar")
-                    end
-                end
-            end
+        for _, region in ipairs(GetBarRegions(PetActionBarFrame)) do
+            SetDecorTexture(region, hidden, function(texture)
+                return texture:find("UI%-PetBar")
+            end)
         end
     end
-    
-    -- Possess bar backgrounds
+
     if PossessBarFrame then
-        -- Используем кэшированные регионы вместо повторных вызовов API
-        local regions = GetBarRegions(PossessBarFrame)
-        for _, region in ipairs(regions) do
-            if region and region:GetObjectType() == "Texture" then
-                local texture = region:GetTexture()
-                if texture and not texture:find("HIGHLIGHT") and not texture:find("BORDER") then
-                    if hideSecondaryPanelsBackgrounds then
-                        region:SetTexture(nil)
-                    else
-                        region:SetTexture("Interface\\PetBar\\UI-PetBar")
-                    end
+        for _, region in ipairs(GetBarRegions(PossessBarFrame)) do
+            SetDecorTexture(region, hidden, function(texture)
+                return not texture:find("HIGHLIGHT") and not texture:find("BORDER")
+            end)
+        end
+        for i = 1, POSSESS_SLOTS do
+            local button = _G["PossessButton" .. i]
+            if button then
+                local normal = button.GetNormalTexture and button:GetNormalTexture()
+                if normal then
+                    if hidden then normal:SetTexture(nil)
+                    else normal:SetTexture("Interface\\Buttons\\UI-Quickslot2") end
+                end
+                local border = _G["PossessButton" .. i .. "Border"]
+                if border then
+                    if hidden then border:SetTexture(nil)
+                    else border:SetTexture("Interface\\Buttons\\UI-Quickslot-Depress") end
                 end
             end
         end
-
     end
 end
 
@@ -801,10 +707,10 @@ local function ApplyKeyringButtonSettings()
                 KeyRingButton:SetScript("OnShow", KeyRingButton.Hide)
             end
         else
-            KeyRingButton:Show()
             if KeyRingButton.SetScript then
                 KeyRingButton:SetScript("OnShow", nil)
             end
+            KeyRingButton:Show()
         end
     end
 end
@@ -2733,6 +2639,21 @@ function module:ApplyAppearanceSettings()
 	end
 end
 
+-- Apply visibility controls directly when a checkbox changes. The full
+-- appearance pass also updates unrelated bars and animations.
+function module:RefreshVisualImprovements()
+    ApplyGryphonsSettings()
+    ApplyActionBarBackgrounds()
+    ApplySecondaryPanelsBackgrounds()
+    ApplyMaxLevelBarSettings()
+    ApplyPageButtonsSettings()
+    ApplyKeyringButtonSettings()
+    if self.BFAStyle and self.BFAStyle.active then
+        self.BFAStyle:ApplyAppearance()
+        ApplyPageButtonsSettings()
+    end
+end
+
 -- Export functions to module
 module.ApplyGryphonsSettings = ApplyGryphonsSettings
 module.ApplyPageButtonsSettings = ApplyPageButtonsSettings
@@ -2768,10 +2689,10 @@ function module:UpdateKeyringButton()
         end
     else
         if KeyRingButton then
-            KeyRingButton:Show()
             if KeyRingButton.SetScript then
                 KeyRingButton:SetScript("OnShow", nil)
             end
+            KeyRingButton:Show()
             -- Принудительно обновляем UI
             if KeyRingButton.GetParent then
                 local parent = KeyRingButton:GetParent()

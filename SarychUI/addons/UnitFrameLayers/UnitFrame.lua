@@ -48,6 +48,21 @@ function UpdateHealthBarColor(frame)
 	end
     if not frame or not frame.unit or not frame.healthbar then return end  -- Проверка на nil
 
+    local isArenaFrame = frame.unit:match("^arena%d+$") and frame.GetName
+        and frame:GetName():match("^ArenaEnemyFrame%d+$")
+    if isArenaFrame then
+        -- Arena has its own color switch. Never let the general UFL switch
+        -- override it, and do not attach UFL prediction layers to arena frames.
+        local arenaDb = SarychUI and SarychUI.db and SarychUI.db.profile
+            and SarychUI.db.profile.modules and SarychUI.db.profile.modules.arena
+        if arenaDb and arenaDb.classColorHP == false then return end
+        if not UnitIsPlayer(frame.unit) then return end
+        local _, class = UnitClass(frame.unit)
+        local color = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
+        if color then frame.healthbar:SetStatusBarColor(color.r, color.g, color.b) end
+        return
+    end
+
     -- Проверяем настройку цвета HP в цвет класса
     local classColorHPEnabled = true  -- По умолчанию включено
     if SarychUI and SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.addons and SarychUI.db.profile.addons.UnitFrameLayers then
@@ -127,7 +142,6 @@ function UnitGetIncomingHeals(unit, healer)
 	if not ( unit and HealComm ) then
 		return;
 	end
-
 	if ( healer ) then
 		return HealComm:GetCasterHealAmount(UnitGUID(healer), HealComm.CASTED_HEALS, GetTime() + 5);
 	else
@@ -222,8 +236,11 @@ local function UnitFrameHealPredictionBars_Update(frame)
 	if ( maxHealth <= 0 ) then
 		return;
 	end
-	local myIncomingHeal = UnitGetIncomingHeals(frame.unit, "player") or 0;
-	local allIncomingHeal = UnitGetIncomingHeals(frame.unit) or 0;
+	local isArenaEnemy = frame.unit and frame.unit:match("^arena%d+$")
+	-- Enemy healers do not send us HealComm predictions. Keep absorb layers,
+	-- but never draw an estimated incoming-heal bar on enemy arena frames.
+	local myIncomingHeal = isArenaEnemy and 0 or (UnitGetIncomingHeals(frame.unit, "player") or 0);
+	local allIncomingHeal = isArenaEnemy and 0 or (UnitGetIncomingHeals(frame.unit) or 0);
 	local totalAbsorb = UnitGetTotalAbsorbs(frame.unit) or 0;
 	local myCurrentHealAbsorb = 0;
 
@@ -473,7 +490,7 @@ end
 -- the unit-frame artwork. The healthbar must not own its own opaque
 -- background (put it on the parent) or the loss bar will be hidden by it.
 --------------------------------------------------------------------
-function UnitFrameLayers_AttachHealPrediction(frame, skipColor)
+function UnitFrameLayers_AttachHealPrediction(frame, skipColor, skipCallback)
 	if ( not frame or not frame.unit or not frame.healthbar ) then
 		return nil;
 	end
@@ -543,7 +560,9 @@ function UnitFrameLayers_AttachHealPrediction(frame, skipColor)
 	frame.healAbsorbBarRightShadow:ClearAllPoints();
 	frame.healAbsorbBarRightShadow:Hide();
 
-	UnitFrame_RegisterCallback(frame);
+	if not skipCallback then
+		UnitFrame_RegisterCallback(frame);
+	end
 
 	if ( not frame.PlayerFrameHealthBarAnimatedLoss ) then
 		local loss = CreateFrame("StatusBar", nil, frame, "PlayerFrameHealthBarAnimatedLossTemplate");
@@ -825,6 +844,19 @@ local function RefreshUnitFrameLayers(self, event, ...)
 	if not IsEnabled() or not self or IsBlizzardPartyFrame(self) then
 		return
 	end
+	if self.unit and self.unit:match("^arena%d+$") then
+		-- Blizzard's arena buttons are protected. Build the visual children only
+		-- outside combat and drive them from UFL's own event/update frame.
+		if not self.myHealPredictionBar and not (InCombatLockdown and InCombatLockdown()) then
+			UnitFrameLayers_AttachHealPrediction(self, false, true)
+		end
+		if self.myHealPredictionBar then
+			UnitFrameLayers_UpdatePredictionLevel(self)
+			UnitFrameHealPredictionBars_Update(self)
+		end
+		UpdateHealthBarColor(self)
+		return
+	end
 
 	if not self.myHealPredictionBar and self.GetName and self:GetName() and self.healthbar then
 		UnitFrameLayers_AttachHealPrediction(self, false)
@@ -871,6 +903,10 @@ local function GetUnitFrameByUnit(unit)
     elseif unit == "pet" then
         return _G["PetFrame"]
     end
+    local arenaIndex = unit:match("^arena(%d+)$")
+    if arenaIndex then
+        return _G["ArenaEnemyFrame" .. arenaIndex]
+    end
     local n = unit:match("^party(%d+)$")
     if n then
         return _G["PartyMemberFrame"..n]
@@ -884,6 +920,9 @@ frame:RegisterEvent("PARTY_MEMBERS_CHANGED")
 frame:RegisterEvent("GROUP_ROSTER_UPDATE")
 frame:RegisterEvent("PLAYER_TARGET_CHANGED")
 frame:RegisterEvent("PLAYER_FOCUS_CHANGED")
+frame:RegisterEvent("ARENA_OPPONENT_UPDATE")
+frame:RegisterEvent("UNIT_NAME_UPDATE")
+frame:RegisterEvent("PLAYER_REGEN_ENABLED")
 frame:RegisterEvent("UNIT_HEALTH")
 frame:RegisterEvent("UNIT_MAXHEALTH")
 frame:RegisterEvent("UNIT_MANA")
@@ -897,17 +936,31 @@ frame:RegisterEvent("UNIT_SPELLCAST_FAILED")
 frame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
 
 local healthColorPending = false
-local layeredUnits = {"player", "target", "focus", "pet"}
-frame:SetScript("OnUpdate", function()
+local layeredUnits = {"player", "target", "focus", "pet",
+    "arena1", "arena2", "arena3", "arena4", "arena5"}
+local colorUnits = {"player", "target", "focus", "pet", "party1", "party2", "party3", "party4",
+    "arena1", "arena2", "arena3", "arena4", "arena5"}
+local arenaPredictionElapsed = 0
+frame:SetScript("OnUpdate", function(_, elapsed)
+	arenaPredictionElapsed = arenaPredictionElapsed + (elapsed or 0)
+	local refreshArenaPrediction = arenaPredictionElapsed >= 0.1
+	if refreshArenaPrediction then arenaPredictionElapsed = 0 end
 	-- Run the extra animation and prediction work from our own frame.  Blizzard
 	-- keeps its original OnUpdate scripts on every protected unit button.
 	if IsEnabled() then
 		for _, unit in ipairs(layeredUnits) do
 			local unitFrame = GetUnitFrameByUnit(unit)
 			if unitFrame then
+				if unit:match("^arena%d+$") and not unitFrame.myHealPredictionBar
+					and not (InCombatLockdown and InCombatLockdown()) then
+					RefreshUnitFrameLayers(unitFrame, "UFL_ARENA_SETUP", unit)
+				end
 				local healthbar = unitFrame.healthbar
 				if healthbar and healthbar.unit then UnitFrameLayers_HealthBar_OnUpdate(healthbar, unitFrame) end
 				if unitFrame.myHealPredictionBar then UnitFrameLayers_UpdatePredictionLevel(unitFrame) end
+				if refreshArenaPrediction and unit:match("^arena%d+$") and unitFrame.myHealPredictionBar then
+					UnitFrameHealPredictionBars_Update(unitFrame)
+				end
 				local manabar = unitFrame.manabar
 				if manabar and manabar.unit then
 					if unit == "player" then UnitFrameLayers_UpdatePlayerPowerFXLevel(manabar) end
@@ -920,8 +973,7 @@ frame:SetScript("OnUpdate", function()
 		return
 	end
 	healthColorPending = false
-	local units = {"player", "target", "focus", "pet", "party1", "party2", "party3", "party4"}
-	for _, u in ipairs(units) do
+	for _, u in ipairs(colorUnits) do
 		UpdateHealthBarColor(GetUnitFrameByUnit(u))
 		local n = u:match("^party(%d+)$")
 		if n then
@@ -937,9 +989,9 @@ frame:SetScript("OnEvent", function(self, event, unit)
 	healthColorPending = true
 	local roster = event == "PLAYER_ENTERING_WORLD" or event == "PARTY_MEMBERS_CHANGED" or event == "GROUP_ROSTER_UPDATE"
 		or event == "PLAYER_TARGET_CHANGED" or event == "PLAYER_FOCUS_CHANGED"
+		or event == "ARENA_OPPONENT_UPDATE" or event == "PLAYER_REGEN_ENABLED"
 	if roster then
-		local units = {"player", "target", "focus", "pet", "party1", "party2", "party3", "party4"}
-		for _, u in ipairs(units) do
+		for _, u in ipairs(colorUnits) do
 			local f = GetUnitFrameByUnit(u)
 			if f then
 				RefreshUnitFrameLayers(f, event, u)

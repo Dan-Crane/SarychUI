@@ -62,7 +62,7 @@ local function EnemySettings()
 	db.enemyAbilities = db.enemyAbilities or { displayMode = "cooldown", anchorMode = "auto" }
 	db.enemyAbilities.layout = db.enemyAbilities.layout or {
 		side = "RIGHT", growth = "RIGHT", x = 2, y = 6,
-		autoX = 7, autoY = 0, size = 24, spacing = 5, perRow = 5, showBorders = true, cooldownEdge = true,
+		autoX = 7, autoY = 0, size = 24, spacing = 5, perRow = 5, cooldownEdge = true,
 	}
 	return db.enemyAbilities
 end
@@ -784,19 +784,7 @@ function module:GetOptions()
 					perRow = EnemyRange("perRow", "PA_PerRow", 1, 20, 6),
 					size = EnemyRange("size", "PA_Size", 12, 128, 7),
 				} },
-			showBorders = { type = "toggle", name = function() return L["PA_ShowBorders"] end, order = 4,
-				disabled = function() local settings = EnemySettings(); return not settings or settings.enabled == false end,
-				get = function()
-					local settings = EnemySettings()
-					return settings and settings.layout.showBorders == true
-				end,
-				set = function(_, value)
-					local settings = EnemySettings()
-					if not settings then return end
-					settings.layout.showBorders = value
-					RefreshEnemyAbilities()
-				end },
-			cooldownEdge = { type = "toggle", name = function() return L["PA_CooldownEdge"] end, order = 5,
+			cooldownEdge = { type = "toggle", name = function() return L["PA_CooldownEdge"] end, order = 4,
 				disabled = function() local settings = EnemySettings(); return not settings or settings.enabled == false end,
 				get = function()
 					local settings = EnemySettings()

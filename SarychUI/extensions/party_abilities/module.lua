@@ -9,7 +9,6 @@ local liveAuras = {}
 local enabled, elapsed = false, 0
 local trackingEvents = false
 local lastDB
-local lastInstanceKind
 local talentLib = LibStub and LibStub("LibGroupTalents-1.0", true)
 local cooldownCommPrefix = "SUI_PACD"
 local resetters = {
@@ -255,7 +254,19 @@ local function Roster()
 			end
 		end
 	end
-	for guid in pairs(active) do if not units[guid] then active[guid] = nil end end
+	-- Unit tokens can briefly disappear during combat/zone transitions. Keep
+	-- cooldowns by GUID until they expire, even if the roster is momentarily empty.
+	local now = GetTime()
+	for guid, spells in pairs(active) do
+		if not units[guid] then
+			for id, state in pairs(spells) do
+				if not state.start or not state.duration or state.start + state.duration <= now then
+					spells[id] = nil
+				end
+			end
+			if not next(spells) then active[guid] = nil end
+		end
+	end
 	for guid in pairs(learnedDurations) do if not units[guid] then learnedDurations[guid] = nil end end
 	for guid in pairs(talentRetry) do if not units[guid] then talentRetry[guid] = nil end end
 	-- Queue inspection as soon as the party is known, before anyone casts.
@@ -1041,7 +1052,6 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
 	elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
 		local _, subevent, sourceGUID, _, _, destGUID, _, _, spellID, spellName = ...
 		if subevent == "UNIT_DIED" and destGUID then
-			active[destGUID] = nil
 			liveAuras[destGUID] = nil
 			extension:Render()
 		elseif subevent == "SPELL_CAST_SUCCESS" and sourceGUID and units[sourceGUID] then
@@ -1085,15 +1095,9 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
 			if SUI.NotifySarychUIOptionsChange then SUI:NotifySarychUIOptionsChange() end
 		end
 	else
-		local kind = ContentMode()
-		if event == "PLAYER_ENTERING_WORLD" or (event == "ZONE_CHANGED_NEW_AREA" and kind ~= lastInstanceKind) then
-			active = {}
-			learnedDurations = {}
-			talentRetry = {}
-			liveAuras = {}
+		if event ~= "PLAYER_REGEN_DISABLED" and event ~= "PLAYER_REGEN_ENABLED" then
+			Roster()
 		end
-		lastInstanceKind = kind
-		Roster()
 		if event == "PLAYER_TALENT_UPDATE" then
 			extension:RefreshActiveDurations(UnitGUID("player"))
 		end

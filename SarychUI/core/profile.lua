@@ -125,9 +125,9 @@ function SarychUI:ApplySarych2KProductDefaults(profile)
 	modules.party_abilities = modules.party_abilities or {}
 	modules.party_abilities.layouts = {
 		blizzard = { side = "RIGHT", growth = "RIGHT", x = 2, y = 6, size = 24, spacing = 3, perRow = 5,
-			showBorders = true, cooldownEdge = true },
+			cooldownEdge = true },
 		compact = { side = "RIGHT", growth = "RIGHT", x = 6, y = 13, size = 20, spacing = 4, perRow = 5,
-			showBorders = true, cooldownEdge = true },
+			cooldownEdge = true },
 	}
 
 	modules.arena = modules.arena or {}
@@ -142,7 +142,6 @@ function SarychUI:ApplySarych2KProductDefaults(profile)
 	enemy.layout.spacing = 5
 	enemy.layout.perRow = 5
 	enemy.layout.size = 24
-	enemy.layout.showBorders = true
 	enemy.layout.cooldownEdge = true
 
 	modules.cc = modules.cc or {}

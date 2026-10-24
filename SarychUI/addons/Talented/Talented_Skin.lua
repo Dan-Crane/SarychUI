@@ -2399,6 +2399,12 @@ local function EmbedGlyphFrame(host)
 			end
 		end
 	end
+	-- Glyphs are a page of TalentedFrame, not a second movable window.
+	-- Talented's standalone glyph constructor installs drag handlers; replace
+	-- them with its animation handlers while the page is embedded.
+	g:SetMovable(false)
+	g:SetScript("OnMouseDown", g.OnMouseDown)
+	g:SetScript("OnMouseUp", g.OnMouseUp)
 
 	-- Fixed content size; host window is resized to match in SelectMainTab
 	local top = host.talentedTitleBar or host.talentedToolBar or host

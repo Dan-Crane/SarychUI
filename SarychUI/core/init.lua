@@ -5,7 +5,7 @@ local pairs = pairs
 local gsub = string.gsub
 
 local ADDON_NAME = "SarychUI"
-local VERSION = "1.3.4a"
+local VERSION = "1.3.5a"
 
 -- Check for required libraries (LibStub is embedded in SarychUI/libs/)
 local LibStub = _G.LibStub
@@ -315,16 +315,6 @@ function SarychUI:OnEnable()
 		end
 	end
 
-	-- SpeedyLoad is a system setting (Система), independent of the tools module toggle.
-	local tools = self.modules and self.modules.tools
-	if tools and tools.ApplySpeedyLoad then
-		profileStartup("OnEnable.SpeedyLoad", tools.ApplySpeedyLoad, tools)
-	end
-
-	if self.Runtime and self.Runtime.Refresh then
-		profileStartup("OnEnable.Runtime", self.Runtime.Refresh, self.Runtime)
-	end
-	
 	-- Enable all registered addons that are enabled in settings
 	if self.EnableAddOns then
 		profileStartup("OnEnable.EnableAddOns", self.EnableAddOns, self)
@@ -345,9 +335,7 @@ function SarychUI:OnDisable()
 			module:Disable()
 		end
 	end
-	if self.Runtime and self.Runtime.Shutdown then
-		self.Runtime:Shutdown()
-	end
+	if self.UpdateScheduler then self.UpdateScheduler:Shutdown() end
 end
 
 -- Initialize all modules
@@ -407,19 +395,12 @@ function SarychUI:ChatCommand(input)
 			SarychUI:PrintOptionsPerfSummary()
 		end
 	elseif input == "perfoptions" or input:match("^perfoptions") then
-		local diagnosticsCommand = input:match("^perfoptions%s+(%S+)")
-		if diagnosticsCommand and self.Runtime and self.Runtime.HandlePerfCommand
-			and self.Runtime:HandlePerfCommand(diagnosticsCommand) then
-			-- Runtime diagnostics are asynchronous where appropriate; results print to chat.
-		elseif input:match("%f[%w]off%f[%w]") or input:match("%f[%w]summary%f[%w]") then
+		if input:match("%f[%w]off%f[%w]") or input:match("%f[%w]summary%f[%w]") then
 			if SarychUI.FinalizeOptionsOpenPerfIfNeeded then
 				SarychUI:FinalizeOptionsOpenPerfIfNeeded("perfoptions summary")
 			end
 			if SarychUI.PrintOptionsPerfSummary then
 				SarychUI:PrintOptionsPerfSummary()
-			end
-			if SarychUI.Runtime and SarychUI.Runtime.PrintDiagnostics then
-				SarychUI.Runtime:PrintDiagnostics()
 			end
 			if input:match("%f[%w]off%f[%w]") and SarychUI.ToggleOptionsPerfDebug then
 				SarychUI:ToggleOptionsPerfDebug(false)
@@ -490,12 +471,7 @@ function SarychUI:ChatCommand(input)
 			local status = enabled and "|cff00ff00включён|r" or "|cffff0000отключён|r"
 			print("  "..name..": "..status)
 		end
-		if self.Runtime then
-			local runtime = self.Runtime:GetDiagnostics()
-			print(string.format("  Runtime: %s, backend=%s, GC=%s/%s, %.1f MB Lua",
-				runtime.version or "?", runtime.backendLabel or runtime.backend or "?",
-				runtime.gcController or "?", runtime.gcMode or "?", runtime.memoryMB or 0))
-		end
+
 	else
 		-- Show help
 		print("|cffffd200SarychUI|r v"..VERSION.." - Доступные команды:")
@@ -505,7 +481,6 @@ function SarychUI:ChatCommand(input)
 		print("  |cff00ff00/sarychui reset|r - Сбросить профиль")
 		print("  |cff00ff00/sui perf|r - Startup-отчёт (не замеряет open настроек!)")
 		print("  |cff00ff00/sui perfoptions|r - Замер открытия настроек (вкл. perf + открыть окно)")
-		print("  |cff00ff00/sui perfoptions fps|events|memory|onupdate|runtime|dll|r - Диагностика Runtime/DLL")
 		print("  |cff00ff00/sui perf open|r - То же: замер + открыть /sui")
 		print("  |cff00ff00/sui perfsummary|r - Startup + options summary")
 		print("  |cff00ff00/sui refreshoptions|r - Пересобрать addon options вручную")

@@ -342,7 +342,7 @@ function OC:_RenderContent()
 		self._currentTabKey = activeKey
 		self._tabState[id] = activeKey
 
-		-- Prefer per-tab extras (e.g. SpeedyLoad enable on «Быстрая загрузка»).
+		-- Prefer controls provided by the active tab.
 		local activeTabExtra = found and found.opt and (found.opt.suiTabBarExtras or found.opt.suiTabBarExtra) or nil
 		local effectiveTabBarExtra = activeTabExtra or tabBarExtra
 

@@ -56,7 +56,7 @@ local questAutomationHooked = false
 -- Auto train all skills functionality
 local autoTrainAllFrame = nil
 local autoTrainAllHooked = false
-local autoTrainAllUsesRuntime = false
+local autoTrainAllUsesScheduler = false
 local autoTrainAllLastCheck = 0
 local autoTrainAllProcessed = false -- Flag to prevent multiple training calls
 
@@ -603,7 +603,7 @@ function module:EnableAutoTrainAll()
         end
     end)
     
-    -- Prefer SarychUI.Runtime dispatcher; AceTimer / OnUpdate as fallbacks.
+    -- Prefer SarychUI.UpdateScheduler dispatcher; AceTimer / OnUpdate as fallbacks.
     local function AutoTrainAllTick()
         if not IsModuleEnabled() or not IsAutoTrainAllEnabled() then return end
         if ClassTrainerFrame and ClassTrainerFrame:IsShown() then
@@ -622,12 +622,12 @@ function module:EnableAutoTrainAll()
         end
     end
 
-    if SarychUI and SarychUI.Runtime and SarychUI.Runtime.RegisterUpdate then
-        SarychUI.Runtime:RegisterUpdate("automation.autoTrainAll", 0.1, AutoTrainAllTick)
-        autoTrainAllUsesRuntime = true
+    if SarychUI and SarychUI.UpdateScheduler and SarychUI.UpdateScheduler.RegisterUpdate then
+        SarychUI.UpdateScheduler:RegisterUpdate("automation.autoTrainAll", 0.1, AutoTrainAllTick)
+        autoTrainAllUsesScheduler = true
     elseif AceTimer then
         updateTimers.autoTrainAll = AceTimer:ScheduleRepeatingTimer(AutoTrainAllTick, 0.1)
-        autoTrainAllUsesRuntime = false
+        autoTrainAllUsesScheduler = false
     else
         local lastCheck = 0
         autoTrainAllFrame:SetScript("OnUpdate", function(self, elapsed)
@@ -638,7 +638,7 @@ function module:EnableAutoTrainAll()
                 AutoTrainAllTick()
             end
         end)
-        autoTrainAllUsesRuntime = false
+        autoTrainAllUsesScheduler = false
     end
     
     autoTrainAllHooked = true
@@ -649,9 +649,9 @@ function module:DisableAutoTrainAll()
     if not autoTrainAllHooked then return end
     
     -- Отменяем таймер, если он активен (оптимизация производительности)
-    if autoTrainAllUsesRuntime and SarychUI and SarychUI.Runtime and SarychUI.Runtime.UnregisterUpdate then
-        SarychUI.Runtime:UnregisterUpdate("automation.autoTrainAll")
-        autoTrainAllUsesRuntime = false
+    if autoTrainAllUsesScheduler and SarychUI and SarychUI.UpdateScheduler and SarychUI.UpdateScheduler.UnregisterUpdate then
+        SarychUI.UpdateScheduler:UnregisterUpdate("automation.autoTrainAll")
+        autoTrainAllUsesScheduler = false
     end
     if updateTimers.autoTrainAll and AceTimer then
         AceTimer:CancelTimer(updateTimers.autoTrainAll)

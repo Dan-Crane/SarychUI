@@ -28,7 +28,8 @@ end
 
 local function GetSavedSarychUIProfile()
 	if SarychUI and SarychUI.GetActiveProfile then
-		return SarychUI:GetActiveProfile()
+		local profile = SarychUI:GetActiveProfile()
+		if profile then return profile end
 	end
 	if SarychUI and SarychUI.db and SarychUI.db.profile then
 		return SarychUI.db.profile
@@ -108,9 +109,8 @@ function SarychUI_ShouldLoadPostalEmbedded()
 		return _G.SarychUI_PostalLoadDecisionAtStartup
 	end
 	SarychUI_GetPostalLoadMode()
-	-- Always build the core (unless a standalone Postal is present). The
-	-- SUI checkbox enables and disables it in place; skipping the files
-	-- made the checkbox wait for /reload.
+	-- The active AceDB profile is not reliable until addon initialization.
+	-- Build the embedded core, then let the wrapper apply its saved state.
 	local load = not SarychUI_IsStandalonePostalEnabled()
 		and not (_G.IsAddOnLoaded and _G.IsAddOnLoaded(STANDALONE_ADDON))
 	_G.SarychUI_PostalLoadDecisionAtStartup = load and true or false

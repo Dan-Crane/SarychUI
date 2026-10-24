@@ -306,6 +306,7 @@ local UpdateNPCModel
 local stepState = {
 	refreshing = false,
 	prepFloor = 0,
+	skipped = {},
 	rowH = 20,
 	rowGap = 3,
 }
@@ -809,6 +810,16 @@ local function GetQuickStartProgress()
 	return saved
 end
 
+local function LoadQuickStartSkipped()
+	stepState.skipped = {}
+	local saved = GetQuickStartProgress()
+	if saved and type(saved.skipped) == "table" then
+		for key, value in pairs(saved.skipped) do
+			if value then stepState.skipped[key] = true end
+		end
+	end
+end
+
 local function SaveQuickStartProgress(stage, setupIndex, resumeSetupIndex, buyGroupOk)
 	if sessionMode ~= "buy" then
 		return
@@ -817,13 +828,19 @@ local function SaveQuickStartProgress(stage, setupIndex, resumeSetupIndex, buyGr
 	if not store then
 		return
 	end
+	local skipped = {}
+	for key, value in pairs(stepState.skipped or {}) do
+		if value then skipped[key] = true end
+	end
 	store[QuickStartCharacterKey()] = {
-		version = 1,
+		version = 2,
 		profileKey = ActiveQuickStartProfileKey(),
 		stage = stage,
 		setupIndex = tonumber(setupIndex),
+		setupGossip = stage == "setup" and scan and scan.mode == "setup" and scan.setupGossip or nil,
 		resumeSetupIndex = tonumber(resumeSetupIndex),
 		buyGroupOk = buyGroupOk ~= false,
+		skipped = skipped,
 		updatedAt = type(time) == "function" and time() or nil,
 	}
 end
@@ -833,6 +850,7 @@ local function ClearQuickStartProgress()
 	if store then
 		store[QuickStartCharacterKey()] = nil
 	end
+	stepState.skipped = {}
 end
 
 local function DeepCopy(value)
@@ -5164,9 +5182,9 @@ local function BuyGroupCount()
 	return stepState.cachedBuyGroups
 end
 
-local function BuyProgress(first, last, vendors)
+local function BuyProgress(first)
 	local groups = BuyGroupCount()
-	local total = groups + (vendors or 0)
+	local total = groups
 	if total < 1 then
 		total = 1
 	end
@@ -5177,16 +5195,8 @@ local function BuyProgress(first, last, vendors)
 		if scan.buyDone then
 			done = groups
 		end
-	elseif cursor > last then
-		done = total
 	elseif cursor > first then
-		done = groups
-		for i = first, last do
-			local npc = C.SETUP_NPCS[i]
-			if npc.kind == "vendor" and i < cursor then
-				done = done + 1
-			end
-		end
+		done = total
 	end
 	if done > total then
 		done = total
@@ -5286,15 +5296,16 @@ end
 
 local function CollectQuickStartSteps()
 	local stages = {}
-	local first, last, vendors = ShoppingSpan()
+	local first = ShoppingSpan()
 	local trainerSeen, gossipSeen = 0, 0
 	local cursor = SetupCursor()
+	local saved = not active and GetQuickStartProgress() or nil
 	local i = 1
 	while i <= #C.SETUP_NPCS do
 		if first and i == first then
-			local done, total = BuyProgress(first, last, vendors)
-			stages[#stages + 1] = { label = T("Купить предметы"), done = done, total = total }
-			i = last + 1
+			local done, total = BuyProgress(first)
+			stages[#stages + 1] = { key = "buy", label = T("Купить предметы"), done = done, total = total }
+			i = first + 1
 		else
 			local npc = C.SETUP_NPCS[i]
 			local label
@@ -5303,20 +5314,24 @@ local function CollectQuickStartSteps()
 			local done = 0
 			if cursor > i then
 				done = total
-			elseif cursor == i and scan and scan.mode == "setup" and npc.kind == "gossip" then
-				done = math.min(total, RealStepsDone(npc, scan.setupGossip or 1))
+			elseif cursor == i and npc.kind == "gossip" then
+				local gossipIndex = scan and scan.mode == "setup" and scan.setupGossip
+					or saved and saved.stage == "setup" and saved.setupGossip
+				done = math.min(total, RealStepsDone(npc, gossipIndex or 1))
 			end
-			stages[#stages + 1] = { label = label, done = done, total = total }
+			stages[#stages + 1] = { key = i, label = label, done = done, total = total }
 			i = i + 1
 		end
 	end
 	local prepDone, prepTotal = PrepProgress()
-	stages[#stages + 1] = { label = T("Символы, чарки, сокеты"), done = prepDone, total = prepTotal }
+	stages[#stages + 1] = { key = "prep", label = T("Символы, чарки, сокеты"), done = prepDone, total = prepTotal }
 	local started = active or cursor > 0
 	local marked = false
 	for n = 1, #stages do
 		local stage = stages[n]
-		if stage.total > 0 and stage.done >= stage.total then
+		if stepState.skipped[stage.key] then
+			stage.state = "skipped"
+		elseif stage.total > 0 and stage.done >= stage.total then
 			stage.state = "done"
 		elseif started and not marked then
 			stage.state = "current"
@@ -5330,7 +5345,9 @@ end
 
 local function ApplyStepRow(row, stage, barWidth)
 	row.text:SetText(stage.label)
-	row.count:SetText(string.format("%d/%d", stage.done or 0, stage.total or 0))
+	row.count:SetText(stage.state == "skipped" and T("Пропущено")
+		or stage.state == "done" and T("Готово")
+		or string.format("%d/%d", stage.done or 0, stage.total or 0))
 	local frac = 0
 	if (stage.total or 0) > 0 then
 		frac = (stage.done or 0) / stage.total
@@ -5340,7 +5357,12 @@ local function ApplyStepRow(row, stage, barWidth)
 	elseif frac > 1 then
 		frac = 1
 	end
-	if stage.state == "done" then
+	if stage.state == "skipped" then
+		row.text:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+		row.count:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+		row.bg:SetVertexColor(0.25, 0.20, 0.10, 1)
+		row.fill:Hide()
+	elseif stage.state == "done" then
 		row.text:SetTextColor(GREEN[1], GREEN[2], GREEN[3])
 		row.count:SetTextColor(GREEN[1], GREEN[2], GREEN[3])
 		row.bg:SetVertexColor(0.10, 0.28, 0.14, 1)
@@ -5472,8 +5494,13 @@ stepState.layout = function()
 	if panel.startBtn then
 		panel.startBtn:ClearAllPoints()
 		panel.startBtn:SetPoint("TOPLEFT", 12, buttonsY)
-		panel.startBtn:SetPoint("TOPRIGHT", -108, buttonsY)
+		panel.startBtn:SetPoint("TOPRIGHT", -204, buttonsY)
 		panel.startBtn:SetHeight(24)
+	end
+	if panel.skipBtn then
+		panel.skipBtn:ClearAllPoints()
+		panel.skipBtn:SetPoint("TOPRIGHT", -108, buttonsY)
+		panel.skipBtn:SetSize(92, 24)
 	end
 	if panel.resetBtn then
 		panel.resetBtn:ClearAllPoints()
@@ -5747,7 +5774,7 @@ local function UpdateStartButton()
 	end
 	if panel.skipBtn then
 		if sessionMode == "buy" then
-			panel.skipBtn:Hide()
+			if active then panel.skipBtn:Show() else panel.skipBtn:Hide() end
 		else
 			panel.skipBtn:Show()
 		end
@@ -5763,7 +5790,7 @@ local function UpdateStartButton()
 		panel.startBtn:ClearAllPoints()
 		if sessionMode == "buy" then
 			panel.startBtn:SetPoint("TOPLEFT", 12, -150)
-			panel.startBtn:SetPoint("TOPRIGHT", -108, -150)
+			panel.startBtn:SetPoint("TOPRIGHT", -204, -150)
 			panel.startBtn:SetHeight(24)
 		else
 			panel.startBtn:SetSize(126, 24)
@@ -6350,6 +6377,7 @@ local function CompleteSetupGossipStep()
 	scan.opening = nil
 	local npc = CurrentSetupNPC()
 	scan.setupGossip = (scan.setupGossip or 1) + 1
+	SaveQuickStartProgress("setup", scan.setupIndex, nil, scan.buyGroupOk)
 	if not npc or not npc.steps or scan.setupGossip > #npc.steps then
 		CloseConversation()
 		NextSetupNPC()
@@ -6516,12 +6544,13 @@ AdvanceSetup = function()
 	SelectOption(opt)
 	if step.wait == "gossip" then
 		scan.setupGossip = (scan.setupGossip or 1) + 1
+		SaveQuickStartProgress("setup", scan.setupIndex, nil, scan.buyGroupOk)
 		scan.setupPicked = nil
 		scan.opening = nil
 	end
 end
 
-StartSetup = function(setupIndex, buyGroupOk)
+StartSetup = function(setupIndex, buyGroupOk, setupGossip)
 	stepState.prepFloor = 0
 	if (setupIndex or 1) <= 1 then
 		stepState.cachedBuyGroups = nil
@@ -6531,7 +6560,7 @@ StartSetup = function(setupIndex, buyGroupOk)
 		mode = "setup",
 		setupIndex = setupIndex or 1,
 		buyGroupOk = buyGroupOk ~= false,
-		setupGossip = 1,
+		setupGossip = setupGossip or 1,
 		trainIdle = 0,
 		trainMisses = 0,
 		trainerOpen = nil,
@@ -7156,7 +7185,7 @@ local function StartSavedQuickStart()
 		return true
 	end
 	local index = math.max(1, math.min(#C.SETUP_NPCS, tonumber(saved.setupIndex) or 1))
-	StartSetup(index, saved.buyGroupOk)
+	StartSetup(index, saved.buyGroupOk, saved.setupGossip)
 	return false
 end
 
@@ -7175,6 +7204,7 @@ local function SetActive(on)
 	else
 		local finalizing = false
 		if sessionMode == "buy" then
+			LoadQuickStartSkipped()
 			ApplyQuickStartTalentTemplate()
 			finalizing = StartSavedQuickStart()
 		else
@@ -7194,6 +7224,48 @@ local function SetActive(on)
 		end
 	end
 	UpdateStartButton()
+	UpdateTargetLine()
+end
+
+function SarychUI:SkipQuickStartStage()
+	if sessionMode ~= "buy" or not active or not scan then return end
+	if scan.mode == "buy" then
+		stepState.skipped.buy = true
+		local resumeIndex, buyGroupOk = scan.resumeSetupIndex, scan.buyGroupOk
+		CloseConversation()
+		if resumeIndex then
+			StartSetup(resumeIndex, buyGroupOk)
+			if resumeIndex > #C.SETUP_NPCS then
+				FinishSetup()
+			else
+				scan.waitClick = true
+				ShowProgress()
+				UpdateTargetLine()
+			end
+		else
+			FinishBuy(true)
+		end
+		return
+	end
+	if scan.mode ~= "setup" then return end
+	local index = scan.setupIndex or 1
+	if scan.waitingEquip and index <= #C.SETUP_NPCS then return end
+	if index > #C.SETUP_NPCS then
+		stepState.skipped.prep = true
+		SetActive(false)
+		ClearQuickStartProgress()
+		SetStatus(T("Подготовка завершена"))
+		if panel then panel:Hide() end
+		sessionMode = "scan"
+		return
+	end
+	local npc = C.SETUP_NPCS[index]
+	stepState.skipped[npc.kind == "itemshop" and "buy" or index] = true
+	scan.trainerOpen = nil
+	scan.waitingTrainer = nil
+	scan.pendingCapture = false
+	CloseConversation()
+	NextSetupNPC()
 	UpdateTargetLine()
 end
 
@@ -7355,7 +7427,7 @@ local function EnsurePanel()
 		rowFill:Hide()
 		local rowText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 		rowText:SetPoint("LEFT", 6, 0)
-		rowText:SetPoint("RIGHT", -46, 0)
+		rowText:SetPoint("RIGHT", -94, 0)
 		rowText:SetJustifyH("LEFT")
 		rowText:SetWordWrap(false)
 		local rowCount = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -7409,7 +7481,7 @@ local function EnsurePanel()
 	skipBtn.bg = skipBg
 	local skipFs = skipBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	skipFs:SetPoint("CENTER")
-	skipFs:SetText(T("Пропуск"))
+	skipFs:SetText(T("Пропустить"))
 	skipBtn.label = skipFs
 	skipBtn:SetScript("OnEnter", function(self)
 		if active then
@@ -7423,7 +7495,11 @@ local function EnsurePanel()
 		UpdateStartButton()
 	end)
 	skipBtn:SetScript("OnClick", function()
-		SkipCurrentStep()
+		if sessionMode == "buy" then
+			if SarychUI.SkipQuickStartStage then SarychUI:SkipQuickStartStage() end
+		else
+			SkipCurrentStep()
+		end
 	end)
 	f.skipBtn = skipBtn
 
@@ -7626,6 +7702,7 @@ function SarychUI:BeginQuickStartBuy(profileKey)
 	end
 	sessionMode = "buy"
 	SetActive(false)
+	LoadQuickStartSkipped()
 	self:ShowQuickStartPanel()
 	UpdateStartButton()
 end
@@ -7636,6 +7713,7 @@ function SarychUI:BeginQuickStartItemSetup()
 	end
 	sessionMode = "buy"
 	SetActive(false)
+	LoadQuickStartSkipped()
 	self:ShowQuickStartPanel()
 	UpdateStartButton()
 	StartItemPrep()
@@ -7735,7 +7813,7 @@ events:SetScript("OnEvent", function(_, event, ...)
 	end
 
 	if event == "TRAINER_SHOW" or event == "CLASS_TRAINER_SHOW" then
-		if active and scan and scan.mode == "setup" and (IsWantedUnit("npc") or IsWantedUnit("target") or Shown(_G.ClassTrainerFrame)) then
+		if active and scan and scan.mode == "setup" and (IsWantedUnit("npc") or IsWantedUnit("target")) then
 			scan.waitClick = false
 			scan.closedAt = nil
 			scan.trainerOpen = true

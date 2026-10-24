@@ -453,7 +453,7 @@ function module:GetOptions()
 							trinketEnabled = {
 								type = "toggle",
 								name = "Включить тринкеты",
-								desc = "Включить отображение иконок тринкетов",
+								desc = "Включить отображение иконок тринкетов. У людей в этом слоте показывается «Каждый за себя».",
 								order = 1,
 								width = "full",
 								get = function()
@@ -476,7 +476,7 @@ function module:GetOptions()
 							racialEnabled = {
 								type = "toggle",
 								name = "Включить расовую способность",
-								desc = "Включить отображение иконок расовых способностей",
+								desc = "Включить отображение отдельных иконок расовых способностей. «Каждый за себя» зависит от настройки тринкетов.",
 								order = 2,
 								width = "full",
 								get = function()

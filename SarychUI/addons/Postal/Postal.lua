@@ -3,6 +3,8 @@ if _G.SarychUI_ShouldLoadPostalEmbedded and not _G.SarychUI_ShouldLoadPostalEmbe
 end
 
 local Postal = LibStub("AceAddon-3.0"):NewAddon("Postal", "AceEvent-3.0", "AceHook-3.0")
+-- Ace must never activate embedded Postal before SUI reads the active profile.
+Postal:SetEnabledState(false)
 local L = LibStub("AceLocale-3.0"):GetLocale("Postal")
 _G["Postal"] = Postal
 
@@ -108,16 +110,18 @@ function Postal:OnInitialize()
 	self.db.RegisterCallback(self, "OnProfileCopied", "OnProfileChanged")
 	self.db.RegisterCallback(self, "OnProfileReset", "OnProfileChanged")
 
-	-- Enable/disable modules based on saved settings
+	-- AceAddon also queues modules individually. Keep them disabled when the
+	-- SUI checkbox is off, even though the embedded core was initialized.
+	local runtimeEnabled = SarychUI_IsPostalRuntimeEnabled and SarychUI_IsPostalRuntimeEnabled()
 	for name, module in self:IterateModules() do 
-		module:SetEnabledState(self.db.profile.ModuleEnabledState[name] or false)
+		module:SetEnabledState(runtimeEnabled and (self.db.profile.ModuleEnabledState[name] or false) or false)
 		if module.OnEnable then
 			hooksecurefunc(module, "OnEnable", self.OnModuleEnable_Common) -- Posthook
 		end
 	end
 
 	-- Register events
-	self:RegisterEvent("MAIL_CLOSED")
+	if runtimeEnabled then self:RegisterEvent("MAIL_CLOSED") end
 
 	-- Create the Menu Button
 	local Postal_ModuleMenuButton = CreateFrame("Button", "Postal_ModuleMenuButton", MailFrame)
@@ -145,13 +149,22 @@ function Postal:OnInitialize()
 		b:SetScript("OnEnter", subjectHoverIn)
 		b:SetScript("OnLeave", subjectHoverOut)
 	end
+	-- A first-run profile may only become known after AceDB starts. Keep
+	-- initialization-only controls hidden when Postal is disabled there.
+	if SarychUI_IsPostalRuntimeEnabled and not SarychUI_IsPostalRuntimeEnabled() then
+		Postal_ModuleMenuButton:Hide()
+		for i = 1, 7 do
+			_G["PostalSubjectHover" .. i]:Hide()
+		end
+	end
 
 	self.OnInitialize = nil
 end
 
 function Postal:OnProfileChanged(event, database, newProfileKey)
+	local runtimeEnabled = SarychUI_IsPostalRuntimeEnabled and SarychUI_IsPostalRuntimeEnabled()
 	for name, module in self:IterateModules() do 
-		if self.db.profile.ModuleEnabledState[name] then
+		if runtimeEnabled and self.db.profile.ModuleEnabledState[name] then
 			module:Enable()
 		else
 			module:Disable()

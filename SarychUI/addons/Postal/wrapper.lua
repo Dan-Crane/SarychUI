@@ -1,5 +1,5 @@
 -- Postal wrapper for SarychUI
--- The Addons checkbox enables and disables Postal immediately.
+-- The Addons checkbox saves the desired state; enabling applies after /reload.
 
 local ADDON_NAME = "Postal"
 
@@ -98,6 +98,11 @@ local function ApplyPostalRuntime(enable)
 	elseif Postal.SetEnabledState then
 		Postal:SetEnabledState(false)
 	end
+	if Postal.IterateModules then
+		for _, module in Postal:IterateModules() do
+			if module.Disable then module:Disable() end
+		end
+	end
 	SetPostalChromeShown(false)
 	return true
 end
@@ -120,7 +125,20 @@ function wrapper:SetRuntimeEnabled(enable)
 	enable = enable and true or false
 	SetRuntimeEnabledInDB(enable)
 	wrapper.enabled = enable
-	ApplyPostalRuntime(enable)
+	if enable then
+		-- Keep this session inactive; the next load initializes the full core
+		-- against the selected profile and enables its modules in order.
+		ApplyPostalRuntime(false)
+		if SarychUI and SarychUI.ShowReloadPopup then
+			SarychUI:ShowReloadPopup("|cff1784d1Postal|r будет загружен после перезагрузки интерфейса (/reload).")
+		elseif StaticPopup_Show then
+			StaticPopup_Show("SARYCHUI_RELOAD_UI")
+		elseif SarychUI and SarychUI.Print then
+			SarychUI:Print("|cff1784d1Postal|r будет загружен после перезагрузки интерфейса (/reload).")
+		end
+	else
+		ApplyPostalRuntime(false)
+	end
 	return true
 end
 
@@ -200,7 +218,7 @@ function wrapper:GetOptions()
 			enabled = {
 				type = "toggle",
 				name = "Включить",
-				desc = "Включить или выключить Postal.",
+				desc = "Включить или выключить Postal. Если он не загружен, для включения нужен /reload.",
 				order = 1,
 				get = function()
 					return wrapper:IsRuntimeEnabled()
@@ -225,7 +243,7 @@ function wrapper:GetOptions()
 				type = "description",
 				name = function()
 					local mode = GetLoadModeFromDB()
-					return "Расширенная поддержка почтового ящика (Open All, Express, BlackBook и др.).\nГалочка «Включить» сразу включает и выключает Postal.\n\nНастройки модулей - в интерфейсе почтового ящика.\nБаза настроек: |cff1784d1Postal3DB|r.\nРежим загрузки: |cff1784d1" .. tostring(mode) .. "|r (strict embedded).\n\nАвтор: " .. (wrapper.author or "Xinhuan") .. "\nВерсия: " .. (wrapper.version or "3.3.2")
+					return "Расширенная поддержка почтового ящика (Open All, Express, BlackBook и др.).\nПосле выключения Postal не загружается при следующем /reload. Включение из выключенного состояния тоже требует /reload.\n\nНастройки модулей - в интерфейсе почтового ящика.\nБаза настроек: |cff1784d1Postal3DB|r.\nРежим загрузки: |cff1784d1" .. tostring(mode) .. "|r (strict embedded).\n\nАвтор: " .. (wrapper.author or "Xinhuan") .. "\nВерсия: " .. (wrapper.version or "3.3.2")
 				end,
 				order = 3,
 				width = "full",

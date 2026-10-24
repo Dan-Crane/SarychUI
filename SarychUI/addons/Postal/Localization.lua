@@ -3,6 +3,10 @@
 -- Please use the Localization App on WoWAce to update this
 -- at http://www.wowace.com/projects/postal/localization/
 
+if _G.SarychUI_ShouldLoadPostalEmbedded and not _G.SarychUI_ShouldLoadPostalEmbedded() then
+	return
+end
+
 local AL3 = LibStub("AceLocale-3.0")
 local debug = false
 --[===[@debug@

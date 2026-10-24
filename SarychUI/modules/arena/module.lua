@@ -41,7 +41,7 @@ local nameplateCacheTime = {}
 -- ============================================
 
 module.Trinkets = CreateFrame("Frame")
-local trinketSuffixes = {"Trinket1", "Trinket2", "Trinket3", "Trinket4"}
+local trinketSuffixes = {"Trinket1", "Trinket2"}
 
 function module:RefreshTrinketBorders()
     local preview = SarychUI.ArenaPreview
@@ -127,6 +127,15 @@ function module.Trinkets:GetTrinketTextureByRaceAndFaction(race)
     end
 end
 
+local function GetArenaIconScale(frame, scale)
+    local parentScale = UIParent:GetEffectiveScale()
+    local frameScale = frame and frame:GetEffectiveScale()
+    if not parentScale or parentScale <= 0 or not frameScale then
+        return tonumber(scale) or 1
+    end
+    return (tonumber(scale) or 1) * frameScale / parentScale
+end
+
 function module.Trinkets:CreateTrinketIcon(frame, texture, anchorFrame)
     local db = GetDB(); local tr = db and db.Trinkets or {}
     -- ArenaEnemyFrame is a protected SecureUnitButton.  Even an otherwise
@@ -138,7 +147,7 @@ function module.Trinkets:CreateTrinketIcon(frame, texture, anchorFrame)
     trinket._arenaFrame = frame
     trinket:SetFrameLevel(frame:GetFrameLevel() + 3)
     trinket:SetSize(26, 26)
-    trinket:SetScale(tr.scale or 1)
+    trinket:SetScale(GetArenaIconScale(frame, tr.scale))
 
     if anchorFrame then
         trinket:SetPoint("LEFT", anchorFrame, "RIGHT", 5, 0)
@@ -170,6 +179,7 @@ function module.Trinkets:CreateTrinketIcon(frame, texture, anchorFrame)
     trinket.Cooldown:SetAllPoints(trinket)
     trinket.Cooldown:SetFrameLevel(trinket:GetFrameLevel() + 1)
     trinket.Cooldown:SetAlpha(0.65)
+    trinket.Cooldown.__sary_arenaTrinket = true
     if trinket.Cooldown.SetDrawEdge then trinket.Cooldown:SetDrawEdge(true) end
     trinket.Cooldown:Hide()
     return trinket
@@ -192,8 +202,10 @@ end
 function module.Trinkets:CreateHumanIcon(frame, id)
     local db = GetDB()
     local tr = db and db.Trinkets or {}
-    if tr.racialEnabled then
-        self["arena" .. id .. "Trinket4"] = self:CreateTrinketIcon(frame, racialSpells["Human"].icon)
+    -- Every Man for Himself replaces the PvP trinket for Humans. Keep it in
+    -- the trinket slot even when separate racial icons are disabled.
+    if tr.enabled then
+        self["arena" .. id .. "Trinket1"] = self:CreateTrinketIcon(frame, racialSpells["Human"].icon)
     end
 end
 
@@ -205,7 +217,7 @@ function module.Trinkets:CreateIcon(frame)
     local previous = self._iconRace and self._iconRace[id]
     local guid = UnitGUID(unit)
     local priorGUID = self._iconGUID and self._iconGUID[id]
-    local existing = self[unit .. "Trinket1"] or self[unit .. "Trinket2"] or self[unit .. "Trinket4"]
+    local existing = self[unit .. "Trinket1"] or self[unit .. "Trinket2"]
 
     -- Opponent slots exist before the enemy's unit data is available. Never
     -- create a placeholder (or leave an old icon visible) for an empty slot.
@@ -233,8 +245,13 @@ function module.Trinkets:CreateIcon(frame)
     end
     local db = GetDB()
     local tr = db and db.Trinkets or {}
+    local iconScale = GetArenaIconScale(frame, tr.scale)
+    for _, suffix in ipairs(trinketSuffixes) do
+        local icon = self[unit .. suffix]
+        if icon and icon:GetScale() ~= iconScale then icon:SetScale(iconScale) end
+    end
     local complete = race == "Human"
-        and (not tr.racialEnabled or self[unit .. "Trinket4"])
+        and (not tr.enabled or self[unit .. "Trinket1"])
         or race ~= "Human"
         and (not tr.enabled or self[unit .. "Trinket1"])
         and (not tr.racialEnabled or self[unit .. "Trinket2"])
@@ -381,8 +398,8 @@ function module.Trinkets:UNIT_SPELLCAST_SUCCEEDED(unitID, spell)
         end
     end
     if race == "Human" and spell == humanSpellInfo then
-        if self[unitID .. "Trinket4"] then
-            local trinket = self[unitID .. "Trinket4"]
+        if self[unitID .. "Trinket1"] then
+            local trinket = self[unitID .. "Trinket1"]
             if trinket.Cooldown.SetDrawEdge then trinket.Cooldown:SetDrawEdge(true) end
             CooldownFrame_SetTimer(trinket.Cooldown, GetTime(), 120, 1)
             if SarychUI_NotifyCooldown then SarychUI_NotifyCooldown(trinket.Cooldown, GetTime(), 120, 1) end
@@ -447,8 +464,7 @@ SlashCmdList.SARYCHUIARENATRINKETS = function(message)
             .. " guid=" .. tostring(trinkets._iconGUID and trinkets._iconGUID[id])
             .. " event=" .. tostring(trinkets._lastUpdateReason and trinkets._lastUpdateReason[id])
             .. " tr=" .. IconState(trinkets[unit .. "Trinket1"])
-            .. " racial=" .. IconState(trinkets[unit .. "Trinket2"])
-            .. " human=" .. IconState(trinkets[unit .. "Trinket4"]))
+            .. " racial=" .. IconState(trinkets[unit .. "Trinket2"]))
     end
 end
 
@@ -970,7 +986,7 @@ function module:GetAbilityAnchor(index, test)
 	else
 		local prefix = "arena" .. index
 		if tr.racialEnabled then
-			anchor = self.Trinkets[prefix .. "Trinket2"] or self.Trinkets[prefix .. "Trinket4"]
+			anchor = self.Trinkets[prefix .. "Trinket2"]
 		end
 		if not (anchor and anchor:IsShown()) and tr.enabled then
 			anchor = self.Trinkets[prefix .. "Trinket1"]
@@ -1065,13 +1081,13 @@ function module:ShowTestTrinkets(numOpponents, trinketsDB)
 	for i = 1, numOpponents do
 		local frame = arenaTestFrames[i]
 		if not frame then break end
-		local frameScale = frame:GetEffectiveScale() / UIParent:GetEffectiveScale()
+		local iconScale = GetArenaIconScale(frame, scale)
 		
 		-- Handle trinket icon
 		local trinket = self:GetOrCreateTestTrinket(frame, i, "Trinket1")
 		if trinket then
 			if trinketsEnabled then
-				trinket:SetScale(scale * frameScale)
+				trinket:SetScale(iconScale)
 				trinket.Icon.Texture:SetTexture(trinketTexture)
 				trinket.Icon:Show()
 				trinket:Show()
@@ -1091,7 +1107,7 @@ function module:ShowTestTrinkets(numOpponents, trinketsDB)
 		local racial = self:GetOrCreateTestTrinket(frame, i, "Racial", nil)
 		if racial then
 			if racialEnabled then
-				racial:SetScale(scale * frameScale)
+				racial:SetScale(iconScale)
 				racial.Icon.Texture:SetTexture(racialTexture)
 				racial.Icon:Show()
 				racial:Show()
@@ -1150,6 +1166,7 @@ function module:GetOrCreateTestTrinket(frame, id, suffix, anchorFrame)
 		trinket.Cooldown:SetAllPoints(trinket)
 		trinket.Cooldown:SetFrameLevel(trinket:GetFrameLevel() + 1)
 		trinket.Cooldown:SetAlpha(0.65)
+		trinket.Cooldown.__sary_arenaTrinket = true
 		if trinket.Cooldown.SetDrawEdge then trinket.Cooldown:SetDrawEdge(true) end
 		trinket.Cooldown:Hide()
 		trinket:SetScript("OnUpdate", function(self, elapsed)

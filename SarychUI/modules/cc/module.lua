@@ -169,10 +169,12 @@ local function cooldown_OnUpdate(frame, elapsed)
         state.colorR, state.colorG, state.colorB, state.colorA = color[1], color[2], color[3], alpha
     end
     local strata = frame:GetFrameStrata() or "MEDIUM"
-    if strata == "BACKGROUND" or strata == "LOW" or strata == "MEDIUM" then
+    local keepIconStrata = frame.__sary_partyAbility or frame.__sary_arenaTrinket
+    if not keepIconStrata and (strata == "BACKGROUND" or strata == "LOW" or strata == "MEDIUM") then
         strata = "HIGH"
     end
-    local level = (frame:GetFrameLevel() or 0) + 5
+    -- These countdowns stay with their icons so normal windows cover both.
+    local level = (frame:GetFrameLevel() or 0) + (keepIconStrata and 1 or 5)
     if state.action then
         -- Action effects may use HIGH levels above 100 during another cast.
         -- Keep the countdown above those effects and below tooltips.

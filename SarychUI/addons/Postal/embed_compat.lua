@@ -1,6 +1,10 @@
 -- Narrow metadata shim for embedded Postal inside SarychUI.
 -- Postal queries GetAddOnMetadata("Postal", ...), but "Postal" is not a standalone addon in embedded mode.
 
+if _G.SarychUI_ShouldLoadPostalEmbedded and not _G.SarychUI_ShouldLoadPostalEmbedded() then
+	return
+end
+
 local _GetAddOnMetadata = GetAddOnMetadata
 
 function GetAddOnMetadata(addon, field)

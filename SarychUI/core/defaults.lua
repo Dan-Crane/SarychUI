@@ -1313,7 +1313,7 @@ SarychUI.defaults = {
 	
 	-- Global settings (not per character)
 	global = {
-        version = "1.3.3b",
+        version = "1.3.4a",
 		quickStartCatalog = false,
 		quickStartCatalogCleared = false,
 		quickStartMiscEnabled = false,

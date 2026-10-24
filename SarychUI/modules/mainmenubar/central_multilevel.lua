@@ -7,6 +7,7 @@ if not module then return end
 local MEDIA = "Interface\\AddOns\\SarychUI\\media\\mainmenubar\\central_multilevel\\"
 local SIZE = 36
 local BAR_WIDTH, BAR_HEIGHT, DUAL_OFFSET = 466, 14, 16
+local VEHICLE_ANIMATION_DELAY = 0.60
 local STOCK_ART = { "MainMenuBarTexture0", "MainMenuBarTexture1", "MainMenuBarTexture2",
     "MainMenuBarTexture3", "MainMenuBarLeftEndCap", "MainMenuBarRightEndCap",
     "MainMenuBarArtFrameTexture0", "MainMenuBarArtFrameTexture1",
@@ -21,7 +22,9 @@ local STOCK_ART = { "MainMenuBarTexture0", "MainMenuBarTexture1", "MainMenuBarTe
     "PossessBackground1", "PossessBackground2" }
 local style = { active = false, original = {}, methods = {} }
 module.DragonStyle = style
-local MANAGED_BARS = { "MultiBarBottomLeft", "MultiBarBottomRight", "MultiBarLeft", "MultiBarRight" }
+local MANAGED_BARS = { "MultiBarBottomLeft", "MultiBarBottomRight", "MultiBarLeft", "MultiBarRight",
+    "ShapeshiftBarFrame" }
+local STANCE_ART = { "ShapeshiftBarLeft", "ShapeshiftBarMiddle", "ShapeshiftBarRight" }
 
 local function DB()
     return SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.modules.mainmenubar
@@ -106,6 +109,41 @@ local function DualOffset()
     return xpSpace and repSpace and DUAL_OFFSET or 0
 end
 
+local function VehicleLayoutBlocked()
+    if UnitHasVehicleUI and UnitHasVehicleUI("player") then return true end
+    if MainMenuBar and (MainMenuBar.busy or MainMenuBar.animating) then return true end
+    if VehicleMenuBar and VehicleMenuBar.animating then return true end
+    return false
+end
+
+function style:RequestLayout(delay)
+    if not self.active then return end
+    self.layoutPending = true
+    self.layoutDelay = math.max(self.layoutDelay or 0, delay or 0)
+    if self.controller and not InCombatLockdown()
+        and not (UnitHasVehicleUI and UnitHasVehicleUI("player")) then
+        self.controller:Show()
+    end
+end
+
+function style:RefreshVehicleHotkeys()
+    if not self.active or InCombatLockdown() or not ActionButton_UpdateHotkeys then return end
+    local nativeSetPoint = MainMenuBarPageNumber and MainMenuBarPageNumber.SetPoint
+    for index = 1, 6 do
+        local button = _G["VehicleMenuBarActionButton" .. index]
+        if button then
+            ActionButton_UpdateHotkeys(button, button.buttonType)
+            local hotkey = _G["VehicleMenuBarActionButton" .. index .. "HotKey"]
+            if hotkey and nativeSetPoint then
+                hotkey:ClearAllPoints()
+                nativeSetPoint(hotkey, "TOPRIGHT", button, "TOPRIGHT", -4, -4)
+                hotkey:SetDrawLayer("OVERLAY")
+                hotkey:SetTextColor(1, 1, 1)
+            end
+        end
+    end
+end
+
 function style:UpdatePetAndStance()
     if InCombatLockdown() then return end
     if self.petHolder and not self.petDriverRegistered then
@@ -123,7 +161,7 @@ function style:UpdatePetAndStance()
 end
 
 local function MakeBar(name, fill, rested)
-    local frame = CreateFrame("Frame", name, UIParent)
+    local frame = CreateFrame("Frame", name, MainMenuBar or UIParent)
     frame:SetSize(BAR_WIDTH, BAR_HEIGHT)
     frame:SetFrameStrata("MEDIUM")
     frame.Background = frame:CreateTexture(nil, "BACKGROUND")
@@ -160,6 +198,8 @@ function style:CreateBars()
     if self.xp then return end
     self.xp = MakeBar("SarychUI_DragonXPBar", "xp\\Main", true)
     self.rep = MakeBar("SarychUI_DragonRepBar", "reputation\\Rep", false)
+    self.xp:Hide()
+    self.rep:Hide()
     self.xp.Bar:SetScript("OnEnter", function(bar)
         GameTooltip:SetOwner(bar, "ANCHOR_RIGHT")
         GameTooltip:AddLine(XPBAR_LABEL or "Experience", 1, 1, 1)
@@ -261,13 +301,26 @@ end
 -- right (-5,-70), left (-45,-70), XP (1,7), reputation (1,23).
 -- The two XP/rep bars raise the center stack by 14+2 pixels.
 function style:Layout()
-    if not self.active or InCombatLockdown() then return end
+    if not self.active then return end
+    if self.layoutPending and (self.layoutDelay or 0) > 0 then return end
+    if InCombatLockdown() or VehicleLayoutBlocked() then
+        self.layoutPending = true
+        if self.controller then
+            if InCombatLockdown() or (UnitHasVehicleUI and UnitHasVehicleUI("player")) then
+                self.controller:Hide()
+            else
+                self.layoutDelay = 0.10
+                self.controller:Show()
+            end
+        end
+        return
+    end
     local spacing = GetSpacing()
     local rowStep = SIZE + spacing
     local shift = DualOffset()
     local holder = self.holder
     holder:SetSize(12 * SIZE + 11 * spacing + 4, 42)
-    Place(holder, "BOTTOM", UIParent, "BOTTOM", 0, 22 + shift)
+    Place(holder, "BOTTOM", MainMenuBar or UIParent, "BOTTOM", 0, 22 + shift)
     for i = 1, 12 do
         local x = 2 + (i-1)*rowStep
         local button = _G["ActionButton" .. i]
@@ -295,7 +348,13 @@ function style:Layout()
     for _, data in ipairs(bottom) do
         local bar, prefix, y = unpack(data)
         if bar then
-            Place(bar, "BOTTOM", UIParent, "BOTTOM", 0, y + shift)
+            -- These rows are part of the central stack.  MainMenuBar is the
+            -- frame Blizzard slides for vehicle transitions, including combat.
+            if MainMenuBar and bar:GetParent() ~= MainMenuBar then
+                Save(bar)
+                bar:SetParent(MainMenuBar)
+            end
+            Place(bar, "BOTTOM", MainMenuBar or UIParent, "BOTTOM", 0, y + shift)
             bar:SetScale(1)
             bar:SetSize(12 * SIZE + 11 * spacing, SIZE)
             if bar == MultiBarBottomRight then bar:EnableMouse(false) end
@@ -350,14 +409,20 @@ function style:Layout()
     end
     if PetActionBarFrame then PetActionBarFrame.showgrid = 1 end
     -- DragonUI's stance position with Blizzard's native 30px button size.
-    self.stanceHolder = self.stanceHolder or CreateFrame("Frame", "SarychUI_DragonStanceBar", UIParent, "SecureHandlerStateTemplate")
+    self.stanceHolder = self.stanceHolder or CreateFrame("Frame", "SarychUI_DragonStanceBar",
+        MainMenuBar or UIParent, "SecureHandlerStateTemplate")
     self.stanceHolder:SetSize(math.max(1, forms)*30 + math.max(0, forms-1)*spacing, 30)
     if MultiBarBottomRight then
         Place(self.stanceHolder, "BOTTOMLEFT", MultiBarBottomRight, "TOPLEFT", 0, spacing)
     else
-        Place(self.stanceHolder, "BOTTOMLEFT", UIParent, "BOTTOM",
+        Place(self.stanceHolder, "BOTTOMLEFT", MainMenuBar or UIParent, "BOTTOM",
             -(12 * SIZE + 11 * spacing) / 2,
             24 + rowStep * 2 + SIZE + spacing + shift)
+    end
+    -- FrameXML anchors the first button back to this frame when there is one
+    -- form.  Match its (+12,+3) anchor to our button's (0,0) position.
+    if ShapeshiftBarFrame then
+        Place(ShapeshiftBarFrame, "BOTTOMLEFT", self.stanceHolder, "BOTTOMLEFT", -12, -3)
     end
     for i = 1, (NUM_SHAPESHIFT_SLOTS or 10) do
         local button = _G["ShapeshiftButton" .. i]
@@ -376,8 +441,8 @@ function style:Layout()
                 24 + rowStep * 2 + SIZE + spacing + shift)
         end
     end
-    Place(self.xp, "BOTTOM", UIParent, "BOTTOM", 1, 7)
-    Place(self.rep, "BOTTOM", UIParent, "BOTTOM", 1, XpAvailable() and 23 or 7)
+    Place(self.xp, "BOTTOM", MainMenuBar or UIParent, "BOTTOM", 1, 7)
+    Place(self.rep, "BOTTOM", MainMenuBar or UIParent, "BOTTOM", 1, XpAvailable() and 23 or 7)
     if ActionBarUpButton then Place(ActionBarUpButton, "TOPLEFT", holder, "TOPLEFT", -30, 8) end
     if ActionBarDownButton then Place(ActionBarDownButton, "TOPLEFT", holder, "TOPLEFT", -30, -14) end
     if MainMenuBarPageNumber and ActionBarDownButton then
@@ -390,6 +455,13 @@ function style:Layout()
     self:UpdateBars()
     self:UpdatePetAndStance()
     self:UpdateVehicleExit()
+    if RegisterStateDriver and self.petHolder and not self.petDriverRegistered then
+        RegisterStateDriver(self.petHolder, "visibility", "[pet,novehicleui,nobonusbar:5] show; hide")
+        self.petDriverRegistered = true
+    end
+    self.layoutPending = false
+    self.layoutDelay = 0
+    if self.controller then self.controller:Hide() end
 end
 
 function style:LayoutBagsAndMicroMenu()
@@ -398,7 +470,8 @@ function style:LayoutBagsAndMicroMenu()
     if MainMenuBarBackpackButton then
         local width = GetScreenWidth and GetScreenWidth()
             or (UIParent and UIParent:GetWidth()) or 1024
-        Place(MainMenuBarBackpackButton, "BOTTOMRIGHT", UIParent, "BOTTOM", width/2 - 6, 46)
+        Place(MainMenuBarBackpackButton, "BOTTOMRIGHT", MainMenuBar or UIParent,
+            "BOTTOM", width/2 - 6, 46)
     end
     if CharacterBag0Slot and MainMenuBarBackpackButton then
         Place(CharacterBag0Slot, "BOTTOMLEFT", MainMenuBarBackpackButton, "CENTER", -55.7, -20)
@@ -417,9 +490,22 @@ function style:LayoutBagsAndMicroMenu()
         end
     end
     if CharacterMicroButton and MainMenuBarBackpackButton then
-        Place(CharacterMicroButton, "BOTTOMLEFT", MainMenuBarBackpackButton,
-            "CENTER", -233, -62.9)
+        Save(CharacterMicroButton)
+        self:PositionPlayerMicroMenu()
     end
+end
+
+-- FrameXML moves the micro buttons back to MainMenuBarArtFrame when vehicle
+-- art closes.  Restore this anchor immediately, as the BFA layout does; a
+-- full protected-bar layout may have to wait until combat ends.
+function style:PositionPlayerMicroMenu()
+    if not CharacterMicroButton or not MainMenuBarBackpackButton then return false end
+    if InCombatLockdown() and CharacterMicroButton.IsProtected
+        and CharacterMicroButton:IsProtected() then return false end
+    CharacterMicroButton:ClearAllPoints()
+    CharacterMicroButton:SetPoint("BOTTOMLEFT", MainMenuBarBackpackButton,
+        "CENTER", -233, -62.9)
+    return true
 end
 
 function style:ApplyArt()
@@ -435,6 +521,16 @@ function style:ApplyArt()
         local region = _G[name]
         if region then region:SetAlpha(0) end
     end
+    -- ShapeshiftBar_Update() explicitly shows the middle piece again.  Clear
+    -- the stock art itself so its BORDER layer cannot flash under our moved
+    -- stance buttons during vehicle transitions.
+    for _, name in ipairs(STANCE_ART) do
+        local texture = _G[name]
+        if texture then texture:SetTexture(nil) end
+    end
+    -- The stance buttons were moved out of this stock frame.  FrameXML may
+    -- show its empty decorative frame again while switching vehicle art.
+    if ShapeshiftBarFrame then ShapeshiftBarFrame:SetAlpha(0) end
     if MainMenuBarMaxLevelBar then MainMenuBarMaxLevelBar:EnableMouse(false) end
     if MainMenuExpBar then MainMenuExpBar:SetAlpha(0) end
     if ReputationWatchBar then ReputationWatchBar:SetAlpha(0) end
@@ -525,7 +621,8 @@ function style:Enable()
     end
     self:CreateBars()
     self:CreateVehicleExit()
-    self.holder = self.holder or CreateFrame("Frame", "SarychUI_DragonMainBar", UIParent, "SecureHandlerStateTemplate")
+    self.holder = self.holder or CreateFrame("Frame", "SarychUI_DragonMainBar",
+        MainMenuBar or UIParent, "SecureHandlerStateTemplate")
     self.holder:SetSize(513, 42)
     self.holder:SetScale(1)
     self.holder:SetFrameLevel(50)
@@ -540,29 +637,42 @@ function style:Enable()
         RegisterStateDriver(self.vehicleExit, "vehicleshow",
             "[vehicleui] s2; [target=vehicle,exists] s1; s2")
     end
+    self.stanceArtTextures = {}
+    for _, name in ipairs(STANCE_ART) do
+        local texture = _G[name]
+        if texture then self.stanceArtTextures[name] = texture:GetTexture() end
+    end
     for _, name in ipairs(STOCK_ART) do Save(_G[name]) end
     for _, name in ipairs({ "MainMenuBarArtFrame", "MainMenuExpBar", "ReputationWatchBar",
+        "ShapeshiftBarFrame",
         "ExhaustionTick", "ExhaustionLevelFillBar", "MainMenuBarExpText",
         "ReputationWatchBarText" }) do Save(_G[name]) end
     self.petOriginalShowgrid = PetActionBarFrame and PetActionBarFrame.showgrid
     self:Layout()
-    if RegisterStateDriver and self.petHolder then
-        RegisterStateDriver(self.petHolder, "visibility", "[pet,novehicleui,nobonusbar:5] show; hide")
-        self.petDriverRegistered = true
-    end
     if not self.hooksInstalled and hooksecurefunc then
         self.hooksInstalled = true
-        for _, functionName in ipairs({ "UIParent_ManageFramePositions", "MultiActionBar_Update", "MainMenuBar_ToPlayerArt" }) do
+        for _, functionName in ipairs({ "UIParent_ManageFramePositions", "MultiActionBar_Update" }) do
             if type(_G[functionName]) == "function" then
                 hooksecurefunc(functionName, function()
                     if style.active then style:Layout() end
                 end)
             end
         end
+        if type(MainMenuBar_ToPlayerArt) == "function" then
+            hooksecurefunc("MainMenuBar_ToPlayerArt", function()
+                style:RequestLayout(VEHICLE_ANIMATION_DELAY)
+            end)
+        end
+        if type(VehicleMenuBar_UpdateActionBars) == "function" then
+            hooksecurefunc("VehicleMenuBar_UpdateActionBars", function()
+                style:RefreshVehicleHotkeys()
+            end)
+        end
         if type(VehicleMenuBar_MoveMicroButtons) == "function" then
             hooksecurefunc("VehicleMenuBar_MoveMicroButtons", function(skinName)
-                if style.active and not skinName and not InCombatLockdown() then
-                    style:LayoutBagsAndMicroMenu()
+                if style.active and not skinName then
+                    style:PositionPlayerMicroMenu()
+                    style:RequestLayout(VEHICLE_ANIMATION_DELAY)
                 end
             end)
         end
@@ -570,17 +680,28 @@ function style:Enable()
     self.controller = self.controller or CreateFrame("Frame")
     for _, event in ipairs({"PLAYER_ENTERING_WORLD", "PLAYER_XP_UPDATE", "UPDATE_EXHAUSTION",
         "UPDATE_FACTION", "PLAYER_LEVEL_UP", "PLAYER_REGEN_ENABLED", "ACTIONBAR_PAGE_CHANGED",
-        "PET_BAR_UPDATE", "UNIT_PET", "UNIT_ENTERED_VEHICLE", "UNIT_EXITED_VEHICLE",
+         "PET_BAR_UPDATE", "UNIT_PET", "UNIT_ENTERING_VEHICLE", "UNIT_ENTERED_VEHICLE", "UNIT_EXITED_VEHICLE",
         "UPDATE_SHAPESHIFT_FORMS", "DISPLAY_SIZE_CHANGED"}) do
         self.controller:RegisterEvent(event)
     end
-    self.controller:SetScript("OnEvent", function(_, event)
+    self.controller:SetScript("OnEvent", function(_, event, unit)
         if not style.active then return end
-        if event == "PLAYER_ENTERING_WORLD" or event == "PLAYER_REGEN_ENABLED" or
+        if event == "UNIT_ENTERING_VEHICLE" and unit == "player" then
+            style.layoutPending = true
+            style.layoutDelay = 0
+            style.controller:Hide()
+            return
+        end
+        if event == "UNIT_ENTERED_VEHICLE" or event == "UNIT_EXITED_VEHICLE" then
+            if unit ~= "player" then return end
+            if event == "UNIT_EXITED_VEHICLE" then
+                style:RequestLayout(VEHICLE_ANIMATION_DELAY)
+            end
+        elseif event == "PLAYER_ENTERING_WORLD" or event == "PLAYER_REGEN_ENABLED" or
             event == "PLAYER_LEVEL_UP" or event == "UPDATE_FACTION"
             or event == "DISPLAY_SIZE_CHANGED" or event == "UNIT_PET"
             or event == "PET_BAR_UPDATE" or event == "UPDATE_SHAPESHIFT_FORMS"
-            or event == "UNIT_ENTERED_VEHICLE" or event == "UNIT_EXITED_VEHICLE" then
+            then
             style:Layout()
         end
         if event == "ACTIONBAR_PAGE_CHANGED" and MainMenuBarPageNumber then
@@ -589,7 +710,20 @@ function style:Enable()
         style:UpdateBars()
         style:UpdatePetAndStance()
         style:UpdateVehicleExit()
+        if event == "PLAYER_REGEN_ENABLED" then
+            style:RefreshVehicleHotkeys()
+            style:RequestLayout()
+        end
     end)
+    self.controller:SetScript("OnUpdate", function(_, elapsed)
+        if not style.active or not style.layoutPending then return end
+        if (style.layoutDelay or 0) > 0 then
+            style.layoutDelay = style.layoutDelay - elapsed
+            return
+        end
+        style:Layout()
+    end)
+    self:RefreshVehicleHotkeys()
     -- Keep stock Blizzard bars available to SarychUI's visibility controller,
     -- while the visible DragonUI bars follow the same alpha transitions.
     if MainMenuExpBar then MainMenuExpBar:SetAlpha(0) end
@@ -604,6 +738,8 @@ function style:Disable()
     if InCombatLockdown() then return end
     self.active = false
     if self.controller then self.controller:UnregisterAllEvents(); self.controller:SetScript("OnEvent", nil) end
+    if self.controller then self.controller:SetScript("OnUpdate", nil); self.controller:Hide() end
+    self.layoutPending, self.layoutDelay = false, 0
     if self.holder then self.holder:Hide() end
     if self.petDriverRegistered and UnregisterStateDriver then
         UnregisterStateDriver(self.petHolder, "visibility")
@@ -619,6 +755,13 @@ function style:Disable()
     if self.xp then self.xp:Hide() end
     if self.rep then self.rep:Hide() end
     Restore()
+    if self.stanceArtTextures then
+        for _, name in ipairs(STANCE_ART) do
+            local texture = _G[name]
+            if texture then texture:SetTexture(self.stanceArtTextures[name]) end
+        end
+        self.stanceArtTextures = nil
+    end
     if UIPARENT_MANAGED_FRAME_POSITIONS and self.managedPositions then
         for _, name in ipairs(MANAGED_BARS) do
             UIPARENT_MANAGED_FRAME_POSITIONS[name] = self.managedPositions[name]

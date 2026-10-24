@@ -4,15 +4,17 @@ local Glow = SUI.PlatesAurasGlow
 local extension = SUI:RegisterExtension("party_abilities", {})
 local eventFrame = CreateFrame("Frame")
 local units, active, icons = {}, {}, {}
+local learnedDurations, talentRetry = {}, {}
 local liveAuras = {}
 local enabled, elapsed = false, 0
 local trackingEvents = false
 local lastDB
 local lastInstanceKind
 local talentLib = LibStub and LibStub("LibGroupTalents-1.0", true)
+local cooldownCommPrefix = "SUI_PACD"
 local resetters = {
 	[23989] = { 19503, 60192, 13809, 14311, 19574, 34490, 19263, 53271, 49012 }, -- Readiness
-	[14185] = { 14177, 26669, 11305, 26889, 36554, 1766, 51722 }, -- Preparation
+	[14185] = { 14177, 26669, 11305, 26889, 36554 }, -- Preparation (Kick/Dismantle need glyph)
 	[11958] = { 42931, 42917, 43012, 43039, 45438, 31687, 44572, 44545, 12472 }, -- Cold Snap
 }
 local shared = {
@@ -254,6 +256,21 @@ local function Roster()
 		end
 	end
 	for guid in pairs(active) do if not units[guid] then active[guid] = nil end end
+	for guid in pairs(learnedDurations) do if not units[guid] then learnedDurations[guid] = nil end end
+	for guid in pairs(talentRetry) do if not units[guid] then talentRetry[guid] = nil end end
+	-- Queue inspection as soon as the party is known, before anyone casts.
+	if talentLib and talentLib.GetGUIDTalents then
+		local now = GetTime()
+		for guid, member in pairs(units) do
+			if not member.enemy and guid ~= UnitGUID("player") and (talentRetry[guid] or 0) <= now then
+				if talentLib:GetGUIDTalents(guid) then
+					talentRetry[guid] = nil
+				else
+					talentRetry[guid] = now + 1
+				end
+			end
+		end
+	end
 	for guid in pairs(old) do if not units[guid] then
 		for key, icon in pairs(icons) do if icon.guid == guid then icon:Hide(); Glow.Stop(icon) end end
 	end end
@@ -361,6 +378,154 @@ local function MatchSpell(spellID, spellName, class, db)
 	end
 end
 
+local presetCooldowns = {}
+for _, list in pairs(SUI.PartyAbilityPresets or {}) do
+	for _, entry in ipairs(list) do presetCooldowns[entry[1]] = entry[2] end
+end
+
+local function CooldownDuration(guid, id, data)
+	local configured = tonumber(data and data.cooldown) or 0
+	local rule = SUI.PartyAbilityCooldownRules and SUI.PartyAbilityCooldownRules[id]
+	if not rule or configured ~= presetCooldowns[id] then return configured end
+	-- Keep ATT's preset estimate until the relevant inspect data arrives.
+	if rule.talents and not (talentLib and talentLib.GetGUIDTalents and talentLib:GetGUIDTalents(guid)) then
+		return configured
+	end
+	-- Inspect exposes teammates' talents, but their glyphs are only available
+	-- when they also sync LibGroupTalents. Missing glyphs must not hide talents.
+	local glyphsKnown = not rule.glyphs or (talentLib and talentLib.GetGUIDGlyphs and talentLib:GetGUIDGlyphs(guid))
+		or (UnitGUID and guid == UnitGUID("player"))
+	if rule.glyphs and not glyphsKnown and not rule.talents then return configured end
+	local duration = glyphsKnown and rule.base or (rule.unknownGlyphBase or configured)
+	for _, modifier in ipairs(rule.talents or {}) do
+		local talentName = GetSpellInfo(modifier[1])
+		local rank = talentLib and talentLib.GUIDHasTalent and talentName
+			and tonumber(talentLib:GUIDHasTalent(guid, talentName)) or 0
+		if modifier.percents then
+			duration = duration * (1 + (modifier.percents[math.min(rank, #modifier.percents - 1) + 1] or 0))
+		else
+			if modifier.percent then duration = duration * (1 + modifier.percent * rank) end
+			if modifier.seconds then duration = duration + modifier.seconds * rank end
+		end
+	end
+	for _, modifier in ipairs(glyphsKnown and rule.glyphs or {}) do
+		if talentLib and talentLib.GUIDHasGlyph then
+			for _, glyphID in ipairs(modifier.ids) do
+				if talentLib:GUIDHasGlyph(guid, glyphID) then
+					if modifier.percent then duration = duration * (1 + modifier.percent) end
+					if modifier.seconds then duration = duration + modifier.seconds end
+					break
+				end
+			end
+		end
+	end
+	return math.max(0.5, duration)
+end
+
+local function ModifierDataKnown(guid, id, data)
+	local rule = SUI.PartyAbilityCooldownRules and SUI.PartyAbilityCooldownRules[id]
+	if not rule or tonumber(data.cooldown) ~= presetCooldowns[id] then return true end
+	if rule.talents and not (talentLib and talentLib.GetGUIDTalents and talentLib:GetGUIDTalents(guid)) then return false end
+	if rule.glyphs and not (talentLib and talentLib.GetGUIDGlyphs and talentLib:GetGUIDGlyphs(guid))
+		and guid ~= UnitGUID("player") then return false end
+	return true
+end
+
+function extension:RefreshActiveDurations(guid)
+	local db = self:GetDB()
+	if not db or not db.spells then return end
+	for memberGUID, spells in pairs(active) do
+		if not guid or memberGUID == guid then
+			for id, state in pairs(spells) do
+				local data = db.spells[id]
+				if data and not state.shared and not state.native and not state.displayed then
+					state.duration = CooldownDuration(memberGUID, id, data)
+					if state.pendingUntil and ModifierDataKnown(memberGUID, id, data) then state.pendingUntil = nil end
+				end
+			end
+		end
+	end
+end
+
+local function SyncPlayerCooldown(guid, id, data, state, now)
+	if not state or state.shared or not GetSpellCooldown or not UnitGUID
+		or guid ~= UnitGUID("player") or tonumber(data.cooldown) ~= presetCooldowns[id] then return end
+	local start, duration = GetSpellCooldown(id)
+	if not start or not duration or start <= 0 or duration <= 2 then
+		local spellName = GetSpellInfo(id)
+		if spellName then start, duration = GetSpellCooldown(spellName) end
+	end
+	-- Ignore the global cooldown and a previous cast's timer. The game's own
+	-- active cooldown includes talents, glyphs, gear and other local modifiers.
+	if start and duration and start > 0 and duration > 2
+		and start + duration > now and math.abs(start - state.start) <= 3 then
+		state.start, state.duration, state.native = start, duration, true
+		if SendAddonMessage and (state.sentDuration ~= duration or state.sentStart ~= start) then
+			local channel = (GetNumRaidMembers and GetNumRaidMembers() or 0) > 0 and "RAID" or "PARTY"
+			SendAddonMessage(cooldownCommPrefix,
+				"C|" .. guid .. "|" .. id .. "|" .. duration .. "|" .. math.max(0, now - start), channel)
+			state.sentDuration, state.sentStart = duration, start
+		end
+	end
+end
+
+local function SyncOwnCooldowns(now)
+	local guid = UnitGUID and UnitGUID("player")
+	local db = DB()
+	local spells = guid and active[guid]
+	if not spells or not db or not db.spells then return end
+	for id, state in pairs(spells) do
+		local data = db.spells[id]
+		if data then SyncPlayerCooldown(guid, id, data, state, now) end
+	end
+end
+
+local function ReceiveCooldown(prefix, message, sender)
+	if prefix ~= cooldownCommPrefix or type(message) ~= "string" or type(sender) ~= "string" then return end
+	local guid, idText, durationText, ageText = message:match("^C|([^|]+)|(%d+)|([%d%.]+)|([%d%.]+)$")
+	local id, duration, age = tonumber(idText), tonumber(durationText), tonumber(ageText)
+	local member = guid and units[guid]
+	if not member or member.enemy or member.test or not id or not duration or not age
+		or duration <= 2 or duration > 3600 or age < 0 or age > duration then return end
+	local name = UnitName(member.token)
+	if not name or (sender ~= name and sender:match("^[^-]+") ~= name) then return end
+	local db = DB()
+	local data = db and db.spells and db.spells[id]
+	if not data or data.enabled == false or (data.class ~= member.class and data.class ~= "OTHER")
+		or tonumber(data.cooldown) ~= presetCooldowns[id] then return end
+	local now = GetTime()
+	local start = now - age
+	active[guid] = active[guid] or {}
+	local state = active[guid][id]
+	if state and state.start > start + 1 then return end
+	learnedDurations[guid] = learnedDurations[guid] or {}
+	learnedDurations[guid][id] = duration
+	if not state or (state.displayed and start > state.start + 3) then
+		state = {}
+		active[guid][id] = state
+	end
+	-- An already drawn timer keeps its original start and duration. The exact
+	-- value from this message is ready for the next cast instead.
+	if state.displayed then return end
+	state.start, state.duration, state.native = start, duration, true
+	state.pendingUntil = nil
+	extension:Render()
+end
+
+local function ObservedCooldown(guid, id, data, now)
+	local learned = tonumber(data.cooldown) == presetCooldowns[id]
+		and learnedDurations[guid] and learnedDurations[guid][id]
+	local state = { start = now, duration = learned or CooldownDuration(guid, id, data), native = learned and true or nil }
+	local member = units[guid]
+	if not learned and member and not member.enemy and guid ~= UnitGUID("player")
+		and not ModifierDataKnown(guid, id, data) then
+		-- Allow the inspect result or the caster's exact cooldown message to
+		-- arrive before the timer is drawn for the first time.
+		state.pendingUntil = now + 0.8
+	end
+	return state
+end
+
 function extension:Observe(guid, spellID, spellName)
 	if not enabled or not units[guid] then return end
 	local db = self:GetDB()
@@ -369,8 +534,9 @@ function extension:Observe(guid, spellID, spellName)
 	if id and data and data.enabled ~= false then
 		active[guid] = active[guid] or {}
 		local prior = active[guid][id]
-		if not prior or now - prior.start > 0.4 then
-			active[guid][id] = { start = now, duration = tonumber(data.cooldown) or 0 }
+		if not prior or (not prior.native and now - prior.start > 0.4)
+			or (prior.native and now - prior.start > 3) then
+			active[guid][id] = ObservedCooldown(guid, id, data, now)
 		end
 	end
 	for _, group in ipairs(shared) do
@@ -386,7 +552,7 @@ function extension:Observe(guid, spellID, spellName)
 							active[guid] = active[guid] or {}
 								local prior = active[guid][configuredID]
 								if not prior or now - prior.start > 0.4 then
-									active[guid][configuredID] = { start = now, duration = tonumber(configured.cooldown) or 0 }
+									active[guid][configuredID] = ObservedCooldown(guid, configuredID, configured, now)
 								end
 							break
 						end
@@ -407,6 +573,12 @@ function extension:Observe(guid, spellID, spellName)
 			end
 		end
 	end
+	if spellID == 14185 and active[guid] and talentLib and talentLib.GUIDHasGlyph
+		and talentLib:GUIDHasGlyph(guid, 56819) then
+		-- Glyph of Preparation also resets Kick and Dismantle.
+		active[guid][1766] = nil
+		active[guid][51722] = nil
+	end
 	local member = units[guid]
 	local link = member and linkedUse[member.race]
 	if link then
@@ -423,7 +595,7 @@ function extension:Observe(guid, spellID, spellName)
 					local prior = active[guid][linkedID]
 					local remain = prior and (prior.start + prior.duration - now) or 0
 					if remain < link.cooldown then
-						active[guid][linkedID] = { start = now, duration = link.cooldown }
+						active[guid][linkedID] = { start = now, duration = link.cooldown, shared = true }
 					end
 				end
 			end
@@ -439,6 +611,9 @@ local function ShouldShow(data, remaining, displayMode)
 end
 
 local function HasTalent(member, guid, id, data)
+	-- A witnessed cast is stronger evidence than an inspection result that may
+	-- arrive late or be incomplete for another party member.
+	if active[guid] and active[guid][id] then return true end
 	if talentLib and talentLib.GetGUIDTalents and talentLib:GetGUIDTalents(guid) then
 		if data.talentTab and data.talentIndex and talentLib.GetTalentInfo then
 			local _, _, _, _, spent = talentLib:GetTalentInfo(member.token, data.talentTab, data.talentIndex)
@@ -664,6 +839,7 @@ function extension:Render()
 					and (not member.enemy or not (data.race or data.trinket))
 					and AbilityAvailable(member, guid, id, data) then
 					local state = active[guid] and active[guid][id]
+					if state and not member.test then SyncPlayerCooldown(guid, id, data, state, now) end
 					if member.test and data.enabled ~= false then
 						local duration = math.max(1, tonumber(data.cooldown) or 60)
 						if not state or state.start + state.duration <= now then
@@ -674,7 +850,9 @@ function extension:Render()
 					end
 					local remaining = state and math.max(0, state.start + state.duration - now) or 0
 					local mode = member.enemy and ((EnemySettings() or {}).displayMode or "all") or db.displayMode
-					if ShouldShow(data, remaining, mode) then list[#list + 1] = { id = id, data = data, state = state, remaining = remaining } end
+					if ShouldShow(data, remaining, mode) then
+						list[#list + 1] = { id = id, data = data, state = state, remaining = remaining }
+					end
 				end
 			end
 			table.sort(list, function(a, b)
@@ -710,7 +888,15 @@ function extension:Render()
 				end
 				Position(icon, frame, layout, index, item.data, cellSize, autoAnchor, rowCount, member.enemy)
 				self:ApplyIconAppearance(icon, layout)
-				if item.remaining > 0 then
+				if item.state and item.state.pendingUntil and item.state.pendingUntil > now then
+					icon.texture:SetVertexColor(0.7, 0.7, 0.7)
+					if icon.timerStart then
+						CooldownFrame_SetTimer(icon.cooldown, 0, 0, 0)
+						if SarychUI_NotifyCooldown then SarychUI_NotifyCooldown(icon.cooldown, 0, 0, 0) end
+						icon.timerStart, icon.timerDuration = nil, nil
+					end
+				elseif item.remaining > 0 then
+					item.state.displayed = true
 					icon.texture:SetVertexColor(1, 1, 1)
 					if icon.timerStart ~= item.state.start or icon.timerDuration ~= item.state.duration then
 						CooldownFrame_SetTimer(icon.cooldown, item.state.start, item.state.duration, 1)
@@ -752,11 +938,7 @@ function extension:RefreshConfig()
 	lastDB = db
 	if db and (db.enabled ~= false or (enemy and enemy.enabled ~= false)) then self:Enable() else self:Disable() end
 	if enabled then
-		for guid, spells in pairs(active) do
-			for id, state in pairs(spells) do
-				if db.spells[id] then state.duration = tonumber(db.spells[id].cooldown) or state.duration end
-			end
-		end
+		self:RefreshActiveDurations()
 		for _, icon in pairs(icons) do
 			if icon.glowing then Glow.Stop(icon); icon.glowing = nil end
 		end
@@ -785,13 +967,35 @@ local function UpdateTick()
 		elapsed = elapsed + delta
 		if elapsed < 0.5 then return end
 		elapsed = 0
+		if talentLib and talentLib.GetGUIDTalents then
+			local now = GetTime()
+			for guid, retryAt in pairs(talentRetry) do
+				if retryAt <= now then
+					if talentLib:GetGUIDTalents(guid) then talentRetry[guid] = nil
+					else talentRetry[guid] = now + 5 end
+				end
+			end
+		end
+		SyncOwnCooldowns(GetTime())
 		extension:Render()
 	end)
 end
 
 function extension:OnTalentUpdate(_, guid)
 	if guid and units[guid] then
-		active[guid] = nil
+		-- Talent inspection can finish seconds after a cast. It updates which
+		-- abilities are available, but must not erase observed cooldowns.
+		learnedDurations[guid] = nil
+		talentRetry[guid] = nil
+		self:RefreshActiveDurations(guid)
+		self:Render()
+	end
+end
+
+function extension:OnGlyphUpdate(_, guid)
+	if guid and units[guid] then
+		learnedDurations[guid] = nil
+		self:RefreshActiveDurations(guid)
 		self:Render()
 	end
 end
@@ -802,11 +1006,13 @@ function extension:Enable()
 	for _, name in ipairs({ "PARTY_MEMBERS_CHANGED", "RAID_ROSTER_UPDATE", "PLAYER_ENTERING_WORLD", "ZONE_CHANGED_NEW_AREA",
 		"PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_TALENT_UPDATE", "UNIT_NAME_UPDATE",
 		"UNIT_FACTION", "UNIT_AURA", "ARENA_OPPONENT_UPDATE", "UNIT_INVENTORY_CHANGED", "PLAYER_EQUIPMENT_CHANGED", "GET_ITEM_INFO_RECEIVED",
-		"INSPECT_TALENT_READY" }) do
+		"INSPECT_TALENT_READY", "CHAT_MSG_ADDON" }) do
 		eventFrame:RegisterEvent(name)
 	end
+	if RegisterAddonMessagePrefix then RegisterAddonMessagePrefix(cooldownCommPrefix) end
 	if talentLib and talentLib.RegisterCallback then
 		talentLib.RegisterCallback(self, "LibGroupTalents_Update", "OnTalentUpdate")
+		talentLib.RegisterCallback(self, "LibGroupTalents_GlyphUpdate", "OnGlyphUpdate")
 	end
 	Roster()
 	UpdateTick()
@@ -820,6 +1026,7 @@ function extension:Disable()
 	trackingEvents = false
 	if talentLib and talentLib.UnregisterCallback then
 		talentLib.UnregisterCallback(self, "LibGroupTalents_Update")
+		talentLib.UnregisterCallback(self, "LibGroupTalents_GlyphUpdate")
 	end
 	eventFrame:SetScript("OnUpdate", nil)
 	for _, icon in pairs(icons) do icon:Hide(); Glow.Stop(icon); icon.glowing = nil end
@@ -828,7 +1035,10 @@ end
 function extension:Initialize() self:RefreshConfig() end
 
 eventFrame:SetScript("OnEvent", function(_, event, ...)
-	if event == "COMBAT_LOG_EVENT_UNFILTERED" then
+	if event == "CHAT_MSG_ADDON" then
+		local prefix, message, _, sender = ...
+		ReceiveCooldown(prefix, message, sender)
+	elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
 		local _, subevent, sourceGUID, _, _, destGUID, _, _, spellID, spellName = ...
 		if subevent == "UNIT_DIED" and destGUID then
 			active[destGUID] = nil
@@ -878,14 +1088,15 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
 		local kind = ContentMode()
 		if event == "PLAYER_ENTERING_WORLD" or (event == "ZONE_CHANGED_NEW_AREA" and kind ~= lastInstanceKind) then
 			active = {}
+			learnedDurations = {}
+			talentRetry = {}
 			liveAuras = {}
-		end
-		if event == "PLAYER_TALENT_UPDATE" then
-			local playerGUID = UnitGUID("player")
-			if playerGUID then active[playerGUID] = nil end
 		end
 		lastInstanceKind = kind
 		Roster()
+		if event == "PLAYER_TALENT_UPDATE" then
+			extension:RefreshActiveDurations(UnitGUID("player"))
+		end
 		UpdateTick()
 		extension:Render()
 	end

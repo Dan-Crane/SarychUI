@@ -1,4 +1,4 @@
--- Spell list: ATT first (cooldowns, glyphs and talent tabs), then IDs that only PAB has.
+-- Spell list: ATT preset estimates and talent tabs, then IDs that only PAB has.
 -- Entry: {spellID, cooldown, talentTab, talentIndex, faction, race, excludeRace, icon}
 SarychUI.PartyAbilityPresets = {
 	DRUID = {
@@ -134,4 +134,42 @@ SarychUI.PartyAbilityPresets = {
 SarychUI.PartyAbilityItems = {
 	[42292] = { trinket = true, name = "PvP Trinket", icon = "Interface\\Icons\\INV_Jewelry_TrinketPVP_02" },
 	[71607] = { item = 50354, trinket = true, name = "Bauble of True Blood", icon = "Interface\\Icons\\INV_Jewelcrafting_Gem_28" },
+}
+
+-- The ATT preset values above often assume a full talent rank or a glyph.
+-- Calculate the actual duration when LibGroupTalents knows the group member's
+-- build. Spell IDs below are talent/glyph spell IDs from the WotLK client.
+-- A custom cooldown entered in SUI overrides these rules.
+SarychUI.PartyAbilityCooldownRules = {
+	[8983]  = { base = 60, talents = { { 16940, seconds = -15 } } }, -- Bash / Brutal Impact
+	[53201] = { base = 90, glyphs = { { ids = { 54828 }, seconds = -30 } } }, -- Starfall
+	[18562] = { base = 15 }, -- Swiftmend (ATT's 13s assumes a set bonus)
+	[19574] = { base = 120, talents = { { 53262, percent = -0.10 } } }, -- Bestial Wrath / Longevity
+	[19263] = { base = 90, glyphs = { { ids = { 56850, 56875 }, seconds = -10 } } }, -- Deterrence
+	[11958] = { base = 480, talents = { { 55091, percent = -0.10 } } }, -- Cold Snap / Cold as Ice
+	[45438] = { base = 300, talents = { { 31670, percents = { 0, -0.07, -0.14, -0.20 } } } }, -- Ice Block
+	[12043] = { base = 120, talents = { { 44378, percent = -0.15 } } }, -- Presence of Mind
+	[10890] = { base = 27, talents = { { 15392, seconds = -2 } }, glyphs = { { ids = { 55676, 56177 }, seconds = 8 } } }, -- Psychic Scream; ATT preset includes a 3s bonus
+	[34433] = { base = 300, talents = { { 15274, seconds = -60 } } }, -- Shadowfiend / Veiled Shadows
+	[33206] = { base = 180, talents = { { 47507, percent = -0.10 } } }, -- Pain Suppression / Aspiration
+	[47585] = { base = 120, glyphs = { { ids = { 63229, 63872 }, seconds = -45 } } }, -- Dispersion
+	[6346]  = { base = 180, glyphs = { { ids = { 55678, 56165 }, seconds = -60 } } }, -- Fear Ward
+	[10308] = { base = 60, talents = { { 20487, seconds = -10 }, { 53695, seconds = -5 } } }, -- Hammer of Justice
+	[642]   = { base = 300, talents = { { 31848, seconds = -30 } } }, -- Divine Shield / Sacred Duty
+	[26889] = { base = 180, talents = { { 13981, seconds = -30 } } }, -- Vanish / Elusiveness
+	[2094]  = { base = 180, talents = { { 13981, seconds = -30 } } }, -- Blind / Elusiveness
+	[31224] = { base = 90, talents = { { 13981, seconds = -15 } } }, -- Cloak of Shadows
+	[14185] = { base = 480, talents = { { 58414, seconds = -90 } } }, -- Preparation / Filthy Tricks
+	[36554] = { base = 30, talents = { { 58414, seconds = -5 } } }, -- Shadowstep
+	[51690] = { base = 120, glyphs = { { ids = { 63879 }, seconds = -45 } } }, -- Killing Spree
+	[51490] = { base = 45, glyphs = { { ids = { 63270, 63902 }, seconds = -10 } } }, -- Thunderstorm
+	[57994] = { base = 6, talents = { { 16040, seconds = -0.2 } } }, -- Wind Shear / Reverberation
+	[11578] = { base = 15, talents = { { 64976, seconds = 5 } }, glyphs = { { ids = { 58355 }, percent = -0.07 } } }, -- Charge
+	[47996] = { base = 30, talents = { { 29888, seconds = -5 } } }, -- Intercept / Improved Intercept
+	[871]   = { base = 300, talents = { { 12312, seconds = -30 } } }, -- Shield Wall
+	[676]   = { base = 60, talents = { { 12313, seconds = -10 } } }, -- Disarm
+	[46924] = { base = 90, glyphs = { { ids = { 63324 }, seconds = -15 } } }, -- Bladestorm
+	[46968] = { base = 20, glyphs = { { ids = { 63325 }, seconds = -3 } } }, -- Shockwave
+	[47476] = { base = 120, glyphs = { { ids = { 58618 }, seconds = -20 } } }, -- Strangulate
+	[49576] = { base = 35, talents = { { 49588, seconds = -5 } } }, -- Death Grip / Unholy Command
 }

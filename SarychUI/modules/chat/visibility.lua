@@ -67,6 +67,7 @@ local function CollectManagedFrames()
 	AddManagedFrame(frames, seen, _G.CombatLogButtons)
 	AddManagedFrame(frames, seen, _G.GeneralDockManager)
 	AddManagedFrame(frames, seen, _G.ChatBarFrame)
+	AddManagedFrame(frames, seen, _G.SarychUIChatLagBar)
 
 	return frames
 end
@@ -90,6 +91,9 @@ local function RefreshManagedControls()
 	end
 	if chatModule.ApplyChatFrameButtonSettings then
 		chatModule:ApplyChatFrameButtonSettings()
+	end
+	if _G.SarychUI_UpdateChatLagBar then
+		_G.SarychUI_UpdateChatLagBar()
 	end
 end
 

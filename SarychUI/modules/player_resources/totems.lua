@@ -44,6 +44,11 @@ local function ApplyVisibility(shown, alpha)
 	if not holder then
 		return
 	end
+	local visibility = _G.SarychUI_FrameVisibility
+	if visibility and visibility.IsPlayerHidden and visibility.IsPlayerHidden() then
+		holder:Hide()
+		return
+	end
 	if not module:Flag("totems", "enabled", false) then
 		holder:Hide()
 		return

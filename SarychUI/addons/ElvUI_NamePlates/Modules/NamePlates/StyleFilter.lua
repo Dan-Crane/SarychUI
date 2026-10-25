@@ -18,6 +18,20 @@ local UnitHealthMax = UnitHealthMax
 local UnitPower = UnitPower
 local UnitPowerMax = UnitPowerMax
 
+local function SetTexturePath(region, path)
+	if type(path) == "string" and path ~= "" and region:GetTexture() ~= path then
+		region:SetTexture(path)
+	end
+end
+
+local function SetHealthTexturePath(healthBar, path)
+	if type(path) ~= "string" or path == "" then return end
+	local current = healthBar:GetStatusBarTexture()
+	if not current or current:GetTexture() ~= path then
+		healthBar:SetStatusBarTexture(path)
+	end
+end
+
 mod.TriggerConditions = {
 	raidTargets = {
 		STAR = "star",
@@ -299,7 +313,7 @@ function mod:StyleFilterSetChanges(frame, actions, HealthColorChanged, BorderCha
 		frame.StyleChanged = true
 		frame.FlashingHealth = true
 		if not TextureChanged then
-			frame.FlashTexture:SetTexture(LSM:Fetch("statusbar", mod.db.statusbar))
+			SetTexturePath(frame.FlashTexture, LSM:Fetch("statusbar", mod.db.statusbar))
 		end
 		frame.FlashTexture:SetVertexColor(actions.flash.color.r, actions.flash.color.g, actions.flash.color.b)
 		frame.FlashTexture:SetAlpha(actions.flash.color.a)
@@ -310,10 +324,10 @@ function mod:StyleFilterSetChanges(frame, actions, HealthColorChanged, BorderCha
 		frame.StyleChanged = true
 		frame.TextureChanged = true
 		local tex = LSM:Fetch("statusbar", actions.texture.texture)
-		frame.Health.Highlight:SetTexture(tex)
-		frame.Health:SetStatusBarTexture(tex)
+		SetTexturePath(frame.Health.Highlight, tex)
+		SetHealthTexturePath(frame.Health, tex)
 		if FlashingHealth then
-			frame.FlashTexture:SetTexture(tex)
+			SetTexturePath(frame.FlashTexture, tex)
 		end
 	end
 	if ScaleChanged then
@@ -420,8 +434,8 @@ function mod:StyleFilterClearChanges(frame, HealthColorChanged, BorderChanged, F
 	if TextureChanged then
 		frame.TextureChanged = nil
 		local tex = LSM:Fetch("statusbar", mod.db.statusbar)
-		frame.Health.Highlight:SetTexture(tex)
-		frame.Health:SetStatusBarTexture(tex)
+		SetTexturePath(frame.Health.Highlight, tex)
+		SetHealthTexturePath(frame.Health, tex)
 	end
 	if ScaleChanged then
 		frame.ScaleChanged = nil

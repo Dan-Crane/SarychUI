@@ -24,6 +24,62 @@ local function GetSetting(key, default)
     return default
 end
 
+-- ChatFrame1 is the main docked chat window. Blizzard stores its position as
+-- normalized screen coordinates and its dimensions in UI units.
+local function GetMainChatGeometry()
+    local frame = _G.ChatFrame1 or _G.DEFAULT_CHAT_FRAME
+    if not frame then return nil end
+    local x, y = frame:GetLeft() or 0, frame:GetBottom() or 0
+    local width, height = frame:GetWidth() or 400, frame:GetHeight() or 150
+    local id = frame:GetID()
+    if GetChatWindowSavedPosition then
+        local point, nx, ny = GetChatWindowSavedPosition(id)
+        if point == "BOTTOMLEFT" and nx and ny then
+            x = nx * ((GetScreenWidth and GetScreenWidth()) or UIParent:GetWidth())
+            y = ny * ((GetScreenHeight and GetScreenHeight()) or UIParent:GetHeight())
+        end
+    end
+    if GetChatWindowSavedDimensions then
+        local savedWidth, savedHeight = GetChatWindowSavedDimensions(id)
+        width, height = savedWidth or width, savedHeight or height
+    end
+    return frame, x, y, width, height
+end
+
+local function SetMainChatGeometry(field, value)
+    local frame, x, y, width, height = GetMainChatGeometry()
+    if not frame then return end
+    if field == "x" then x = value
+    elseif field == "y" then y = value
+    elseif field == "width" then width = value
+    elseif field == "height" then height = value end
+
+    local screenWidth = (GetScreenWidth and GetScreenWidth()) or UIParent:GetWidth()
+    local screenHeight = (GetScreenHeight and GetScreenHeight()) or UIParent:GetHeight()
+    local id = frame:GetID()
+    local locked = GetChatWindowInfo and select(8, GetChatWindowInfo(id))
+    if FCF_SetLocked then FCF_SetLocked(frame, false) end
+    if SetChatWindowSavedDimensions then
+        SetChatWindowSavedDimensions(id, width, height)
+    end
+    if SetChatWindowSavedPosition then
+        SetChatWindowSavedPosition(id, "BOTTOMLEFT", x / screenWidth, y / screenHeight)
+    end
+    if FCF_RestorePositionAndDimensions then
+        FCF_RestorePositionAndDimensions(frame)
+    else
+        frame:ClearAllPoints()
+        frame:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", x, y)
+        frame:SetWidth(width)
+        frame:SetHeight(height)
+    end
+    if frame.SetUserPlaced then frame:SetUserPlaced(true) end
+    if FloatingChatFrame_UpdateBackgroundAnchors then
+        FloatingChatFrame_UpdateBackgroundAnchors(frame)
+    end
+    if FCF_SetLocked and locked then FCF_SetLocked(frame, true) end
+end
+
 local CHAT_WHEEL_PHRASE_DEFAULTS = {
     "Фраза 1", "Фраза 2", "Фраза 3", "Фраза 4",
     "Фраза 5", "Фраза 6", "Фраза 7", "Подтверждаю",
@@ -1453,6 +1509,77 @@ function module:GetOptions()
                                                 SarychUI.modules[moduleName]:ApplyAllSettings()
                                             end
                                         end,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    size_position = {
+                        type = "group",
+                        name = "Размер и расположение",
+                        order = 3,
+                        args = {
+                            position = {
+                                type = "group",
+                                name = "Позиция окна чата",
+                                order = 1,
+                                inline = true,
+                                suiTwoCol = true,
+                                args = {
+                                    x = {
+                                        type = "range",
+                                        name = "Позиция X",
+                                        desc = "Расстояние от левого края экрана до окна чата.",
+                                        order = 1,
+                                        min = 0, max = math.max(2000, (GetScreenWidth and GetScreenWidth()) or UIParent:GetWidth()), step = 1,
+                                        get = function()
+                                            local _, x = GetMainChatGeometry()
+                                            return x or 0
+                                        end,
+                                        set = function(_, value) SetMainChatGeometry("x", value) end,
+                                    },
+                                    y = {
+                                        type = "range",
+                                        name = "Позиция Y",
+                                        desc = "Расстояние от нижнего края экрана до окна чата.",
+                                        order = 2,
+                                        min = 0, max = math.max(1200, (GetScreenHeight and GetScreenHeight()) or UIParent:GetHeight()), step = 1,
+                                        get = function()
+                                            local _, _, y = GetMainChatGeometry()
+                                            return y or 0
+                                        end,
+                                        set = function(_, value) SetMainChatGeometry("y", value) end,
+                                    },
+                                },
+                            },
+                            size = {
+                                type = "group",
+                                name = "Размер окна чата",
+                                order = 2,
+                                inline = true,
+                                suiTwoCol = true,
+                                args = {
+                                    width = {
+                                        type = "range",
+                                        name = "Ширина",
+                                        order = 1,
+                                        min = 100, max = math.max(1200, (GetScreenWidth and GetScreenWidth()) or UIParent:GetWidth()), step = 1,
+                                        get = function()
+                                            local _, _, _, width = GetMainChatGeometry()
+                                            return width or 400
+                                        end,
+                                        set = function(_, value) SetMainChatGeometry("width", value) end,
+                                    },
+                                    height = {
+                                        type = "range",
+                                        name = "Высота",
+                                        order = 2,
+                                        min = 50, max = math.max(800, (GetScreenHeight and GetScreenHeight()) or UIParent:GetHeight()), step = 1,
+                                        get = function()
+                                            local _, _, _, _, height = GetMainChatGeometry()
+                                            return height or 150
+                                        end,
+                                        set = function(_, value) SetMainChatGeometry("height", value) end,
                                     },
                                 },
                             },

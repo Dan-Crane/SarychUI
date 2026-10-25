@@ -46,14 +46,11 @@
 				</Anchors>
 				<Scripts>
 					<OnLoad>
-						self.type = CONTROLTYPE_CHECKBOX;
-						self.label = "cheeseDisplaySpellActivationOverlays";
-						function self:GetValue()
-							return _G[self.label] or "1";
-						end
-						self.uvar = self.label;
-						BlizzardOptionsPanel_RegisterControl(self, self:GetParent());
+						_G[self:GetName() .. "Text"]:SetText(CHEESE_DISPLAY_SPELL_ALERTS);
 					</OnLoad>
+					<OnClick>
+						CheeseOptions_SetAlerts(self:GetChecked());
+					</OnClick>
 				</Scripts>
 			</CheckButton>
 			<Slider name="$parentSpellAlertOpacitySlider" inherits="OptionsSliderTemplate">
@@ -66,26 +63,14 @@
 				</Anchors>
 				<Scripts>
 					<OnLoad>
-						self.type = CONTROLTYPE_SLIDER;
-						self.label = "cheeseSpellActivationOverlayOpacity";
-						function self:GetCurrentValue()
-							return _G[self.label] or 1.0;
-						end
-						self.SetDisplayValue = self.SetValue;
-						self.SetValue = function (self, value)
-							value = math.floor(value * 100 + 0.5) / 100;
-							self:SetDisplayValue(value);
-							CheeseSpellActivationOverlayFrame:SetAlpha(value);
-						end
-						BlizzardOptionsPanel_RegisterControl(self, self:GetParent());
-						
-						BlizzardOptionsPanel_SetupDependentControl(_G[self:GetParent():GetName().."ShowSpellAlerts"], self);
+						self:SetMinMaxValues(0.1, 1);
+						self:SetValueStep(0.05);
+						_G[self:GetName() .. "Text"]:SetText(CHEESE_SPELL_ALERT_OPACITY);
+						_G[self:GetName() .. "Low"]:SetText("10%");
+						_G[self:GetName() .. "High"]:SetText("100%");
 					</OnLoad>
 					<OnValueChanged>
-						value = math.floor(value * 100 + 0.5) / 100;
-						self.value = value;
-						self:SetValue(value);
-						_G[self.label] = value;
+						CheeseOptions_SetOpacity(value);
 					</OnValueChanged>
 				</Scripts>
 			</Slider>
@@ -93,9 +78,11 @@
 		<Scripts>
 			<OnLoad>
 				self.name = CHEESE_LABEL;
-				self.options = CheesePanelOptions;
-				InterfaceOptionsPanel_OnLoad(self);
+				self.refresh = CheeseOptions_Refresh;
 			</OnLoad>
+			<OnShow>
+				CheeseOptions_Refresh(self);
+			</OnShow>
 		</Scripts>
 	</Frame>
 </Ui>

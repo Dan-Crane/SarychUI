@@ -151,8 +151,71 @@ local function CanAutoRepairGear()
     end
 end
 
+local merchantStackBuyerHooked = false
+
+local function InstallMerchantStackBuyer()
+    if merchantStackBuyerHooked then return end
+    local original = _G.MerchantItemButton_OnModifiedClick
+    if type(original) ~= "function" then return end
+
+    _G.MerchantItemButton_OnModifiedClick = function(button, mouseButton, ...)
+        local db = DB()
+        local key = db and db.merchantStackBuyKey or "ALT"
+        local altDown
+        if SarychUI and SarychUI.AltMode and SarychUI.AltMode.IsAltPressed then
+            altDown = SarychUI.AltMode:IsAltPressed()
+        else
+            altDown = IsAltKeyDown()
+        end
+        local keyDown = (key == "CTRL" and IsControlKeyDown())
+            or (key ~= "CTRL" and altDown)
+        if not (IsModuleEnabled() and db.enableMerchantStackBuy == 1 and keyDown)
+            or IsShiftKeyDown() or not button or not button.GetID
+            or (mouseButton ~= "LeftButton" and mouseButton ~= "RightButton")
+            or not MerchantFrame or MerchantFrame.selectedTab ~= 1 then
+            return original(button, mouseButton, ...)
+        end
+
+        local index = button:GetID()
+        local link = index and GetMerchantItemLink(index)
+        if not link then return original(button, mouseButton, ...) end
+
+        local _, _, price, merchantQuantity, available, _, extendedCost = GetMerchantItemInfo(index)
+        merchantQuantity = tonumber(merchantQuantity) or 1
+        if merchantQuantity < 1 or available == 0 then
+            return original(button, mouseButton, ...)
+        end
+
+        local maxStack = GetItemInfo and select(8, GetItemInfo(link))
+        local count
+        if type(maxStack) == "number" then
+            count = math.floor(maxStack / merchantQuantity)
+        elseif GetMerchantItemMaxStack then
+            count = GetMerchantItemMaxStack(index)
+        end
+        count = math.floor(tonumber(count) or 0)
+        if available and available > 0 then count = math.min(count, available) end
+        if count < 1 then return original(button, mouseButton, ...) end
+
+        if extendedCost or button.extendedCost then
+            if MerchantFrame_ConfirmExtendedItemCost then
+                MerchantFrame_ConfirmExtendedItemCost(button, count)
+            end
+        elseif price and MERCHANT_HIGH_PRICE_COST and price * count >= MERCHANT_HIGH_PRICE_COST
+            and MerchantFrame_ConfirmHighCostItem then
+            MerchantFrame_ConfirmHighCostItem(button, count)
+        else
+            BuyMerchantItem(index, count)
+        end
+        -- The selected modified click has been handled; do not buy again or open Split Stack.
+    end
+    merchantStackBuyerHooked = true
+end
+
 function module:Enable()
     if not IsModuleEnabled() then return end
+
+    InstallMerchantStackBuyer()
 
     -- Create auto-sell frame
     if not autoSellFrame then
@@ -164,6 +227,7 @@ function module:Enable()
     autoSellFrame:SetScript("OnEvent", function(self, event)
         if event == "MERCHANT_SHOW" then
             if not IsModuleEnabled() then return end
+			InstallMerchantStackBuyer()
             
             -- Auto-sell grey items
             if CanAutoSellGrey() then

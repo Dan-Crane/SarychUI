@@ -202,6 +202,12 @@ local function Ensure()
 end
 
 local function ShowIfWanted()
+	local visibility = _G.SarychUI_FrameVisibility
+	if visibility and visibility.IsPlayerHidden and visibility.IsPlayerHidden() then
+		if plate then plate:Hide() end
+		NotifyVisibility(false, 0)
+		return
+	end
 	if not IsWanted() then
 		if plate then
 			plate:SetAlpha(1)
@@ -218,6 +224,10 @@ local function ShowIfWanted()
 	UpdateHealth()
 	UpdatePower()
 	UpdateMana()
+end
+
+function module:RefreshPlayerPanelVisibility()
+	ShowIfWanted()
 end
 
 function module:RefreshPlate()

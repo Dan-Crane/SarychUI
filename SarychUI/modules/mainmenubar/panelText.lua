@@ -20,6 +20,52 @@ end
 
 local module = getModule()
 
+local originalTextStyle = setmetatable({}, { __mode = "k" })
+
+local function TextMode(db, enabledKey, legacyKey, modeKey)
+    local enabled = db[enabledKey]
+    if enabled == nil then enabled = db[modeKey] == "custom" or db[legacyKey] end
+    if not enabled then return "default" end
+    return db[modeKey] or "hide"
+end
+
+local function ApplyTextStyle(region, mode, fontName, fontSize, outline, color)
+    if not region or not region.GetFont or not region.SetFont then return end
+    local original = originalTextStyle[region]
+    if not original and mode ~= "custom" then return end
+    if not original then
+        local path, size, flags = region:GetFont()
+        local r, g, b, a = region:GetTextColor()
+        original = { path, size, flags, r, g, b, a }
+        originalTextStyle[region] = original
+    end
+    if mode == "custom" then
+        local media = SarychUI.Media
+        local path
+        if media and media.GetFont and fontName then
+            local ok, found = pcall(media.GetFont, fontName)
+            if ok then path = found end
+        end
+        region:SetFont(path or original[1] or "Fonts\\FRIZQT__.TTF", fontSize or original[2] or 12,
+            outline == "NONE" and "" or (outline or ""))
+        if color then region:SetTextColor(color[1], color[2], color[3], color[4] or 1) end
+    else
+        region:SetFont(original[1] or "Fonts\\FRIZQT__.TTF", original[2] or 12, original[3] or "")
+        if color then region:SetTextColor(original[4] or 1, original[5] or 1, original[6] or 1, original[7] or 1) end
+        originalTextStyle[region] = nil
+    end
+end
+
+local function StyleHotkey(region, db)
+    ApplyTextStyle(region, TextMode(db, "hotkeyTextEnabled", "hideHotkeysEnabled", "hotkeyTextMode"),
+        db.hotkeyFont, db.hotkeyFontSize, db.hotkeyFontOutline)
+end
+
+local function StyleMacro(region, db)
+    ApplyTextStyle(region, TextMode(db, "macroTextEnabled", "hideMacroNames", "macroTextMode"),
+        db.macroFont, db.macroFontSize, db.macroFontOutline, db.macroFontColor or { 1, 1, 1, 1 })
+end
+
 -- Never cache addon data directly on protected Blizzard action buttons. Even
 -- custom fields can carry insecure values into later secure update paths.
 local hotkeyByButton = setmetatable({}, { __mode = "k" })
@@ -240,7 +286,8 @@ end
 function module:GetHotkeyFadeTime()
     local db = SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.modules
         and SarychUI.db.profile.modules.mainmenubar
-    if db and db.hotkeysFadeAfterCombat then
+    if db and TextMode(db, "hotkeyTextEnabled", "hideHotkeysEnabled", "hotkeyTextMode") == "hide"
+        and db.hotkeysFadeAfterCombat then
         return tonumber(db.hotkeysFadeTime) or 0.4
     end
     return 0
@@ -257,7 +304,7 @@ function module:GetHotkeyTargetAlpha()
         return nil
     end
 
-    if not currentDb.hideHotkeysEnabled then
+    if TextMode(currentDb, "hotkeyTextEnabled", "hideHotkeysEnabled", "hotkeyTextMode") ~= "hide" then
         return 1
     end
 
@@ -314,6 +361,9 @@ end
 function module:ApplyHotkeyRegion(hotkey, source)
     if not hotkey then return end
     InstallHotkeyOwnershipHooks(hotkey)
+    local db = SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.modules
+        and SarychUI.db.profile.modules.mainmenubar
+    if db then StyleHotkey(hotkey, db) end
     -- Stance bindings stay hidden. Combat / Alt / target never reveal them.
     if IsShapeshiftHotkeyRegion(hotkey) then
         SetHotkeyAlpha(hotkey, 0, 0, true, true)
@@ -417,6 +467,7 @@ function module:UpdateAllHotkeys(fadeTime, force, source)
 
     local regions = GetHotkeyRegions()
     for i = 1, #regions do
+        StyleHotkey(regions[i], currentDb)
         SetHotkeyAlpha(regions[i], alpha, fadeTime, force)
     end
     local shapeshiftSlots = tonumber(NUM_SHAPESHIFT_SLOTS) or 10
@@ -440,7 +491,7 @@ function module:UpdateAllMacroNames()
         return 
     end
     
-    local hideMacroNames = currentDb.hideMacroNames
+    local mode = TextMode(currentDb, "macroTextEnabled", "hideMacroNames", "macroTextMode")
     
     for i = 1, 12 do
         local buttons = {
@@ -456,7 +507,8 @@ function module:UpdateAllMacroNames()
             if button then
                 local macroName = _G[button:GetName() .. "Name"] or button.name
                 if macroName then
-                    if hideMacroNames then
+                    StyleMacro(macroName, currentDb)
+                    if mode == "hide" then
                         macroName:Hide()
                     else
                         macroName:Show()
@@ -503,14 +555,12 @@ function module:UpdateMacroNames(button)
         return 
     end
     
-    local hideMacroNames = currentDb.hideMacroNames
-    if not hideMacroNames then
-        return
-    end
-    
     local macroName = button.GetName and _G[button:GetName() .. "Name"] or button.name
     if macroName then
-        macroName:Hide()
+        StyleMacro(macroName, currentDb)
+        if TextMode(currentDb, "macroTextEnabled", "hideMacroNames", "macroTextMode") == "hide" then
+            macroName:Hide()
+        end
     end
 end
 
@@ -518,6 +568,7 @@ end
 function module:ShowAllHotkeys()
     local regions = GetHotkeyRegions()
     for i = 1, #regions do
+        ApplyTextStyle(regions[i], "default")
         SetHotkeyAlpha(regions[i], 1, 0, true)
     end
 end
@@ -536,6 +587,7 @@ function module:ShowAllMacroNames()
         
         for _, macroName in ipairs(macroNames) do
             if macroName then
+                ApplyTextStyle(macroName, "default", nil, nil, nil, true)
                 macroName:Show()
             end
         end

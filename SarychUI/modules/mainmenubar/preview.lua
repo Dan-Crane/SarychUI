@@ -50,6 +50,15 @@ local function GetSetting(key, default)
 	return default
 end
 
+local function GetPreviewFont(name)
+	local media = SarychUI.Media
+	if media and media.GetFont then
+		local ok, path = pcall(media.GetFont, name)
+		if ok and path then return path end
+	end
+	return "Fonts\\FRIZQT__.TTF"
+end
+
 local INDICATION_COLOR_DEFAULTS = {
 	colorCooldownColor = { 0.4, 0.4, 0.4, 0.6 },
 	colorManaColor = { 0.1, 0.1, 1.0, 1.0 },
@@ -176,8 +185,15 @@ function Preview:Create(parent)
 	host._buttons = buttons
 
 	local function Layout()
-		local hideHotkeys = GetSetting("hideHotkeysEnabled", false)
-		local hideMacros = GetSetting("hideMacroNames", false)
+		local hotkeyEnabled = GetSetting("hotkeyTextEnabled",
+			GetSetting("hotkeyTextMode", "hide") == "custom" or GetSetting("hideHotkeysEnabled", true))
+		local macroEnabled = GetSetting("macroTextEnabled",
+			GetSetting("macroTextMode", "hide") == "custom" or GetSetting("hideMacroNames", true))
+		local hotkeyMode = hotkeyEnabled and GetSetting("hotkeyTextMode", "hide") or "default"
+		local macroMode = macroEnabled and GetSetting("macroTextMode", "hide") or "default"
+		local hotkeyFont = GetPreviewFont(GetSetting("hotkeyFont", "Friz Quadrata TT"))
+		local macroFont = GetPreviewFont(GetSetting("macroFont", "Friz Quadrata TT"))
+		local macroColor = GetSetting("macroFontColor", { 1, 1, 1, 1 })
 		for _, btn in ipairs(buttons) do
 			local style = SarychUI_InterfaceStyle
 			if style and style.enabled then
@@ -193,12 +209,26 @@ function Preview:Create(parent)
 				btn._slot:SetSize(64, 64)
 				btn._slot:SetVertexColor(1, 1, 1, 1)
 			end
-			if hideHotkeys then
+			if hotkeyMode == "custom" then
+				btn._hotkey:SetFont(hotkeyFont or "Fonts\\FRIZQT__.TTF", GetSetting("hotkeyFontSize", 12),
+					GetSetting("hotkeyFontOutline", "NONE") == "NONE" and "" or GetSetting("hotkeyFontOutline", "NONE"))
+			else
+				btn._hotkey:SetFontObject(NumberFontNormalSmallGray)
+			end
+			if hotkeyMode == "hide" then
 				btn._hotkey:SetAlpha(0)
 			else
 				btn._hotkey:SetAlpha(1)
 			end
-			if hideMacros then
+			if macroMode == "custom" then
+				btn._macro:SetFont(macroFont or "Fonts\\FRIZQT__.TTF", GetSetting("macroFontSize", 12),
+					GetSetting("macroFontOutline", "OUTLINE") == "NONE" and "" or GetSetting("macroFontOutline", "OUTLINE"))
+				btn._macro:SetTextColor(macroColor[1], macroColor[2], macroColor[3], macroColor[4] or 1)
+			else
+				btn._macro:SetFontObject(GameFontHighlightSmallOutline)
+				btn._macro:SetTextColor(1, 1, 1, 1)
+			end
+			if macroMode == "hide" then
 				btn._macro:Hide()
 			else
 				btn._macro:Show()
@@ -1250,6 +1280,8 @@ function BarsPreview:Create(parent)
 		local isDragon = GetSetting("barStyle", "classic") == "dragon"
 		local hideRep = GetSetting("hideReputationBar", false)
 		local hideXp = GetSetting("hideExperienceBar", false)
+		local hideXpOverlay = GetSetting("hideExperienceOverlayTextures", false)
+		local hideRepOverlay = GetSetting("hideReputationOverlayTextures", false)
 
 		for _, tex in ipairs(classicArt) do
 			SetShown(tex, not isBFA and not isDragon)
@@ -1260,12 +1292,14 @@ function BarsPreview:Create(parent)
 			or "Interface\\MainMenuBar\\UI-MainMenuBar-Dwarf"
 		for _, tex in ipairs(xpOverlayTextures) do
 			tex:SetTexture(xpTexture)
+			SetShown(tex, not hideXpOverlay)
 		end
 		local repTexture = isBFA
 			and (BFA_MEDIA .. "reputation_bar.blp")
 			or "Interface\\PaperDollInfoFrame\\UI-ReputationWatchBar"
 		for _, tex in ipairs(repOverlayTextures) do
 			tex:SetTexture(repTexture)
+			SetShown(tex, not hideRepOverlay)
 		end
 
 		SetShown(repBar, not isDragon and not hideRep)

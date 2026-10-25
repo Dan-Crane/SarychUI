@@ -160,18 +160,20 @@ local function TexResetter(_, tex)
 end
 
 local GlowTexPool
+local freeGlowTextures = {}
 if CreateTexturePool then
 	GlowTexPool = CreateTexturePool(GlowParent, "ARTWORK", nil, nil, TexResetter)
 end
 
-local function AcquireTex(parent)
+local function AcquireTex(parent, layer)
 	local tex
 	if GlowTexPool then
 		tex = GlowTexPool:Acquire()
 	else
-		tex = GlowParent:CreateTexture(nil, "ARTWORK")
+		tex = tremove(freeGlowTextures) or GlowParent:CreateTexture(nil, layer or "ARTWORK")
 	end
 	tex:SetParent(parent)
+	if tex.SetDrawLayer then tex:SetDrawLayer(layer or "ARTWORK") end
 	tex:Show()
 	return tex
 end
@@ -186,6 +188,7 @@ local function ReleaseTex(tex)
 		tex:Hide()
 		tex:ClearAllPoints()
 		tex:SetParent(GlowParent)
+		tinsert(freeGlowTextures, tex)
 	end
 end
 
@@ -204,10 +207,11 @@ local function FrameResetter(_, frame)
 	end
 	if frame.borderTex then
 		for i = 1, #frame.borderTex do
-			frame.borderTex[i]:Hide()
+			ReleaseTex(frame.borderTex[i])
 		end
 	end
 	frame.textures = {}
+	frame.borderTex = nil
 	frame.info = {}
 	frame.name = nil
 	frame.timer = nil
@@ -216,6 +220,7 @@ local function FrameResetter(_, frame)
 end
 
 local GlowFramePool
+local freeGlowFrames = {}
 if CreateFramePool then
 	GlowFramePool = CreateFramePool("Frame", GlowParent, nil, FrameResetter)
 end
@@ -224,7 +229,7 @@ local function AcquireFrame()
 	if GlowFramePool then
 		return GlowFramePool:Acquire()
 	end
-	return CreateFrame("Frame", nil, GlowParent)
+	return tremove(freeGlowFrames) or CreateFrame("Frame", nil, GlowParent)
 end
 
 local function ReleaseFrame(frame)
@@ -235,6 +240,8 @@ local function ReleaseFrame(frame)
 		GlowFramePool:Release(frame)
 	else
 		FrameResetter(nil, frame)
+		frame:SetParent(GlowParent)
+		tinsert(freeGlowFrames, frame)
 	end
 end
 
@@ -269,7 +276,11 @@ local function addFrameAndTex(r, color, name, key, N, xOffset, yOffset, texture,
 		else
 			f.textures[i]:SetParent(f)
 		end
-		f.textures[i]:SetTexture(texture)
+		if f.textures[i]._sarTexturePath ~= texture
+			or (f.textures[i].GetTexture and not f.textures[i]:GetTexture()) then
+			f.textures[i]:SetTexture(texture)
+			f.textures[i]._sarTexturePath = texture
+		end
 		if texCoord then
 			f.textures[i]:SetTexCoord(texCoord[1], texCoord[2], texCoord[3], texCoord[4])
 		else
@@ -379,8 +390,11 @@ local function LayoutPixelBorder(f, enabled, th, color)
 	if not f.borderTex then
 		f.borderTex = {}
 		for i = 1, 4 do
-			local t = f:CreateTexture(nil, "BACKGROUND")
-			t:SetTexture(TEX_WHITE)
+			local t = AcquireTex(f, "BACKGROUND")
+			if t._sarTexturePath ~= TEX_WHITE or (t.GetTexture and not t:GetTexture()) then
+				t:SetTexture(TEX_WHITE)
+				t._sarTexturePath = TEX_WHITE
+			end
 			f.borderTex[i] = t
 		end
 	end
@@ -598,6 +612,7 @@ local function ButtonGlowResetter(_, frame)
 end
 
 local ButtonGlowPool
+local freeButtonGlowFrames = {}
 if CreateFramePool then
 	ButtonGlowPool = CreateFramePool("Frame", GlowParent, nil, ButtonGlowResetter)
 end
@@ -719,7 +734,7 @@ function Glow.ButtonGlow_Start(r, color, frequency, frameLevel)
 		if ButtonGlowPool then
 			f = ButtonGlowPool:Acquire()
 		else
-			f = CreateFrame("Frame", nil, r)
+			f = tremove(freeButtonGlowFrames) or CreateFrame("Frame", nil, r)
 		end
 		if not f._configured then
 			ConfigureButtonGlow(f)
@@ -760,6 +775,8 @@ function Glow.ButtonGlow_Stop(r)
 		ButtonGlowPool:Release(f)
 	else
 		ButtonGlowResetter(nil, f)
+		f:SetParent(GlowParent)
+		tinsert(freeButtonGlowFrames, f)
 	end
 end
 

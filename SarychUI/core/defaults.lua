@@ -227,6 +227,8 @@ SarychUI.defaults = {
                 altAnnounceChannelRaid = "adaptive",
                 altAnnounceChannelParty = "adaptive",
                 altAnnounceChannelSolo = "adaptive",
+				enableInterruptAnnouncement = 0,
+				interruptAnnounceChannel = "adaptive",
 
                 -- Visual / combat text (moved to floating_text)
 
@@ -442,6 +444,8 @@ SarychUI.defaults = {
                 enableAutoRepairGear = 1,
                 autoRepairGearRequireKey = 0,
                 autoRepairGearKey = 1, -- 1=SHIFT, 2=ALT, 3=CONTROL
+                enableMerchantStackBuy = 0,
+                merchantStackBuyKey = "ALT", -- ALT or CTRL
 
                 -- Кнопка сортировки сумок (стак + порядок, без банка)
                 enableBagSortButton = 1,
@@ -549,12 +553,24 @@ SarychUI.defaults = {
 			-- Main Menu Bar module
 			mainmenubar = {
 				enabled = true,
+				barVisibility = {
+					enabled = 0,
+					key = nil,
+					stance = 1,
+					pet = 1,
+					bags = 1,
+					micro = 1,
+				},
 				-- classic | bfa | dragon (requires /reload when changed)
 				barStyle = "classic",
 				dragonSpacing = 6,
 				
 				-- Hotkey settings
 				hideHotkeysEnabled = true,
+				hotkeyTextMode = "hide",
+				hotkeyFont = "Friz Quadrata TT",
+				hotkeyFontSize = 12,
+				hotkeyFontOutline = "NONE",
 				showHotkeysInCombat = true,
 				showHotkeysOnAlt = true,
 				showHotkeysWithTarget = true,
@@ -563,6 +579,11 @@ SarychUI.defaults = {
 				
 				-- Macro settings
 				hideMacroNames = true,
+				macroTextMode = "hide",
+				macroFont = "Friz Quadrata TT",
+				macroFontSize = 12,
+				macroFontOutline = "OUTLINE",
+				macroFontColor = { 1, 1, 1, 1 },
 				
 				-- Color indication settings
 				colorCooldownEnabled = true,
@@ -578,6 +599,9 @@ SarychUI.defaults = {
 				-- Appearance settings
 				hideGryphons = true,
 				hideActionBarBackgrounds = true,
+				hideExperienceOverlayTextures = false,
+				hideReputationOverlayTextures = false,
+				hideExhaustionTick = false,
 				hideBagMicroMenuBackground = true,
 				hideSecondaryPanelsBackgrounds = true,
 				hideMaxLevelBar = true,
@@ -749,6 +773,13 @@ SarychUI.defaults = {
 			-- Frame module
 			frame = {
 				enabled = true,
+				frameVisibility = {
+					enabled = 0,
+					key = nil,
+					player = 1,
+					target = 0,
+					focus = 0,
+				},
 				-- Positioning
 				changePositions = 1,
 				playerFrameX = -514,
@@ -1121,6 +1152,11 @@ SarychUI.defaults = {
 			-- Cheese addon
 			Cheese = {
 				enabled = true,
+				showSpellAlerts = true,
+				spellAlertOpacity = 1,
+			},
+			Purgeatory = {
+				enabled = false,
 			},
 			-- GearScoreLite addon
 			GearScoreLite = {
@@ -1291,7 +1327,7 @@ SarychUI.defaults = {
 	
 	-- Global settings (not per character)
 	global = {
-        version = "1.3.5a",
+        version = "1.3.6",
 		quickStartCatalog = false,
 		quickStartCatalogCleared = false,
 		quickStartMiscEnabled = false,
@@ -1623,6 +1659,15 @@ local function MigrateProfileDefaults(profile)
 	local mmbDb = profile.modules and profile.modules.mainmenubar
 	local mmbDefaults = SarychUI.defaults.profile.modules.mainmenubar
 	if mmbDb and mmbDefaults then
+		if type(mmbDb.barVisibility) ~= "table" then
+			mmbDb.barVisibility = CopyTable(mmbDefaults.barVisibility)
+		else
+			for key, value in pairs(mmbDefaults.barVisibility) do
+				if mmbDb.barVisibility[key] == nil then
+					mmbDb.barVisibility[key] = value
+				end
+			end
+		end
 		local function EnsureIndicationColor(key, legacyAlpha)
 			local defaults = mmbDefaults[key]
 			local color = mmbDb[key]
@@ -1773,6 +1818,24 @@ local function MigrateProfileDefaults(profile)
 	local aurasDef = SarychUI.defaults.profile.modules.auras
 	local toolsDbForFrame = modules and modules.tools
 	if frameDb and frameDef then
+		if type(frameDb.frameVisibility) ~= "table" then
+			frameDb.frameVisibility = CopyTable(frameDef.frameVisibility)
+		else
+			local visibility = frameDb.frameVisibility
+			-- Correct the previous untouched default in existing profiles.
+			if (visibility.enabled == 0 or visibility.enabled == false or visibility.enabled == nil)
+				and visibility.key == nil and (visibility.player == 0 or visibility.player == false)
+				and (visibility.target == 1 or visibility.target == true)
+				and (visibility.focus == 0 or visibility.focus == false or visibility.focus == nil) then
+				visibility.player = 1
+				visibility.target = 0
+			end
+			for key, value in pairs(frameDef.frameVisibility) do
+				if frameDb.frameVisibility[key] == nil then
+					frameDb.frameVisibility[key] = value
+				end
+			end
+		end
 		if frameDb.enablePetNameShortening == nil then
 			if toolsDbForFrame and toolsDbForFrame.enablePetNameShortening ~= nil then
 				frameDb.enablePetNameShortening = toolsDbForFrame.enablePetNameShortening

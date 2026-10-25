@@ -402,6 +402,15 @@ function _G.sarPlatesAuras_PB_Disable()
 	enabled = false
 end
 
+function _G.sarPlatesAuras_PB_ClearCache()
+	for plate in pairs(plateToGUID) do
+		HidePlateSpells(plate)
+	end
+	wipe(plateToGUID)
+	wipe(guidToPlate)
+	wipe(nametoGUIDs)
+end
+
 function _G.sarPlatesAuras_PB_ForceNameplateUpdate(guid)
 	if UseAwesomeWotlk() then
 		return

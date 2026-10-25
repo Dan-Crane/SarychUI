@@ -550,6 +550,7 @@ function module:Enable()
     self.db = SarychUI.GetModuleProfile and SarychUI:GetModuleProfile(moduleName)
         or (SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.modules and SarychUI.db.profile.modules[moduleName])
     if not self.db or not self.db.enabled then return end
+	self:ApplyFrameVisibilitySettings()
 
     -- Unregister vehicle events from PlayerFrame immediately
     -- This makes vehicle behave like pet, so PlayerFrame won't change position
@@ -655,6 +656,7 @@ end
 
 -- Disable module
 function module:Disable()
+	self:DisableFrameVisibility()
     self._pvpHooksInstalled = false
     self._levelHooksInstalled = false
     self._playerRestStateHooksInstalled = false
@@ -800,6 +802,7 @@ function module:ApplySettings()
         or (SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.modules and SarychUI.db.profile.modules[moduleName])
         or self.db
     if self.db and self.db.enabled then
+		self:ApplyFrameVisibilitySettings()
         local sliderBusy = SarychUI and SarychUI.IsOptionsSliderDragging and SarychUI.IsOptionsSliderDragging()
         -- Сначала применяем позиции (это обновит фреймы при изменении слайдеров)
         self:ApplyFramePositions()
@@ -822,6 +825,18 @@ function module:ApplySettings()
             self:Apply3DPortraits()
         end
     end
+end
+
+function module:ApplyFrameVisibilitySettings()
+	if _G.SarychUI_FrameVisibility then
+		_G.SarychUI_FrameVisibility.ApplySettings()
+	end
+end
+
+function module:DisableFrameVisibility()
+	if _G.SarychUI_FrameVisibility then
+		_G.SarychUI_FrameVisibility.Disable()
+	end
 end
 
 

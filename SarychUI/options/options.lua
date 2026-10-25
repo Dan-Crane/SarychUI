@@ -1046,7 +1046,7 @@ local options = {
 								if L and L["SarychUI Thanks"] then
 									return L["SarychUI Thanks"]
 								end
-								return SarychUI:T("|cFFFFD700Благодарности:|r Hannahmckay, Dismoral (Евгений), gluconaft, Vuren, rtr_, bezdomen, textenter, Avdosy")
+								return SarychUI:T("|cFFFFD700Благодарности:|r Hannahmckay, Dismoral (Евгений), gluconaft, Vuren, rtr_, bezdomen, textenter, Avdosy, suprematist, snippi")
 							end,
 							order = 4,
 							width = "full",

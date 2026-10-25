@@ -22,7 +22,7 @@ local hooksInstalled = false
 local locale = GetLocale and GetLocale() or "enUS"
 local daySuffix = (locale == "ruRU") and " д." or "d"
 local hourSuffix = (locale == "ruRU") and " ч." or "h"
-local minuteSuffix = (locale == "ruRU") and " м." or "m"
+local minuteSuffix = (locale == "ruRU") and "м" or "m"
 
 -- Helpers to access settings with sane fallbacks
 local function getSetting(key, default)
@@ -100,6 +100,41 @@ local function ClearCountdown(state)
 end
 
 local ensureText
+local STRATA_ORDER = {
+    BACKGROUND = 1, LOW = 2, MEDIUM = 3, HIGH = 4,
+    DIALOG = 5, FULLSCREEN = 6, FULLSCREEN_DIALOG = 7, TOOLTIP = 8,
+}
+
+local function SyncCountdownLayer(frame, state)
+    if not state.host then return end
+    local owner = frame:GetParent()
+    local strata = frame:GetFrameStrata() or "MEDIUM"
+    local keepIconStrata = frame.__sary_partyAbility or frame.__sary_arenaTrinket
+    if not keepIconStrata and (strata == "BACKGROUND" or strata == "LOW" or strata == "MEDIUM") then
+        strata = "HIGH"
+    end
+    local ownerStrata = owner and owner:GetFrameStrata()
+    if ownerStrata and (STRATA_ORDER[ownerStrata] or 0) > (STRATA_ORDER[strata] or 0) then
+        strata = ownerStrata
+    end
+    -- Bag slots can be raised when an item moves. Track their current level
+    -- independently of the text refresh interval (up to 10 seconds).
+    local level = max(frame:GetFrameLevel() or 0, owner and owner:GetFrameLevel() or 0)
+        + (keepIconStrata and 1 or 5)
+    if state.action then
+        -- Action effects may use HIGH levels above 100 during another cast.
+        -- Keep the countdown above those effects and below tooltips.
+        strata, level = "DIALOG", 1
+    end
+    if state.strata ~= strata then
+        state.host:SetFrameStrata(strata)
+        state.strata = strata
+    end
+    if state.level ~= level then
+        state.host:SetFrameLevel(level)
+        state.level = level
+    end
+end
 
 -- Per-frame update
 local function cooldown_OnUpdate(frame, elapsed)
@@ -117,6 +152,8 @@ local function cooldown_OnUpdate(frame, elapsed)
         state.nextUpdate = 0
         return
     end
+
+    SyncCountdownLayer(frame, state)
 
     state.nextUpdate = (state.nextUpdate or 0) - elapsed
     if state.nextUpdate > 0 then return end
@@ -168,26 +205,7 @@ local function cooldown_OnUpdate(frame, elapsed)
         textObj:SetTextColor(color[1], color[2], color[3], alpha)
         state.colorR, state.colorG, state.colorB, state.colorA = color[1], color[2], color[3], alpha
     end
-    local strata = frame:GetFrameStrata() or "MEDIUM"
-    local keepIconStrata = frame.__sary_partyAbility or frame.__sary_arenaTrinket
-    if not keepIconStrata and (strata == "BACKGROUND" or strata == "LOW" or strata == "MEDIUM") then
-        strata = "HIGH"
-    end
-    -- These countdowns stay with their icons so normal windows cover both.
-    local level = (frame:GetFrameLevel() or 0) + (keepIconStrata and 1 or 5)
-    if state.action then
-        -- Action effects may use HIGH levels above 100 during another cast.
-        -- Keep the countdown above those effects and below tooltips.
-        strata, level = "DIALOG", 1
-    end
-    if state.strata ~= strata then
-        state.host:SetFrameStrata(strata)
-        state.strata = strata
-    end
-    if state.level ~= level then
-        state.host:SetFrameLevel(level)
-        state.level = level
-    end
+    SyncCountdownLayer(frame, state)
     -- The text is a UIParent child, so button fades must never affect it.
     if state.host:GetAlpha() ~= 1 then state.host:SetAlpha(1) end
     if textObj:GetAlpha() ~= 1 then textObj:SetAlpha(1) end

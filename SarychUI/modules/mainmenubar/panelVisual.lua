@@ -22,6 +22,71 @@ end
 
 local module = getModule()
 
+local GetSetting
+local classicXpOriginal
+
+local function SaveGeometry(region)
+    if not region then return nil end
+    local geometry = {
+        width = region:GetWidth(),
+        height = region:GetHeight(),
+        points = {},
+    }
+    for index = 1, region:GetNumPoints() do
+        local point, relativeTo, relativePoint, x, y = region:GetPoint(index)
+        geometry.points[index] = { point, relativeTo, relativePoint, x, y }
+    end
+    return geometry
+end
+
+local function RestoreGeometry(region, geometry)
+    if not region or not geometry then return end
+    region:SetWidth(geometry.width)
+    region:SetHeight(geometry.height)
+    region:ClearAllPoints()
+    for _, point in ipairs(geometry.points) do
+        region:SetPoint(point[1], point[2], point[3], point[4], point[5])
+    end
+end
+
+function module:ApplyClassicXpGeometry()
+    if self._bootBarStyle ~= "classic" or not MainMenuExpBar then return end
+    if not GetSetting('enabled', false) then return end
+
+    if not classicXpOriginal then
+        classicXpOriginal = {
+            bar = SaveGeometry(MainMenuExpBar),
+            textures = {},
+            exhaustion = SaveGeometry(ExhaustionLevelFillBar),
+        }
+        for index = 0, 3 do
+            classicXpOriginal.textures[index] = SaveGeometry(_G["MainMenuXPBarTexture" .. index])
+        end
+    end
+
+    MainMenuExpBar:SetHeight(11)
+    if ExhaustionLevelFillBar then ExhaustionLevelFillBar:SetHeight(11) end
+    local offsets = { -384, -128, 128, 384 }
+    for index = 0, 3 do
+        local texture = _G["MainMenuXPBarTexture" .. index]
+        if texture then
+            texture:SetHeight(11)
+            texture:ClearAllPoints()
+            texture:SetPoint("BOTTOM", MainMenuExpBar, "BOTTOM", offsets[index + 1], 0)
+        end
+    end
+end
+
+function module:RestoreClassicXpGeometry()
+    if not classicXpOriginal then return end
+    RestoreGeometry(MainMenuExpBar, classicXpOriginal.bar)
+    RestoreGeometry(ExhaustionLevelFillBar, classicXpOriginal.exhaustion)
+    for index = 0, 3 do
+        RestoreGeometry(_G["MainMenuXPBarTexture" .. index], classicXpOriginal.textures[index])
+    end
+    classicXpOriginal = nil
+end
+
 -- Подключаем AceTimer для throttling OnUpdate скриптов (оптимизация производительности)
 local AceTimer = LibStub("AceTimer-3.0", true)
 
@@ -36,7 +101,7 @@ local function BarsDebug(...)
 end
 
 -- Helper function to get settings (must be defined before bar layout helpers)
-local function GetSetting(key, default)
+GetSetting = function(key, default)
     if not SarychUI.db or not SarychUI.db.profile or not SarychUI.db.profile.modules then
         return default
     end
@@ -51,6 +116,77 @@ local function GetSetting(key, default)
         return default
     end
     return v
+end
+
+local xpOverlayOriginalAlpha = {}
+
+function module:ApplyExperienceOverlayVisibility()
+    local hidden = GetSetting('enabled', false)
+        and self._bootBarStyle ~= "dragon"
+        and GetSetting('hideExperienceOverlayTextures', false)
+    for index = 0, 3 do
+        local texture = _G["MainMenuXPBarTexture" .. index]
+        if texture then
+            if hidden then
+                if xpOverlayOriginalAlpha[index] == nil then
+                    xpOverlayOriginalAlpha[index] = texture:GetAlpha()
+                end
+                texture:SetAlpha(0)
+            elseif xpOverlayOriginalAlpha[index] ~= nil then
+                texture:SetAlpha(xpOverlayOriginalAlpha[index])
+                xpOverlayOriginalAlpha[index] = nil
+            end
+        end
+    end
+end
+
+function module:RestoreExperienceOverlayVisibility()
+    for index = 0, 3 do
+        local texture = _G["MainMenuXPBarTexture" .. index]
+        if texture and xpOverlayOriginalAlpha[index] ~= nil then
+            texture:SetAlpha(xpOverlayOriginalAlpha[index])
+        end
+        xpOverlayOriginalAlpha[index] = nil
+    end
+end
+
+local reputationOverlayOriginalAlpha = {}
+local reputationOverlayPrefixes = { "ReputationXPBarTexture", "ReputationWatchBarTexture" }
+
+function module:ApplyReputationOverlayVisibility()
+    local hidden = GetSetting('enabled', false)
+        and self._bootBarStyle ~= "dragon"
+        and GetSetting('hideReputationOverlayTextures', false)
+    for _, prefix in ipairs(reputationOverlayPrefixes) do
+        for index = 0, 3 do
+            local name = prefix .. index
+            local texture = _G[name]
+            if texture then
+                if hidden then
+                    if reputationOverlayOriginalAlpha[name] == nil then
+                        reputationOverlayOriginalAlpha[name] = texture:GetAlpha()
+                    end
+                    texture:SetAlpha(0)
+                elseif reputationOverlayOriginalAlpha[name] ~= nil then
+                    texture:SetAlpha(reputationOverlayOriginalAlpha[name])
+                    reputationOverlayOriginalAlpha[name] = nil
+                end
+            end
+        end
+    end
+end
+
+function module:RestoreReputationOverlayVisibility()
+    for _, prefix in ipairs(reputationOverlayPrefixes) do
+        for index = 0, 3 do
+            local name = prefix .. index
+            local texture = _G[name]
+            if texture and reputationOverlayOriginalAlpha[name] ~= nil then
+                texture:SetAlpha(reputationOverlayOriginalAlpha[name])
+            end
+            reputationOverlayOriginalAlpha[name] = nil
+        end
+    end
 end
 
 local MAX_LEVEL = tonumber(MAX_PLAYER_LEVEL) or 80
@@ -280,13 +416,15 @@ function module:ApplyCollapsedBarsLayout(reason)
     if UIParent_ManageFramePositions then
         UIParent_ManageFramePositions()
     end
-    
+    self:ApplyClassicXpGeometry()
+
     isUpdatingBarsLayout = false
     LogBarsState("after collapsed layout")
 end
 
 -- Re-apply SarychUI hide/alpha after Blizzard repositioned bars
 function module:ApplyBarsVisualStateAfterLayout()
+    self:ApplyClassicXpGeometry()
     if isXPBarAnimating then
         return
     end
@@ -440,6 +578,8 @@ function module:InitializeVisualSystem()
     BarsDebug("module loaded, initializing bar visual system")
     
     HookBlizzardReputationBarUpdate()
+    self:ApplyClassicXpGeometry()
+    self:ApplyExhaustionTickVisibility()
     
     CommitWatchedFactionSnapshot()
     
@@ -1247,6 +1387,10 @@ local function ApplyBagAlpha()
     local bagAlphaEnabled = GetSetting("bagAlphaEnabled", false)
     local bagAlpha = GetSetting("bagAlpha", 0.95)
     local a = bagsHovered and 1 or (bagAlphaEnabled and (bagAlpha or 0.95) or 1)
+	local visibility = _G.SarychUI_BarVisibility
+	if visibility and visibility.IsGroupHidden and visibility.IsGroupHidden("bags") then
+		a = 0
+	end
 
     for i = 1, #BAG_ALPHA_BUTTONS do
         local button = _G[BAG_ALPHA_BUTTONS[i]]
@@ -1831,13 +1975,30 @@ local function SetBarAlpha(bar, alpha)
     end
 end
 
+local function ShouldHideExhaustionTick()
+    return GetSetting('enabled', false)
+        and module._bootBarStyle ~= "dragon"
+        and GetSetting('hideExhaustionTick', false)
+end
+
+function module:ApplyExhaustionTickVisibility()
+    if not ExhaustionTick then return end
+    if not self._exhaustionTickVisibilityHooked and ExhaustionTick.HookScript then
+        ExhaustionTick:HookScript("OnShow", function(tick)
+            if ShouldHideExhaustionTick() then tick:Hide() end
+        end)
+        self._exhaustionTickVisibilityHooked = true
+    end
+    self:UpdateExhaustionTick()
+end
+
 -- Set experience bar visibility (from original)
 function module:SetExpBarVisibility(show)
     SetBarVisibility(MainMenuExpBar, show)
     if ExhaustionTick then
         -- ExhaustionTick должен показываться вместе с полосой опыта
         -- если у игрока есть бодрость
-        if show and IsPlayerRested() then
+        if show and IsPlayerRested() and not ShouldHideExhaustionTick() then
             SetBarVisibility(ExhaustionTick, true)
         else
             SetBarVisibility(ExhaustionTick, false)
@@ -1856,7 +2017,7 @@ function module:UpdateExhaustionTick()
     if ExhaustionTick then
         -- ExhaustionTick должен показываться независимо от настроек полосы опыта
         -- если у игрока есть бодрость
-        if IsPlayerRested() then
+        if IsPlayerRested() and not ShouldHideExhaustionTick() then
             ExhaustionTick:Show()
         else
             ExhaustionTick:Hide()
@@ -2629,6 +2790,9 @@ function module:ApplyAppearanceSettings()
 	if module.BFAStyle and module.BFAStyle.active then
 		module.BFAStyle:ApplyAppearance()
 	end
+	self:ApplyExperienceOverlayVisibility()
+	self:ApplyReputationOverlayVisibility()
+	self:ApplyExhaustionTickVisibility()
 	-- BFA shows MainMenuBarArtFrame after the first pass. Re-apply so the
 	-- page arrows stay in the state chosen by hidePageButtons.
 	ApplyPageButtonsSettings()
@@ -2652,6 +2816,9 @@ function module:RefreshVisualImprovements()
         self.BFAStyle:ApplyAppearance()
         ApplyPageButtonsSettings()
     end
+    self:ApplyExperienceOverlayVisibility()
+    self:ApplyReputationOverlayVisibility()
+    self:ApplyExhaustionTickVisibility()
 end
 
 -- Export functions to module

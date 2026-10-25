@@ -111,10 +111,15 @@ function module:Enable()
 	elseif self._bootBarStyle == "dragon" and self.DragonStyle then
 		self.DragonStyle:Enable()
 	end
+	self:ApplyBarVisibilitySettings()
 end
 
 -- Disable module - COORDINATOR FUNCTION
 function module:Disable()
+	self:DisableBarVisibility()
+	if self.RestoreClassicXpGeometry then self:RestoreClassicXpGeometry() end
+	if self.RestoreExperienceOverlayVisibility then self:RestoreExperienceOverlayVisibility() end
+	if self.RestoreReputationOverlayVisibility then self:RestoreReputationOverlayVisibility() end
 	if self.StopTransparencyHover then self:StopTransparencyHover() end
 	if self.BFAStyle and self.BFAStyle.active then
 		self.BFAStyle:Disable()
@@ -371,6 +376,18 @@ function module:Disable()
     if MainMenuBarMaxLevelBar then
         MainMenuBarMaxLevelBar:SetAlpha(1)
     end
+end
+
+function module:ApplyBarVisibilitySettings()
+	if _G.SarychUI_BarVisibility then
+		_G.SarychUI_BarVisibility.ApplySettings()
+	end
+end
+
+function module:DisableBarVisibility()
+	if _G.SarychUI_BarVisibility then
+		_G.SarychUI_BarVisibility.Disable()
+	end
 end
 
 function module:GetBootBarStyle()

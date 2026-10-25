@@ -1,5 +1,5 @@
 -- Global enabled state
-CheeseEnabled = CheeseEnabled or true;
+CheeseEnabled = CheeseEnabled ~= false;
 
 -- Function to check if addon is enabled
 local function IsEnabled()
@@ -346,10 +346,7 @@ local function ChangeAction(action, newGlobalID)
 	SetAction(action, newGlobalID);
 end
 
-local function BuffGained(spellID, k, overlayTable)
-	if not IsEnabled() then
-		return;
-	end
+local function ShowSpellOverlay(spellID, k, overlayTable)
 	if ( k < OVERLAYS_UPPER_BOUND ) then
 		local texture = "Interface\\AddOns\\SarychUI\\addons\\Cheese\\Textures\\SpellActivationOverlays\\"..overlayTable[k + 1];
 		local positions = overlayTable[k + 2];
@@ -362,6 +359,13 @@ local function BuffGained(spellID, k, overlayTable)
 			func(frame, spellID, texture, positions, scale, r, g, b);
 		end
 	end
+end
+
+local function BuffGained(spellID, k, overlayTable)
+	if not IsEnabled() then
+		return;
+	end
+	ShowSpellOverlay(spellID, k, overlayTable);
 	local glowSpells = buffGlowSpells[spellID];
 	if ( glowSpells ) then
 		for globalID in pairs(glowSpells) do
@@ -464,6 +468,15 @@ end
 
 local function eventFrame1_OnEventPlayerLogin(self)
 	eventFrame1:UnregisterEvent("PLAYER_LOGIN");
+	eventFrame1:SetScript("OnEvent", eventFrame1_OnEventActionbarSlotChanged);
+	eventFrame1:RegisterEvent("ACTIONBAR_SLOT_CHANGED");
+	eventFrame1:RegisterEvent("UPDATE_MACROS");
+	eventFrame1:RegisterEvent("SPELLS_CHANGED");
+	eventFrame2:SetScript("OnEvent", eventFrame2_OnEventUnitAura);
+	eventFrame2:RegisterEvent("UNIT_AURA");
+	if not IsEnabled() then
+		return;
+	end
 	do
 		for action=1, NUM_ACTION_BUTTONS do
 			local globalID = Cheese_GetActionSpellID(action);
@@ -472,10 +485,6 @@ local function eventFrame1_OnEventPlayerLogin(self)
 			end
 		end
 	end
-	eventFrame1:SetScript("OnEvent", eventFrame1_OnEventActionbarSlotChanged);
-	eventFrame1:RegisterEvent("ACTIONBAR_SLOT_CHANGED");
-	eventFrame1:RegisterEvent("UPDATE_MACROS");
-	eventFrame1:RegisterEvent("SPELLS_CHANGED");
 	do
 		local unit = PlayerFrame.unit;
 		local name, _, _, count, _, _, _, _, _, _, spellID = UnitBuff(unit, 1);
@@ -499,12 +508,45 @@ local function eventFrame1_OnEventPlayerLogin(self)
 			until not name
 		end
 	end
-	eventFrame2:SetScript("OnEvent", eventFrame2_OnEventUnitAura);
-	eventFrame2:RegisterEvent("UNIT_AURA");
 end
 
 eventFrame1:SetScript("OnEvent", eventFrame1_OnEventPlayerLogin);
 eventFrame1:RegisterEvent("PLAYER_LOGIN");
+
+function Cheese_RefreshAuras()
+	if IsEnabled() and eventFrame2:IsEventRegistered("UNIT_AURA") then
+		eventFrame2_OnEventUnitAura(eventFrame2, "UNIT_AURA", PlayerFrame.unit);
+	end
+end
+
+function Cheese_RefreshSpellOverlays()
+	if not IsEnabled() then return end
+	local overlayMap = OVERLAY_MAP();
+	local overlayTable = OVERLAY_TABLE();
+	for spellID in pairs(buffs) do
+		local k = overlayMap[spellID];
+		if k then
+			ShowSpellOverlay(spellID, k, overlayTable);
+		end
+	end
+end
+
+function Cheese_ClearRuntime()
+	for spellID in pairs(buffs) do
+		for frame, func in pairs(eventOverlayHideListeners) do
+			func(frame, spellID);
+		end
+		buffs[spellID] = nil;
+	end
+	for globalID in pairs(spellsOverlayed) do
+		for frame, func in pairs(eventOverlayGlowHideListeners) do
+			func(frame, globalID);
+		end
+		spellsOverlayed[globalID] = nil;
+	end
+	wipe(buffGlowSpells);
+	wipe(actionButtons);
+end
 
 function Cheese_IsSpellOverlayed(spellID)
 	return spellsOverlayed[spellID] and true or false;

@@ -883,6 +883,51 @@ function module:GetOptions()
 						},
 					},
 
+					interruptAnnouncementBox = {
+						type = "group",
+						name = "Объявление о прерывании каста",
+						order = 2,
+						inline = true,
+						args = {
+							enableInterruptAnnouncement = {
+								type = "toggle",
+								name = "Включить",
+								desc = "Отправляет сообщение в чат только после успешного прерывания каста вашим персонажем.",
+								order = 1,
+								width = "full",
+								get = toggleGetter,
+								set = function(_, val)
+									local db = DB(); if not db then return end
+									db.enableInterruptAnnouncement = val and 1 or 0
+									if module and module.ApplyInterruptAnnouncement then
+										module:ApplyInterruptAnnouncement()
+									end
+									Refresh()
+								end,
+							},
+							interruptAnnounceChannel = {
+								type = "select",
+								name = "Канал",
+								desc = "Канал для сообщения о прерывании. Адаптивно: рейд, группа или /сказать по составу группы.",
+								order = 2,
+								width = "full",
+								suiInlineLabel = true,
+								values = ALT_ANNOUNCE_CHANNEL_VALUES,
+								get = function()
+									local db = DB()
+									local mode = db and db.interruptAnnounceChannel
+									return (mode and ALT_ANNOUNCE_CHANNEL_VALUES[mode]) and mode or "adaptive"
+								end,
+								set = function(_, mode)
+									local db = DB(); if not db then return end
+									db.interruptAnnounceChannel = (mode and ALT_ANNOUNCE_CHANNEL_VALUES[mode]) and mode or "adaptive"
+									Refresh()
+								end,
+								disabled = function() return not isOn("enableInterruptAnnouncement") end,
+							},
+						},
+					},
+
 					travelBox = {
 						type = "group",
 						name = "Путешествия и PvP",

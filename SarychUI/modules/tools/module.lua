@@ -1978,6 +1978,52 @@ function AltCD.GetChatChannel()
     return AltCD.ResolveChannelMode(AltCD.GetChannelMode())
 end
 
+-- Announce only confirmed interrupts performed by the player.
+function module:ApplyInterruptAnnouncement()
+    local db = DB()
+    if db and db.enabled and db.enableInterruptAnnouncement == 1 then
+        self:EnableInterruptAnnouncement()
+    else
+        self:DisableInterruptAnnouncement()
+    end
+end
+
+function module:EnableInterruptAnnouncement()
+    if not S.interruptAnnouncementFrame then
+        S.interruptAnnouncementFrame = CreateFrame("Frame")
+        S.interruptAnnouncementFrame:SetScript("OnEvent", function(_, event, timestamp, subevent,
+            sourceGUID, sourceName, sourceFlags, destGUID, destName, destFlags,
+            spellID, spellName, spellSchool, extraSpellID, extraSpellName)
+            local db = DB()
+            if event ~= "COMBAT_LOG_EVENT_UNFILTERED" or subevent ~= "SPELL_INTERRUPT"
+                or not db or not db.enabled or db.enableInterruptAnnouncement ~= 1
+                or not sourceGUID or sourceGUID ~= UnitGUID("player") then
+                return
+            end
+
+            local interruptedName = extraSpellName or (extraSpellID and GetSpellInfo(extraSpellID))
+            local interruptName = spellName or (spellID and GetSpellInfo(spellID))
+            if not interruptedName or interruptedName == "" or not interruptName or interruptName == "" then
+                return
+            end
+
+            local interrupted = extraSpellID and GetSpellLink and GetSpellLink(extraSpellID)
+                or "[" .. interruptedName .. "]"
+            local interrupt = spellID and GetSpellLink and GetSpellLink(spellID)
+                or "[" .. interruptName .. "]"
+            local channel = AltCD.ResolveChannelMode(db.interruptAnnounceChannel)
+            SendChatMessage("Прервал " .. interrupted .. " (" .. interrupt .. ")", channel)
+        end)
+    end
+    S.interruptAnnouncementFrame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+end
+
+function module:DisableInterruptAnnouncement()
+    if S.interruptAnnouncementFrame then
+        S.interruptAnnouncementFrame:UnregisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+    end
+end
+
 
 AltCD.DEBUG = false
 
@@ -7237,6 +7283,7 @@ function module:ApplyAllSettings()
     self:ApplyAltCD()
     self:ApplyAltUnitBars()
     self:ApplyAltAuras()
+    self:ApplyInterruptAnnouncement()
     self:ApplyAltFPS()
     self:ApplyTooltipCursor()
     self:ApplyCastbarTimers()
@@ -7469,6 +7516,7 @@ function module:Disable()
     
     -- Disable alt CD announcement
     self:DisableAltCD()
+    self:DisableInterruptAnnouncement()
     
     -- Disable alt FPS
     self:DisableAltFPS()

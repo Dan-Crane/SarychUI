@@ -16,8 +16,11 @@ function NP:Update_IconFrame(frame)
 			icon = NP.TriggerConditions.uniqueUnits[unit][3]
 		end
 
-		if icon then
-			frame.IconFrame.texture:SetTexture(icon)
+		if type(icon) == "string" and icon ~= "" then
+			if frame.IconFrame.texture._sarTexturePath ~= icon then
+				frame.IconFrame.texture:SetTexture(icon)
+				frame.IconFrame.texture._sarTexturePath = icon
+			end
 			frame.IconFrame:Show()
 
 			self:StyleFrameColor(frame.IconFrame, frame.oldHealthBar:GetStatusBarColor())

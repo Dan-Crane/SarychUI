@@ -1,5 +1,5 @@
 -- Global enabled state
-CheeseEnabled = CheeseEnabled or true;
+CheeseEnabled = CheeseEnabled ~= false;
 
 -- Function to check if addon is enabled
 local function IsEnabled()
@@ -31,7 +31,8 @@ function CheeseSpellActivationOverlay_OnEventOverlayShow(self, spellID, texture,
 	if not IsEnabled() then
 		return;
 	end
-	if ( cheeseDisplaySpellActivationOverlays ~= "0" ) then 
+	local config = SarychUI and SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.addons and SarychUI.db.profile.addons.Cheese;
+	if ( not config or config.showSpellAlerts ~= false ) then
 		CheeseSpellActivationOverlay_ShowAllOverlays(self, spellID, texture, positions, scale, r, g, b)
 	end
 end

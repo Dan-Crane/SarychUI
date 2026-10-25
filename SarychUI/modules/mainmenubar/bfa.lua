@@ -211,7 +211,7 @@ local function StyleStatusBars()
 	for index = 0, 3 do
 		local texture = getglobal("MainMenuXPBarTexture" .. index)
 		if texture and MainMenuMaxLevelBar1 then
-			SetPoint(texture, "CENTER", MainMenuMaxLevelBar1, "CENTER", xpOffsets[index + 1], 2)
+			SetPoint(texture, "CENTER", MainMenuMaxLevelBar1, "CENTER", xpOffsets[index + 1], index > 0 and 3 or 2)
 		end
 	end
 

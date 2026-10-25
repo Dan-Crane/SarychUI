@@ -21,6 +21,22 @@ local function FrameDB()
     return SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.modules and SarychUI.db.profile.modules.frame
 end
 
+local function FrameVisibilityDB()
+    local db = FrameDB()
+    if not db then return nil end
+    if type(db.frameVisibility) ~= "table" then
+        local defaults = SarychUI.defaults.profile.modules.frame.frameVisibility
+        db.frameVisibility = CopyTable(defaults)
+    end
+    return db.frameVisibility
+end
+
+local function ApplyFrameVisibility()
+    if module.ApplyFrameVisibilitySettings then
+        module:ApplyFrameVisibilitySettings()
+    end
+end
+
 local function isOn(key)
     local db = FrameDB()
     if not db then return false end
@@ -1057,6 +1073,99 @@ function module:GetOptions()
                                 disabled = function() return SarychUI.db.profile.modules.frame.warlockAlways ~= 1 end,
                                 get = function() return SarychUI.db.profile.modules.frame.warlockThreshold or 25 end,
                                 set = function(_, v) SarychUI.db.profile.modules.frame.warlockThreshold = v; ApplyFrameSettings() end,
+                            },
+                        },
+                    },
+                },
+            },
+
+            visibility = {
+                type = "group",
+                name = "Видимость",
+                order = 6,
+                disabled = function() return not isEnabled() end,
+                args = {
+                    visibilityBox = {
+                        type = "group",
+                        name = " ",
+                        order = 1,
+                        inline = true,
+                        args = {
+                            enabled = {
+                                type = "toggle",
+                                name = "Включить управление видимостью",
+                                desc = "Разрешает скрывать и показывать выбранные фреймы назначенной кнопкой.",
+                                order = 1,
+                                width = "full",
+                                get = function()
+                                    local visibility = FrameVisibilityDB()
+                                    return visibility and (visibility.enabled == 1 or visibility.enabled == true)
+                                end,
+                                set = function(_, value)
+                                    local visibility = FrameVisibilityDB()
+                                    visibility.enabled = value and 1 or 0
+                                    ApplyFrameVisibility()
+                                    RefreshConfig()
+                                end,
+                            },
+                            key = {
+                                type = "keybinding",
+                                name = "Кнопка видимости фреймов",
+                                desc = "Одно нажатие скрывает выбранные фреймы, повторное показывает их.",
+                                order = 2,
+                                width = "full",
+                                disabled = function()
+                                    local visibility = FrameVisibilityDB()
+                                    return not visibility or (visibility.enabled ~= 1 and visibility.enabled ~= true)
+                                end,
+                                get = function()
+                                    local visibility = FrameVisibilityDB()
+                                    return visibility and visibility.key or nil
+                                end,
+                                set = function(_, value)
+                                    local visibility = FrameVisibilityDB()
+                                    visibility.key = value
+                                    ApplyFrameVisibility()
+                                end,
+                            },
+                            player = {
+                                type = "toggle",
+                                name = "Игрок",
+                                order = 3,
+                                hidden = function()
+                                    local v = FrameVisibilityDB()
+                                    return not v or (v.enabled ~= 1 and v.enabled ~= true)
+                                end,
+                                get = function() local v = FrameVisibilityDB(); return v and (v.player == 1 or v.player == true) end,
+                                set = function(_, value) local v = FrameVisibilityDB(); v.player = value and 1 or 0; ApplyFrameVisibility() end,
+                            },
+                            target = {
+                                type = "toggle",
+                                name = "Цель",
+                                order = 4,
+                                hidden = function()
+                                    local v = FrameVisibilityDB()
+                                    return not v or (v.enabled ~= 1 and v.enabled ~= true)
+                                end,
+                                get = function() local v = FrameVisibilityDB(); return v and (v.target == 1 or v.target == true) end,
+                                set = function(_, value) local v = FrameVisibilityDB(); v.target = value and 1 or 0; ApplyFrameVisibility() end,
+                            },
+                            focus = {
+                                type = "toggle",
+                                name = "Фокус",
+                                order = 5,
+                                hidden = function()
+                                    local v = FrameVisibilityDB()
+                                    return not v or (v.enabled ~= 1 and v.enabled ~= true)
+                                end,
+                                get = function() local v = FrameVisibilityDB(); return v and (v.focus == 1 or v.focus == true) end,
+                                set = function(_, value) local v = FrameVisibilityDB(); v.focus = value and 1 or 0; ApplyFrameVisibility() end,
+                            },
+                            note = {
+                                type = "description",
+                                name = "|cFFFFD700Пометка:|r При скрытии игрока также скрываются питомец, руны и тотемы. Можно назначить ту же кнопку, что и для чата или миникарты.",
+                                order = 6,
+                                fontSize = "medium",
                             },
                         },
                     },

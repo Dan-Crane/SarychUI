@@ -13,6 +13,24 @@ local UnitCastingInfo = UnitCastingInfo
 local UnitChannelInfo = UnitChannelInfo
 local FAILED = FAILED
 local INTERRUPTED = INTERRUPTED
+local UNKNOWN_CAST_ICON = [[Interface\Icons\INV_Misc_QuestionMark]]
+
+local function SetCastIcon(castBar, path)
+	if type(path) ~= "string" or path == "" then path = UNKNOWN_CAST_ICON end
+	local icon = castBar and castBar.Icon and castBar.Icon.texture
+	if icon and icon._sarTexturePath ~= path then
+		icon:SetTexture(path)
+		icon._sarTexturePath = path
+	end
+end
+
+local function SetCastBarFillTexture(castBar, path)
+	if type(path) ~= "string" or path == "" then return end
+	if castBar._sarFillTexturePath ~= path or not castBar:GetStatusBarTexture() then
+		castBar:SetStatusBarTexture(path, "BORDER")
+		castBar._sarFillTexturePath = path
+	end
+end
 
 local function resetAttributes(self)
 	self.casting = nil
@@ -146,7 +164,7 @@ function NP:ApplyCastInfo(frame)
 		castBar.spellName = frame.castSpellName
 		castBar.Name:SetText(frame.castSpellName)
 		if frame.castSpellIcon then
-			castBar.Icon.texture:SetTexture(frame.castSpellIcon)
+			SetCastIcon(castBar, frame.castSpellIcon)
 			ApplyIconDesaturation(castBar)
 		end
 	end
@@ -276,7 +294,7 @@ function NP:StartCastBarFromDefault(frame)
 		castBar:SetFrameLevel(frame.Health:GetFrameLevel() + 1)
 	end
 
-	if texture then castBar.Icon.texture:SetTexture(texture) end
+	SetCastIcon(castBar, texture)
 	castBar.Spark:Show()
 	castBar.Name:SetText(name or "")
 	castBar.Time:SetText()
@@ -420,7 +438,7 @@ function NP:Configure_CastBar(frame, configuring)
 	castBar.Name:ClearAllPoints()
 
 	-- Make sure the fill texture exists BEFORE we anchor the spark to it.
-	castBar:SetStatusBarTexture(LSM:Fetch("statusbar", self.db.statusbar), "BORDER")
+	SetCastBarFillTexture(castBar, LSM:Fetch("statusbar", self.db.statusbar))
 
 	castBar.Spark:SetPoint("CENTER", castBar:GetStatusBarTexture(), "RIGHT", 0, 0)
 	castBar.Spark:SetHeight(db.height * 2)
@@ -462,7 +480,7 @@ function NP:Construct_CastBar(parent)
 	local frame = CreateFrame("StatusBar", "$parentCastBar", parent)
 	-- Set the fill texture immediately (like the health bar). Otherwise the bar
 	-- has no statusbar texture until Configure runs, and an empty fill is invisible.
-	frame:SetStatusBarTexture(LSM:Fetch("statusbar", self.db and self.db.statusbar or "ElvUI Norm"), "BORDER")
+	SetCastBarFillTexture(frame, LSM:Fetch("statusbar", self.db and self.db.statusbar or "ElvUI Norm"))
 	NP:StyleFrame(frame)
 	frame:SetScript("OnUpdate", NP.Update_CastBarOnUpdate)
 

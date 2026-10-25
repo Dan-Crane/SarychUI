@@ -111,6 +111,38 @@ function module:GetOptions()
 						},
 					},
 				},
+				merchantStackBuyBox = {
+					type = "group",
+					name = "|TInterface\\CURSOR\\Buy.blp:15.3:15.3:0:0|t " .. SarychUI:T("Покупка стака у торговца"),
+					order = 70,
+					inline = true,
+					args = {
+						enableMerchantStackBuy = {
+							type = "toggle",
+							name = SarychUI:T("Покупать стак при клике с модификатором"),
+							desc = SarychUI:T("При клике по товару у торговца с зажатой выбранной клавишей покупать один полный стак предмета"),
+							order = 1,
+							width = "full",
+							get = toggleGetter,
+							set = toggleSetter,
+						},
+						merchantStackBuyKey = {
+							type = "select",
+							name = SarychUI:T("Клавиша-модификатор"),
+							order = 2,
+							width = "full",
+							values = { ALT = "ALT", CTRL = "CTRL" },
+							get = function()
+								local db = DB(); return (db and db.merchantStackBuyKey) or "ALT"
+							end,
+							set = function(_, val)
+								local db = DB(); if not db then return end
+								db.merchantStackBuyKey = val
+							end,
+							hidden = function() return not isOn("enableMerchantStackBuy") end,
+						},
+					},
+				},
 				autoReleasePvPBox = {
 					type = "group",
 					name = "|TInterface\\CURSOR\\PVP:15.3:15.3:0:0|t Покидание тела в PVP",

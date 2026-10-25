@@ -2,7 +2,6 @@
 -- Manages loading and enabling/disabling of Cheese addon
 
 local ADDON_NAME = "Cheese"
-local addonPath = "Interface\\AddOns\\SarychUI\\addons\\Cheese\\"
 
 -- Create wrapper module
 local wrapper = {
@@ -14,17 +13,7 @@ local wrapper = {
 }
 
 -- Global enabled state
-CheeseEnabled = CheeseEnabled or true;
-
--- Function to check if addon is enabled
-local function IsEnabled()
-	if SarychUI and SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.addons and SarychUI.db.profile.addons[ADDON_NAME] then
-		return SarychUI.db.profile.addons[ADDON_NAME].enabled ~= false;
-	end
-	return CheeseEnabled;
-end
-
--- Initialize wrapper
+CheeseEnabled = CheeseEnabled ~= false
 
 local function GetRuntimeEnabledFromDB()
 	if SarychUI and SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.addons and SarychUI.db.profile.addons[ADDON_NAME] then
@@ -42,100 +31,107 @@ local function SetRuntimeEnabledInDB(enable)
 	SarychUI.db.profile.addons[ADDON_NAME].enabled = enable and true or false
 end
 
+local function RegisterNativeOptions()
+	local panel = _G.InterfaceOptionsCheesePanel
+	local categories = _G.INTERFACEOPTIONS_ADDONCATEGORIES
+	if not panel or not categories or not _G.InterfaceOptions_AddCategory then return end
+	for _, category in ipairs(categories) do
+		if category == panel then return end
+	end
+	InterfaceOptions_AddCategory(panel)
+	if CheeseOptions_Refresh then CheeseOptions_Refresh(panel) end
+end
+
+local function UnregisterNativeOptions()
+	local panel = _G.InterfaceOptionsCheesePanel
+	local categories = _G.INTERFACEOPTIONS_ADDONCATEGORIES
+	if not panel or not categories then return end
+	for index, category in ipairs(categories) do
+		if category == panel then
+			table.remove(categories, index)
+			if _G.InterfaceOptionsFramePanelContainer
+				and InterfaceOptionsFramePanelContainer.displayedPanel == panel then
+				panel:Hide()
+				InterfaceOptionsFramePanelContainer.displayedPanel = nil
+			end
+			if _G.InterfaceOptionsFrameAddOns and InterfaceOptionsFrameAddOns.selection == panel then
+				if _G.OptionsList_ClearSelection then
+					OptionsList_ClearSelection(InterfaceOptionsFrameAddOns, InterfaceOptionsFrameAddOns.buttons)
+				end
+				InterfaceOptionsFrameAddOns.selection = nil
+			end
+			if _G.InterfaceAddOnsList_Update then InterfaceAddOnsList_Update() end
+			return
+		end
+	end
+end
+
 function wrapper:IsRuntimeEnabled()
-	return GetRuntimeEnabledFromDB()
+	return self.enabled
 end
 
 function wrapper:SetRuntimeEnabled(enable)
 	enable = enable and true or false
 	if enable then
-		self.enabled = false
 		self:Enable()
 	else
-		self.enabled = true
 		self:Disable()
 	end
 	return true
 end
 
 function wrapper:Initialize()
-	-- Check if addon should be enabled from database
-	if SarychUI and SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.addons then
-		if SarychUI.db.profile.addons[ADDON_NAME] and SarychUI.db.profile.addons[ADDON_NAME].enabled then
-			-- Set global enabled state
-			CheeseEnabled = true
-			self.enabled = true
-			self.loaded = true
-		else
-			-- Set global enabled state
-			CheeseEnabled = false
-			self.enabled = false
-		end
+	self.enabled = GetRuntimeEnabledFromDB()
+	self.loaded = true
+	CheeseEnabled = self.enabled
+	if CheeseSpellActivationOverlayFrame then
+		local config = SarychUI.db.profile.addons[ADDON_NAME] or {}
+		CheeseSpellActivationOverlayFrame:SetAlpha(config.spellAlertOpacity or 1)
+	end
+	if not self.enabled then
+		self:Disable()
 	else
-		-- Default to enabled if no database
-		CheeseEnabled = true
-		self.enabled = true
-		self.loaded = true
+		RegisterNativeOptions()
 	end
 end
 
 -- Enable the addon
 function wrapper:Enable()
-	if self.enabled then
-		return
-	end
-	
-	-- Files are already loaded via TOC, we just mark as enabled
-	-- The addon functionality is active when files are loaded
 	self.enabled = true
 	self.loaded = true
-	
-	-- Set global enabled state
 	CheeseEnabled = true
-	
-	-- Update database
-	if SarychUI and SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.addons then
-		if not SarychUI.db.profile.addons[ADDON_NAME] then
-			SarychUI.db.profile.addons[ADDON_NAME] = {}
-		end
-		SarychUI.db.profile.addons[ADDON_NAME].enabled = true
+	SetRuntimeEnabledInDB(true)
+	local config = SarychUI.db.profile.addons[ADDON_NAME] or {}
+	if CheeseSpellActivationOverlayFrame then
+		CheeseSpellActivationOverlayFrame:SetAlpha(config.spellAlertOpacity or 1)
 	end
 	if Cheese_RefreshActionMappings then
 		Cheese_RefreshActionMappings()
 	end
+	if Cheese_RefreshAuras then
+		Cheese_RefreshAuras()
+	end
 	if CheeseActionButton_RefreshAll then
 		CheeseActionButton_RefreshAll()
 	end
+	RegisterNativeOptions()
 end
 
 -- Disable the addon
 function wrapper:Disable()
-	if not self.enabled then
-		return
-	end
-	
-	-- Note: We can't really "unload" loaded Lua files, but we can disable functionality
-	-- The addon will remain loaded but inactive
 	self.enabled = false
-	
-	-- Set global enabled state
 	CheeseEnabled = false
-	
-	-- Update database
-	if SarychUI and SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.addons then
-		if not SarychUI.db.profile.addons[ADDON_NAME] then
-			SarychUI.db.profile.addons[ADDON_NAME] = {}
-		end
-		SarychUI.db.profile.addons[ADDON_NAME].enabled = false
+	SetRuntimeEnabledInDB(false)
+	if Cheese_ClearRuntime then
+		Cheese_ClearRuntime()
 	end
-	
-	-- Hide all overlays when disabled
 	if CheeseSpellActivationOverlayFrame then
 		CheeseSpellActivationOverlay_HideAllOverlays(CheeseSpellActivationOverlayFrame)
 	end
 	if CheeseActionButton_RefreshAll then
 		CheeseActionButton_RefreshAll()
 	end
+	UnregisterNativeOptions()
 end
 
 -- Get options table for settings
@@ -157,10 +153,50 @@ function wrapper:GetOptions()
 					wrapper:SetRuntimeEnabled(value)
 				end,
 			},
+			showSpellAlerts = {
+				type = "toggle",
+				name = "Показывать оповещения заклинаний",
+				order = 2,
+				hidden = function() return not wrapper:IsRuntimeEnabled() end,
+				get = function()
+					return SarychUI.db.profile.addons.Cheese.showSpellAlerts ~= false
+				end,
+				set = function(_, value)
+					SarychUI.db.profile.addons.Cheese.showSpellAlerts = value and true or false
+					if not value and CheeseSpellActivationOverlayFrame then
+						CheeseSpellActivationOverlay_HideAllOverlays(CheeseSpellActivationOverlayFrame)
+					elseif value and Cheese_RefreshSpellOverlays then
+						Cheese_RefreshSpellOverlays()
+					end
+					if _G.InterfaceOptionsCheesePanel and CheeseOptions_Refresh then
+						CheeseOptions_Refresh(InterfaceOptionsCheesePanel)
+					end
+				end,
+			},
+			spellAlertOpacity = {
+				type = "range",
+				name = "Прозрачность оповещений",
+				min = 0.1, max = 1, step = 0.05,
+				order = 3,
+				hidden = function() return not wrapper:IsRuntimeEnabled() end,
+				disabled = function() return SarychUI.db.profile.addons.Cheese.showSpellAlerts == false end,
+				get = function()
+					return SarychUI.db.profile.addons.Cheese.spellAlertOpacity or 1
+				end,
+				set = function(_, value)
+					SarychUI.db.profile.addons.Cheese.spellAlertOpacity = value
+					if CheeseSpellActivationOverlayFrame then
+						CheeseSpellActivationOverlayFrame:SetAlpha(value)
+					end
+					if _G.InterfaceOptionsCheesePanel and CheeseOptions_Refresh then
+						CheeseOptions_Refresh(InterfaceOptionsCheesePanel)
+					end
+				end,
+			},
 			description = {
 				type = "description",
 				name = "Визуальные алерты активации заклинаний (Cataclysm Visual Alerts).\n\nАвтор: " .. (self.author or "Неизвестен") .. "\nВерсия: " .. (self.version or "Неизвестна"),
-				order = 2,
+				order = 4,
 				width = "full",
 			},
 		},

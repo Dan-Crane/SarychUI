@@ -112,7 +112,7 @@ local function FormatCooldownPreview(seconds)
 	local locale = GetLocale and GetLocale() or "enUS"
 	local daySuffix = (locale == "ruRU") and " д." or "d"
 	local hourSuffix = (locale == "ruRU") and " ч." or "h"
-	local minuteSuffix = (locale == "ruRU") and " м." or "m"
+	local minuteSuffix = (locale == "ruRU") and "м" or "m"
 
 	if seconds >= 86400 then
 		return format(" %d%s ", floor(seconds / 86400 + 0.5), daySuffix), defaultColor, fontSizeLarge

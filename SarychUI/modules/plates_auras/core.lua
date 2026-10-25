@@ -382,6 +382,7 @@ local namePlates = {}
 local guidToUnitIdMap = {}
 -- Cache auras by GUID (like PlateBuffs does)
 local guidAuras = {}
+local guidCacheSeenAt = {}
 _G.sarPlatesAuras_MarkRemovedGUID = function(guid)
 	if guid then removedPlates[guid] = GetTime() end
 end
@@ -389,6 +390,7 @@ _G.sarPlatesAuras_ClearCache = function()
 	wipe(namePlates)
 	wipe(guidToUnitIdMap)
 	wipe(guidAuras)
+	wipe(guidCacheSeenAt)
 	wipe(removedPlates)
 end
 -- LibAuraInfo callback owner (PlateBuffs-style CLEU path)
@@ -467,6 +469,7 @@ local function AddSpellToGuidCache(dstGUID, spellID, srcGUID, stackCount, durati
 		return false
 	end
 	guidAuras[dstGUID][spellID] = entry
+	guidCacheSeenAt[dstGUID] = GetTime()
 	return true
 end
 
@@ -480,6 +483,7 @@ local function RemoveSpellFromGuidCache(dstGUID, spellID)
 	guidAuras[dstGUID][spellID] = nil
 	if not next(guidAuras[dstGUID]) then
 		guidAuras[dstGUID] = nil
+		guidCacheSeenAt[dstGUID] = nil
 	end
 	return true
 end
@@ -487,6 +491,7 @@ end
 local function ClearGuidCache(dstGUID)
 	if dstGUID then
 		guidAuras[dstGUID] = nil
+		guidCacheSeenAt[dstGUID] = nil
 	end
 end
 
@@ -532,6 +537,7 @@ function libAuraOwner:LibAuraInfo_AURA_REFRESH(event, dstGUID, spellID, srcGUID,
 	if cache and cache[spellID] then
 		cache[spellID].expirationTime = expirationTime or cache[spellID].expirationTime
 		cache[spellID].duration = cache[spellID].duration or 0
+		guidCacheSeenAt[dstGUID] = GetTime()
 		UpdatePlateByGUID(dstGUID)
 		return
 	end
@@ -551,6 +557,7 @@ function libAuraOwner:LibAuraInfo_AURA_APPLIED_DOSE(event, dstGUID, spellID, src
 		if expirationTime then
 			cache[spellID].expirationTime = expirationTime
 		end
+		guidCacheSeenAt[dstGUID] = GetTime()
 		UpdatePlateByGUID(dstGUID)
 		return
 	end
@@ -657,7 +664,8 @@ FindAllAuras = function(unitId)
     
     -- Cache auras by GUID if available
     if unitGUID then
-        guidAuras[unitGUID] = foundAuras
+		guidAuras[unitGUID] = foundAuras
+		guidCacheSeenAt[unitGUID] = GetTime()
     end
 
     if SarychUI_PerfSlow then
@@ -855,18 +863,25 @@ local function ClearAuraText(frame)
 end
 
 local function ResolveAuraTexture(spellId, texture)
-    if (type(texture) == "string" and texture ~= "")
-        or (type(texture) == "number" and texture > 0) then
+    if type(texture) == "string" and texture ~= "" then
         return texture
     end
     if spellId then
         local _, _, spellTexture = GetSpellInfo(spellId)
-        if (type(spellTexture) == "string" and spellTexture ~= "")
-            or (type(spellTexture) == "number" and spellTexture > 0) then
+        if type(spellTexture) == "string" and spellTexture ~= "" then
             return spellTexture
         end
     end
     return nil
+end
+
+local function SetAuraIconTexture(region, path)
+	if type(path) ~= "string" or path == "" then return false end
+	if region._sarTexturePath ~= path then
+		region:SetTexture(path)
+		region._sarTexturePath = path
+	end
+	return true
 end
 
 -- Nameplate aura countdowns share update scheduler. This replaces one
@@ -1086,7 +1101,6 @@ ResetAuraFrame = function(frame, hideHost)
 	local auraTexture = GetAuraTexture(frame)
 	if auraTexture then
 		auraTexture:Hide()
-		auraTexture:SetTexture(nil)
 	end
 	HideAuraGlow(frame)
 	-- The normal glow stop owns this texture, but hide it explicitly as a final
@@ -1160,7 +1174,7 @@ local function UpdateAuraFrameFromCache(namePlate, frame, size, foundAuras, aura
 
     local iconTexture = bestAura and ResolveAuraTexture(bestSpellId, bestAura.iconTexture)
     if bestAura and iconTexture then
-        frame.auraIcon:SetTexture(iconTexture)
+        SetAuraIconTexture(frame.auraIcon, iconTexture)
         frame.auraIcon:Show()
         frame._sarGlowSpellId = IsSpellGlowEnabled(bestSpellId) and bestSpellId or nil
         
@@ -1512,7 +1526,7 @@ local function UpdateOtherAurasFromCache(namePlate, foundAuras)
         local iconTexture = ResolveAuraTexture(aura.spellId, aura.iconTexture)
         if iconTexture then
             auraFrame:Show()  -- Показываем весь фрейм
-            auraFrame.icon:SetTexture(iconTexture)
+            SetAuraIconTexture(auraFrame.icon, iconTexture)
             auraFrame.icon:Show()
             auraFrame._sarGlowSpellId = IsSpellGlowEnabled(aura.spellId) and aura.spellId or nil
 
@@ -1596,6 +1610,9 @@ function _G.UpdateAuras(namePlate, unitId, forcedGuid)
     end
     namePlate._sarAuraGUID = plateGUID
     removedPlates[plateGUID] = nil
+	if guidAuras[plateGUID] then
+		guidCacheSeenAt[plateGUID] = GetTime()
+	end
 
     if not namePlate._sarAuraCleanupHooked and namePlate.HookScript then
         namePlate._sarAuraCleanupHooked = true
@@ -2061,11 +2078,58 @@ local function CleanupOldPlates()
                     namePlates[unitId] = nil
                 end
                 guidToUnitIdMap[guid] = nil
-                guidAuras[guid] = nil
                 removedPlates[guid] = nil
+			else
+				removedPlates[guid] = nil
             end
         end
     end    
+end
+
+-- Combat log callbacks can cache auras for GUIDs that never had a visible
+-- nameplate, so the removedPlates queue alone cannot reclaim those entries.
+local AURA_CACHE_IDLE_TTL = 120
+local AURA_CACHE_SWEEP_INTERVAL = 15
+local lastAuraCacheSweep = 0
+local lastLibAuraPrune = 0
+
+local function IsGuidPlateVisible(guid)
+	local unitId = guidToUnitIdMap[guid]
+	if unitId and UnitGUID(unitId) == guid then
+		local plate = GetNamePlateForUnit(unitId)
+		if plate and plate.IsShown and plate:IsShown() then return true end
+	end
+	if LibNameplates and LibNameplates.GetNameplateByGUID then
+		local plate = NormalizeRootPlate(LibNameplates:GetNameplateByGUID(guid))
+		if plate and plate.IsShown and plate:IsShown() then return true end
+	end
+	return false
+end
+
+local function SweepGuidAuras(currentTime)
+	for guid, unitId in pairs(guidToUnitIdMap) do
+		if UnitGUID(unitId) ~= guid then
+			guidToUnitIdMap[guid] = nil
+		end
+	end
+	for unitId, plate in pairs(namePlates) do
+		if not plate or not plate.IsShown or not plate:IsShown() then
+			namePlates[unitId] = nil
+		end
+	end
+	for guid, auras in pairs(guidAuras) do
+		for spellID, aura in pairs(auras) do
+			local expires = aura and tonumber(aura.expirationTime)
+			if expires and expires > 0 and currentTime >= expires then
+				auras[spellID] = nil
+			end
+		end
+		if not next(auras) or (currentTime - (guidCacheSeenAt[guid] or 0) >= AURA_CACHE_IDLE_TTL
+			and not IsGuidPlateVisible(guid)) then
+			guidAuras[guid] = nil
+			guidCacheSeenAt[guid] = nil
+		end
+	end
 end
 
 local cleanupFrame = CreateFrame("Frame")
@@ -2074,6 +2138,16 @@ local function CleanupTick()
         return
     end
     CleanupOldPlates()
+	local currentTime = GetTime()
+	if currentTime - lastAuraCacheSweep >= AURA_CACHE_SWEEP_INTERVAL then
+		lastAuraCacheSweep = currentTime
+		SweepGuidAuras(currentTime)
+	end
+	if libAuraInfoRegistered and LibAuraInfo and LibAuraInfo.PruneStaleGUIDs
+		and currentTime - lastLibAuraPrune >= 60 then
+		lastLibAuraPrune = currentTime
+		LibAuraInfo:PruneStaleGUIDs()
+	end
 end
 
 if SarychUI and SarychUI.UpdateScheduler then
@@ -2105,6 +2179,7 @@ function _G.sarPlatesAuras_RegisterEvents()
     end
     f:RegisterEvent("UNIT_AURA")
     f:RegisterEvent("PLAYER_TARGET_CHANGED")
+	f:RegisterEvent("PLAYER_ENTERING_WORLD")
     f:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
     f:RegisterEvent("UNIT_TARGET")
     f.__sarychEventsRegistered = true
@@ -2120,7 +2195,12 @@ f:SetScript("OnEvent", function(self, event, unitId)
     if not IsPlatesAurasModuleEnabled() then
         return
     end
-    if event == "NAME_PLATE_UNIT_ADDED" then
+    if event == "PLAYER_ENTERING_WORLD" then
+		if _G.sarPlatesAuras_PB_ClearCache then
+			_G.sarPlatesAuras_PB_ClearCache()
+		end
+		_G.sarPlatesAuras_ClearCache()
+    elseif event == "NAME_PLATE_UNIT_ADDED" then
         if SarychUI_PerfLog then
             SarychUI_PerfLog("Auras", "NAME_PLATE_UNIT_ADDED", unitId)
         end

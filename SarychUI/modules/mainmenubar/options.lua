@@ -22,6 +22,28 @@ local function ToolsDB()
     return modules and modules.tools
 end
 
+local function BarVisibilityDB()
+    local modules = SarychUI.db and SarychUI.db.profile and SarychUI.db.profile.modules
+    local db = modules and modules.mainmenubar
+    if not db then return nil end
+    if type(db.barVisibility) ~= "table" then
+        db.barVisibility = CopyTable(SarychUI.defaults.profile.modules.mainmenubar.barVisibility)
+    end
+    return db.barVisibility
+end
+
+local function ApplyBarVisibility()
+    local module = SarychUI.modules and SarychUI.modules.mainmenubar
+    if module and module.ApplyBarVisibilitySettings then
+        module:ApplyBarVisibilitySettings()
+    end
+end
+
+local function VisibilityChoiceHidden()
+    local visibility = BarVisibilityDB()
+    return not visibility or (visibility.enabled ~= 1 and visibility.enabled ~= true)
+end
+
 local function ToolsFpsEnabled()
     local db = ToolsDB()
     return db and (db.enableAltFPS == 1 or db.enableAltFPS == true) or false
@@ -34,6 +56,72 @@ local function RefreshStylePreviews()
 	if SarychUI.ActionBarBarsPreview and SarychUI.ActionBarBarsPreview.RefreshAll then
 		SarychUI.ActionBarBarsPreview:RefreshAll()
 	end
+end
+
+local function TextDB()
+    return SarychUI.db.profile.modules.mainmenubar
+end
+
+local function HotkeyTextEnabled()
+    local db = TextDB()
+    if db.hotkeyTextEnabled ~= nil then return db.hotkeyTextEnabled end
+    if db.hotkeyTextMode == "custom" then return true end
+    return db.hideHotkeysEnabled
+end
+
+local function MacroTextEnabled()
+    local db = TextDB()
+    if db.macroTextEnabled ~= nil then return db.macroTextEnabled end
+    if db.macroTextMode == "custom" then return true end
+    return db.hideMacroNames
+end
+
+local function HideHotkeyOptions()
+    return not HotkeyTextEnabled()
+end
+
+local function HideHotkeyVisibilityOptions()
+    return not HotkeyTextEnabled() or TextDB().hotkeyTextMode ~= "hide"
+end
+
+local function HideHotkeyStyleOptions()
+    return not HotkeyTextEnabled() or TextDB().hotkeyTextMode ~= "custom"
+end
+
+local function HideMacroOptions()
+    return not MacroTextEnabled()
+end
+
+local function HideMacroStyleOptions()
+    return not MacroTextEnabled() or TextDB().macroTextMode ~= "custom"
+end
+
+local function GetTextFontValues()
+    local values = {}
+    if SarychUI.Media and SarychUI.Media.GetFonts then
+        for _, name in ipairs(SarychUI.Media.GetFonts()) do values[name] = name end
+    end
+    if not next(values) then values["Friz Quadrata TT"] = "Friz Quadrata TT" end
+    return values
+end
+
+local function GetTextOutlineValues()
+    if SarychUI_FontOutlineValues and SarychUI_FontOutlineValues.GetSelectValues then
+        return SarychUI_FontOutlineValues.GetSelectValues(L)
+    end
+    return { NONE = "Без обводки", OUTLINE = "OUTLINE", THICKOUTLINE = "THICKOUTLINE",
+        MONOCHROMEOUTLINE = "MONOCHROMEOUTLINE" }
+end
+
+local function RefreshActionBarText()
+    local bar = SarychUI.modules and SarychUI.modules.mainmenubar
+    if bar then
+        bar:UpdateAllHotkeys()
+        bar:UpdateAllMacroNames()
+    end
+    if SarychUI.ActionBarTextPreview and SarychUI.ActionBarTextPreview.RefreshAll then
+        SarychUI.ActionBarTextPreview:RefreshAll()
+    end
 end
 
 local INDICATION_COLOR_DEFAULTS = {
@@ -165,6 +253,95 @@ local function GetOptions()
 				},
 			},
 
+            visibility = {
+                type = "group",
+                name = "Видимость",
+                order = 5,
+                disabled = function() return not SarychUI.db.profile.modules.mainmenubar.enabled end,
+                args = {
+                    visibilityBox = {
+                        type = "group",
+                        name = " ",
+                        order = 1,
+                        inline = true,
+                        args = {
+                            enabled = {
+                                type = "toggle",
+                                name = "Включить управление видимостью",
+                                desc = "Разрешает скрывать и показывать выбранные элементы панели действий назначенной кнопкой.",
+                                order = 1,
+                                width = "full",
+                                get = function()
+                                    local v = BarVisibilityDB()
+                                    return v and (v.enabled == 1 or v.enabled == true)
+                                end,
+                                set = function(_, value)
+                                    local v = BarVisibilityDB()
+                                    v.enabled = value and 1 or 0
+                                    ApplyBarVisibility()
+                                    NotifyOptionsChange()
+                                end,
+                            },
+                            key = {
+                                type = "keybinding",
+                                name = "Кнопка видимости панели действий",
+                                desc = "Одно нажатие скрывает выбранные элементы, повторное показывает их.",
+                                order = 2,
+                                width = "full",
+                                disabled = VisibilityChoiceHidden,
+                                get = function()
+                                    local v = BarVisibilityDB()
+                                    return v and v.key or nil
+                                end,
+                                set = function(_, value)
+                                    local v = BarVisibilityDB()
+                                    v.key = value
+                                    ApplyBarVisibility()
+                                end,
+                            },
+                            stance = {
+                                type = "toggle",
+                                name = "Панель стоек",
+                                order = 3,
+                                hidden = VisibilityChoiceHidden,
+                                get = function() local v = BarVisibilityDB(); return v and (v.stance == 1 or v.stance == true) end,
+                                set = function(_, value) local v = BarVisibilityDB(); v.stance = value and 1 or 0; ApplyBarVisibility() end,
+                            },
+                            pet = {
+                                type = "toggle",
+                                name = "Панель питомца",
+                                order = 4,
+                                hidden = VisibilityChoiceHidden,
+                                get = function() local v = BarVisibilityDB(); return v and (v.pet == 1 or v.pet == true) end,
+                                set = function(_, value) local v = BarVisibilityDB(); v.pet = value and 1 or 0; ApplyBarVisibility() end,
+                            },
+                            bags = {
+                                type = "toggle",
+                                name = "Сумки",
+                                order = 5,
+                                hidden = VisibilityChoiceHidden,
+                                get = function() local v = BarVisibilityDB(); return v and (v.bags == 1 or v.bags == true) end,
+                                set = function(_, value) local v = BarVisibilityDB(); v.bags = value and 1 or 0; ApplyBarVisibility() end,
+                            },
+                            micro = {
+                                type = "toggle",
+                                name = "Микроменю",
+                                order = 6,
+                                hidden = VisibilityChoiceHidden,
+                                get = function() local v = BarVisibilityDB(); return v and (v.micro == 1 or v.micro == true) end,
+                                set = function(_, value) local v = BarVisibilityDB(); v.micro = value and 1 or 0; ApplyBarVisibility() end,
+                            },
+                            note = {
+                                type = "description",
+                                name = "|cFFFFD700Пометка:|r Можно назначить ту же кнопку, что и для чата, миникарты или фреймов — они будут переключаться вместе.",
+                                order = 7,
+                                fontSize = "medium",
+                            },
+                        },
+                    },
+                },
+            },
+
             -- Visual / Text tab
             visual = {
                 type = "group",
@@ -186,24 +363,36 @@ local function GetOptions()
                         order = 10,
                         inline = true,
                         args = {
-                            hide_hotkeys = {
+                            enabled = {
                                 type = "toggle",
-                                name = L["Hide_Hotkeys"],
-                                desc = L["Hide_Hotkeys_Desc"],
+                                name = "Включить настройку горячих клавиш",
                                 order = 1,
                                 width = "full",
-                                get = function(info)
-                                    return SarychUI.db.profile.modules.mainmenubar.hideHotkeysEnabled
+                                get = HotkeyTextEnabled,
+                                set = function(_, value)
+                                    local db = TextDB()
+                                    db.hotkeyTextEnabled = value
+                                    db.hideHotkeysEnabled = value and db.hotkeyTextMode == "hide"
+                                    RefreshActionBarText()
+                                    NotifyOptionsChange()
                                 end,
-                                set = function(info, value)
-                                    SarychUI.db.profile.modules.mainmenubar.hideHotkeysEnabled = value
-                                    if SarychUI.modules and SarychUI.modules.mainmenubar then
-                                        SarychUI.modules.mainmenubar:UpdateAllHotkeys()
-                                    end
-                                    if SarychUI.ActionBarTextPreview and SarychUI.ActionBarTextPreview.RefreshAll then
-                                        SarychUI.ActionBarTextPreview:RefreshAll()
-                                    end
-                                    -- Refresh dependent disabled states in this block.
+                            },
+                            hide_hotkeys = {
+                                type = "select",
+                                name = "Режим горячих клавиш",
+                                order = 2,
+                                values = { __order = { "hide", "custom" },
+                                    hide = "Скрыть горячие клавиши", custom = "Изменить горячие клавиши" },
+                                hidden = HideHotkeyOptions,
+                                get = function()
+                                    return TextDB().hotkeyTextMode or "hide"
+                                end,
+                                set = function(_, value)
+                                    local db = TextDB()
+                                    db.hotkeyTextEnabled = true
+                                    db.hotkeyTextMode = value
+                                    db.hideHotkeysEnabled = value == "hide"
+                                    RefreshActionBarText()
                                     NotifyOptionsChange()
                                 end,
                             },
@@ -211,11 +400,9 @@ local function GetOptions()
                                 type = "toggle",
                                 name = L["Show_In_Combat"],
                                 desc = L["Show_In_Combat_Desc"],
-                                order = 2,
+                                order = 3,
                                 width = "full",
-                                disabled = function()
-                                    return not SarychUI.db.profile.modules.mainmenubar.hideHotkeysEnabled
-                                end,
+                                hidden = HideHotkeyVisibilityOptions,
                                 get = function(info)
                                     return SarychUI.db.profile.modules.mainmenubar.showHotkeysInCombat
                                 end,
@@ -230,12 +417,10 @@ local function GetOptions()
                                 type = "toggle",
                                 name = L["Show_On_Alt"],
                                 desc = L["Show_On_Alt_Desc"],
-                                order = 3,
+                                order = 4,
                                 width = "full",
                                 suiHelpIcon = SarychUI.DOTA_ALT_HELP_ICON,
-                                disabled = function()
-                                    return not SarychUI.db.profile.modules.mainmenubar.hideHotkeysEnabled
-                                end,
+                                hidden = HideHotkeyVisibilityOptions,
                                 get = function(info)
                                     return SarychUI.db.profile.modules.mainmenubar.showHotkeysOnAlt
                                 end,
@@ -250,11 +435,9 @@ local function GetOptions()
                                 type = "toggle",
                                 name = L["Show_With_Target"],
                                 desc = L["Show_With_Target_Desc"],
-                                order = 4,
+                                order = 5,
                                 width = "full",
-                                disabled = function()
-                                    return not SarychUI.db.profile.modules.mainmenubar.hideHotkeysEnabled
-                                end,
+                                hidden = HideHotkeyVisibilityOptions,
                                 get = function(info)
                                     return SarychUI.db.profile.modules.mainmenubar.showHotkeysWithTarget == true
                                 end,
@@ -269,11 +452,9 @@ local function GetOptions()
                                 type = "toggle",
                                 name = L["Fade_After_Combat"],
                                 desc = L["Fade_After_Combat_Desc"],
-                                order = 5,
+                                order = 6,
                                 width = "full",
-                                disabled = function()
-                                    return not SarychUI.db.profile.modules.mainmenubar.hideHotkeysEnabled
-                                end,
+                                hidden = HideHotkeyVisibilityOptions,
                                 get = function(info)
                                     return SarychUI.db.profile.modules.mainmenubar.hotkeysFadeAfterCombat
                                 end,
@@ -289,13 +470,12 @@ local function GetOptions()
                                 type = "range",
                                 name = L["Fade_Time"],
                                 desc = L["Fade_Time_Desc"],
-                                order = 6,
+                                order = 7,
                                 min = 0.1,
                                 max = 2.0,
                                 step = 0.1,
-                                disabled = function()
-                                    return not SarychUI.db.profile.modules.mainmenubar.hideHotkeysEnabled
-                                        or not SarychUI.db.profile.modules.mainmenubar.hotkeysFadeAfterCombat
+                                hidden = function()
+                                    return HideHotkeyVisibilityOptions() or not TextDB().hotkeysFadeAfterCombat
                                 end,
                                 get = function(info)
                                     return SarychUI.db.profile.modules.mainmenubar.hotkeysFadeTime
@@ -307,6 +487,24 @@ local function GetOptions()
                                     end
                                 end,
                             },
+                            font = {
+                                type = "select", name = "Шрифт", order = 8,
+                                values = GetTextFontValues, hidden = HideHotkeyStyleOptions,
+                                get = function() return TextDB().hotkeyFont end,
+                                set = function(_, value) TextDB().hotkeyFont = value; RefreshActionBarText() end,
+                            },
+                            fontSize = {
+                                type = "range", name = "Размер текста", order = 9,
+                                min = 6, max = 32, step = 1, hidden = HideHotkeyStyleOptions,
+                                get = function() return TextDB().hotkeyFontSize end,
+                                set = function(_, value) TextDB().hotkeyFontSize = value; RefreshActionBarText() end,
+                            },
+                            fontOutline = {
+                                type = "select", name = "Тип обводки", order = 10,
+                                values = GetTextOutlineValues, hidden = HideHotkeyStyleOptions,
+                                get = function() return TextDB().hotkeyFontOutline end,
+                                set = function(_, value) TextDB().hotkeyFontOutline = value; RefreshActionBarText() end,
+                            },
                         },
                     },
 
@@ -316,23 +514,63 @@ local function GetOptions()
                         order = 20,
                         inline = true,
                         args = {
-                            hide_macro_names = {
-                                type = "toggle",
-                                name = L["Hide_Macro_Names"],
-                                desc = L["Hide_Macro_Names_Desc"],
-                                order = 1,
-                                width = "full",
-                                get = function(info)
-                                    return SarychUI.db.profile.modules.mainmenubar.hideMacroNames
+                            enabled = {
+                                type = "toggle", name = "Включить настройку макросов",
+                                order = 1, width = "full",
+                                get = MacroTextEnabled,
+                                set = function(_, value)
+                                    local db = TextDB()
+                                    db.macroTextEnabled = value
+                                    db.hideMacroNames = value and db.macroTextMode == "hide"
+                                    RefreshActionBarText()
+                                    NotifyOptionsChange()
                                 end,
-                                set = function(info, value)
-                                    SarychUI.db.profile.modules.mainmenubar.hideMacroNames = value
-                                    if SarychUI.modules and SarychUI.modules.mainmenubar then
-                                        SarychUI.modules.mainmenubar:UpdateAllMacroNames()
-                                    end
-                                    if SarychUI.ActionBarTextPreview and SarychUI.ActionBarTextPreview.RefreshAll then
-                                        SarychUI.ActionBarTextPreview:RefreshAll()
-                                    end
+                            },
+                            hide_macro_names = {
+                                type = "select", name = "Режим макросов", order = 2,
+                                values = { __order = { "hide", "custom" },
+                                    hide = "Скрыть макросы", custom = "Изменить макросы" },
+                                hidden = HideMacroOptions,
+                                get = function()
+                                    return TextDB().macroTextMode or "hide"
+                                end,
+                                set = function(_, value)
+                                    local db = TextDB()
+                                    db.macroTextEnabled = true
+                                    db.macroTextMode = value
+                                    db.hideMacroNames = value == "hide"
+                                    RefreshActionBarText()
+                                    NotifyOptionsChange()
+                                end,
+                            },
+                            font = {
+                                type = "select", name = "Шрифт", order = 3,
+                                values = GetTextFontValues, hidden = HideMacroStyleOptions,
+                                get = function() return TextDB().macroFont end,
+                                set = function(_, value) TextDB().macroFont = value; RefreshActionBarText() end,
+                            },
+                            fontSize = {
+                                type = "range", name = "Размер текста", order = 4,
+                                min = 6, max = 32, step = 1, hidden = HideMacroStyleOptions,
+                                get = function() return TextDB().macroFontSize end,
+                                set = function(_, value) TextDB().macroFontSize = value; RefreshActionBarText() end,
+                            },
+                            fontOutline = {
+                                type = "select", name = "Тип обводки", order = 5,
+                                values = GetTextOutlineValues, hidden = HideMacroStyleOptions,
+                                get = function() return TextDB().macroFontOutline end,
+                                set = function(_, value) TextDB().macroFontOutline = value; RefreshActionBarText() end,
+                            },
+                            fontColor = {
+                                type = "color", name = "Цвет текста", order = 6,
+                                hasAlpha = true, hidden = HideMacroStyleOptions,
+                                get = function()
+                                    local c = TextDB().macroFontColor or { 1, 1, 1, 1 }
+                                    return c[1], c[2], c[3], c[4]
+                                end,
+                                set = function(_, r, g, b, a)
+                                    TextDB().macroFontColor = { r, g, b, a }
+                                    RefreshActionBarText()
                                 end,
                             },
                         },
@@ -679,6 +917,59 @@ local function GetOptions()
                                                 end
                                             end,
                                         },
+										hide_experience_overlay_textures = {
+											type = "toggle",
+											name = "Скрыть текстуры поверх полосы опыта",
+											desc = "Скрывает четыре накладные текстуры полосы опыта в стилях «Классические» и «Классические BFA». Заливка опыта остаётся видимой.",
+											order = 5,
+											width = "full",
+											get = function()
+												return SarychUI.db.profile.modules.mainmenubar.hideExperienceOverlayTextures == true
+											end,
+											set = function(_, value)
+												SarychUI.db.profile.modules.mainmenubar.hideExperienceOverlayTextures = value and true or false
+												local bars = SarychUI.modules and SarychUI.modules.mainmenubar
+												if bars and bars.ApplyExperienceOverlayVisibility then
+													bars:ApplyExperienceOverlayVisibility()
+												end
+												RefreshStylePreviews()
+											end,
+										},
+										hide_exhaustion_tick = {
+											type = "toggle",
+											name = "Скрыть маркер бодрости",
+											desc = "Скрывает маркер бодрости (ExhaustionTick) возле полосы опыта. Отдельно от накладных текстур опыта.",
+											order = 7,
+											width = "full",
+											get = function()
+												return SarychUI.db.profile.modules.mainmenubar.hideExhaustionTick == true
+											end,
+											set = function(_, value)
+												SarychUI.db.profile.modules.mainmenubar.hideExhaustionTick = value and true or false
+												local bars = SarychUI.modules and SarychUI.modules.mainmenubar
+												if bars and bars.ApplyExhaustionTickVisibility then
+													bars:ApplyExhaustionTickVisibility()
+												end
+											end,
+										},
+										hide_reputation_overlay_textures = {
+											type = "toggle",
+											name = "Скрыть текстуры поверх полосы репутации",
+											desc = "Скрывает накладные текстуры полосы репутации в стилях «Классические» и «Классические BFA». Заливка репутации остаётся видимой.",
+											order = 6,
+											width = "full",
+											get = function()
+												return SarychUI.db.profile.modules.mainmenubar.hideReputationOverlayTextures == true
+											end,
+											set = function(_, value)
+												SarychUI.db.profile.modules.mainmenubar.hideReputationOverlayTextures = value and true or false
+												local bars = SarychUI.modules and SarychUI.modules.mainmenubar
+												if bars and bars.ApplyReputationOverlayVisibility then
+													bars:ApplyReputationOverlayVisibility()
+												end
+												RefreshStylePreviews()
+											end,
+										},
                                     },
                                 },
 

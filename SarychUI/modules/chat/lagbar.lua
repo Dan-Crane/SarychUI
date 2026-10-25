@@ -435,6 +435,12 @@ function UpdateLagBar()
         return
     end
 
+    local visibility = _G.SarychUI_ChatVisibility
+    if visibility and visibility.IsHidden and visibility.IsHidden() then
+        HideLagBar()
+        return
+    end
+
     if not lagBarFrame then
         return
     end

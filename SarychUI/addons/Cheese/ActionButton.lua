@@ -1,5 +1,5 @@
 -- Global enabled state
-CheeseEnabled = CheeseEnabled or true;
+CheeseEnabled = CheeseEnabled ~= false;
 
 -- Function to check if addon is enabled
 local function IsEnabled()
@@ -161,6 +161,9 @@ hooksecurefunc("ActionButton_OnEvent", CheeseActionButton_OnEvent);
 local glowWatch = CreateFrame("Frame");
 local glowElapsed = 0;
 glowWatch:SetScript("OnUpdate", function(_, elapsed)
+	if not IsEnabled() then
+		return;
+	end
 	glowElapsed = glowElapsed + elapsed;
 	if glowElapsed < 0.2 then
 		return;

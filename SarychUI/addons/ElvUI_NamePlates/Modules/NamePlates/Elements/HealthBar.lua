@@ -2,6 +2,14 @@ local E, L, V, P, G = unpack(_G.SarychUI_ElvUI_NamePlates) --Import: Engine, Loc
 local NP = E:GetModule("NamePlates")
 local LSM = E.Libs.LSM
 
+local function SetHealthBarFillTexture(healthBar, path)
+	if type(path) ~= "string" or path == "" then return end
+	local current = healthBar:GetStatusBarTexture()
+	if not current or current:GetTexture() ~= path then
+		healthBar:SetStatusBarTexture(path, "BORDER")
+	end
+end
+
 --Lua functions
 --WoW API / Variables
 
@@ -169,7 +177,7 @@ function NP:Configure_HealthBar(frame, configuring)
 	healthBar:SetPoint("TOP", frame, "TOP", 0, -pad)
 
 	if configuring then
-		healthBar:SetStatusBarTexture(LSM:Fetch("statusbar", self.db.statusbar), "BORDER")
+		SetHealthBarFillTexture(healthBar, LSM:Fetch("statusbar", self.db.statusbar))
 
 		self:Configure_HealthBarScale(frame, frame.currentScale or 1, configuring)
 
@@ -194,7 +202,7 @@ end
 
 function NP:Construct_HealthBar(parent)
 	local frame = CreateFrame("StatusBar", "$parentHealthBar", parent)
-	frame:SetStatusBarTexture(LSM:Fetch("statusbar", self.db.statusbar), "BORDER")
+	SetHealthBarFillTexture(frame, LSM:Fetch("statusbar", self.db.statusbar))
 	self:StyleFrame(frame)
 
 	frame:SetScript("OnSizeChanged", HealthBar_OnSizeChanged)

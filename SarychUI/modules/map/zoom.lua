@@ -253,6 +253,25 @@ function zoom:Setup()
 	WorldMapTrackQuest:SetPoint("BOTTOMLEFT", WorldMapPositioningGuide, "BOTTOMLEFT", 16, trackQuestY)
 	scrollFrame:SetScale(WORLDMAP_SETTINGS.size)
 
+	-- Everything that has to travel with the canvas hangs off the detail frame.
+	-- This has to happen before the first SetDetailScale: that call rescales the
+	-- Questie pins, and until WorldMapButton is reparented it still measures
+	-- itself through WorldMapFrame, so it reports WORLDMAP_SETTINGS.size of the
+	-- detail frame's width. A pin captured in that window is cached 1/size too
+	-- far from the map's top-left corner and stays there until HBD re-anchors it.
+	WorldMapButton:SetScale(1)
+	WorldMapButton:SetParent(WorldMapDetailFrame)
+	WorldMapButton:SetAllPoints(WorldMapDetailFrame)
+
+	WorldMapPOIFrame:SetParent(WorldMapDetailFrame)
+	WorldMapBlobFrame:SetParent(WorldMapDetailFrame)
+	WorldMapBlobFrame:ClearAllPoints()
+	WorldMapBlobFrame:SetAllPoints(WorldMapDetailFrame)
+
+	if playerArrow then
+		playerArrow:SetParent(WorldMapDetailFrame)
+	end
+
 	self:SetDetailScale(MIN_ZOOM)
 	WorldMapDetailFrame:SetAllPoints(scrollFrame)
 	scrollFrame:SetHorizontalScroll(0)
@@ -265,20 +284,6 @@ function zoom:Setup()
 		updateScrollBounds()
 		scrollFrame:SetHorizontalScroll(min(saved.scroll, scrollFrame.maxX or 0))
 		scrollFrame:SetVerticalScroll(min(saved.vertical, scrollFrame.maxY or 0))
-	end
-
-	-- Everything that has to travel with the canvas hangs off the detail frame.
-	WorldMapButton:SetScale(1)
-	WorldMapButton:SetParent(WorldMapDetailFrame)
-	WorldMapButton:SetAllPoints(WorldMapDetailFrame)
-
-	WorldMapPOIFrame:SetParent(WorldMapDetailFrame)
-	WorldMapBlobFrame:SetParent(WorldMapDetailFrame)
-	WorldMapBlobFrame:ClearAllPoints()
-	WorldMapBlobFrame:SetAllPoints(WorldMapDetailFrame)
-
-	if playerArrow then
-		playerArrow:SetParent(WorldMapDetailFrame)
 	end
 
 	updateScrollBounds()

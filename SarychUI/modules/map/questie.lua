@@ -40,6 +40,14 @@ local function rememberRawPosition(icon, relativeTo, x, y)
 		return pinState[icon]
 	end
 
+	-- A capture is only meaningful once zoom:Setup has hung WorldMapButton off
+	-- the canvas. While it still hangs off WorldMapFrame it measures itself
+	-- through a different scale chain than the detail frame, and the ratio below
+	-- would bake WORLDMAP_SETTINGS.size into the cached position permanently.
+	if WorldMapButton:GetParent() ~= WorldMapDetailFrame then
+		return pinState[icon]
+	end
+
 	local buttonScale = WorldMapButton:GetScale() or 1
 	local sourceWidth = WorldMapButton:GetWidth() * buttonScale
 	local sourceHeight = WorldMapButton:GetHeight() * buttonScale
@@ -259,7 +267,10 @@ function questie:Install()
 		local utils = questieMap and questieMap.utils
 		if utils and type(utils.SetDrawOrder) == "function" then
 			self._drawOrderHooked = true
-			hooksecurefunc(utils, "SetDrawOrder", function(_, icon)
+			-- SetDrawOrder is a plain function, not a method: Questie calls it as
+			-- QuestieMap.utils.SetDrawOrder(frame), so the pin is the first
+			-- argument. Taking a leading self here would read nil forever.
+			hooksecurefunc(utils, "SetDrawOrder", function(icon)
 				if Maps:IsActive() and provider and provider.worldmapPins[icon] then
 					rescalePin(icon, getCanvasZoom())
 				end
